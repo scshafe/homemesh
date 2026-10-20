@@ -1,22 +1,43 @@
-# Skeleton from scshafe-dev (dev.toml [deploy], DEPLOY-03), with the door:
-# tailnet -> oauth2-proxy (Pocket ID) -> the app. The host's tools/stack
-# validates it against an allowlist before anything runs: no privileges, no
-# host namespaces, binds only under ./state, no published ports but the
-# door's, images either built here (through the pin) or pinned by digest.
-# `dev check` runs the same validator (DEPLOY-04) and lists what it can see
-# (DEPLOY-05).
+# homemesh on the tailnet as its own machine, `homemesh`, served at
+# https://homemesh.<tailnet>/ (tailnet only; never Funnel): the API and the 3D
+# viewer from this repository's Dockerfile. An app-owned stack on the PC
+# (scshafe infra docs/platform/agent-deploy.md): a merge to main deploys it
+# through the runner lane; nobody runs `docker compose` on it by hand.
+# docs/design.md section 12 and docs/deploy.md.
 #
-# Topology (voice-journey's; the validator requires it with the door, V-11):
+# The host's tools/stack validates this file against an allowlist before
+# anything runs: no privileges, no host namespaces, binds only under ./state,
+# images either built here (through the pin) or pinned by digest. `dev check`
+# runs the same validator (DEPLOY-04).
+#
+# Auth (the house data is private): oauth2-proxy -> Pocket ID
+# (https://id.<tailnet>), the confidential client `homemesh` (PKCE), allowed to
+# the owner's group only. After sign-in the door sets X-Forwarded-User (and
+# -Email, -Groups, -Preferred-Username) on every request it passes upstream,
+# and strips any copy a caller sent. The app refuses every /api request
+# without HOMEMESH_AUTH_HEADER (X-Forwarded-User in the host's .env), so the
+# header must stay one the door owns. /api/ answers 401, never a login
+# redirect. GET /api/health (no data) passes without a session: the deploy
+# witness.
+#
+# Topology (exact addresses are authority; the door layout, V-11):
 #   door      internal /29   ts-homemesh .2 -> oauth2-proxy .3:4180 (serve.json)
-#   upstream  internal /29   oauth2-proxy .10 -> homemesh .11:8080
-#   egress    bridge         the sidecar (control, DERP, ACME), the door (Pocket ID)
-# Nothing but the sidecar sits on its namespace: under userspace tailscale a
-# tailnet peer reaches every port listening there, so an app there would be
-# reachable around the door. The app trusts the proxy's identity headers, so
-# only the door may reach it.
-# TODO: give the stack its own subnets, 10.253.<n>.0/29 and 10.253.<n>.8/29
-# with n unique on the host (voice-journey has 86), and change every address
-# below with them: the placeholder n = 0 collides with every other skeleton.
+#   upstream  internal /29   oauth2-proxy .10 -> homemesh .11:8000
+#   egress    bridge         ts-homemesh (control, DERP, ACME),
+#                            oauth2-proxy (Pocket ID)
+# Subnets 10.253.93.0/29 and 10.253.93.8/29: unique on the PC (parley has 92).
+# The app is on `upstream` only: no egress, no published port, and the door
+# is the only other container there, so nothing but the door reaches it.
+#
+# State (./state, the runtime directory on the PC):
+#   state/tailscale  the node identity (the sidecar only)
+#   state/data       rw  HOMEMESH_DATA (design section 8), owned by the app's
+#                        uid 10001 at 0700; in the stack-backup lane
+#                        (stack.toml [backup]). Never in the image or git.
+#
+# Host .env names (stack.toml [env]; values never committed): the door's
+# client and cookie secrets, the tailnet names below, ID_TAILNET_IP, and
+# HOMEMESH_AUTH_HEADER / HOMEMESH_DATA for the app.
 name: homemesh
 
 networks:
@@ -25,97 +46,168 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 10.253.0.0/29
+        - subnet: 10.253.93.0/29
   upstream:
     driver: bridge
     internal: true
     ipam:
       config:
-        - subnet: 10.253.0.8/29
+        - subnet: 10.253.93.8/29
   egress:
     driver: bridge
 
 services:
+  # --- the door ------------------------------------------------------------------
   ts-homemesh:
-    # TODO: pin the digest: docker buildx imagetools inspect tailscale/tailscale:<tag>
-    image: tailscale/tailscale@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    # tailscale/tailscale:v1.102.2, multi-arch index digest (the fleet's pin)
+    image: tailscale/tailscale:v1.102.2@sha256:321ce041508c19079b57a28b6666c8d81ab0b08accc0a2585b3ab663d557ac24
     container_name: ts-homemesh
+    # docker-init as PID 1: containerboot waits only on tailscaled.
     init: true
     restart: unless-stopped
-    dns: [1.1.1.1]
-    security_opt: [no-new-privileges:true]
     environment:
       TS_HOSTNAME: homemesh
       TS_USERSPACE: "true"
       TS_AUTH_ONCE: "true"
       TS_STATE_DIR: /var/lib/tailscale
       TS_SERVE_CONFIG: /config/serve.json
+      # Consumed on the first join only; state/tailscale is the identity. The
+      # one-off key is minted with tag:homemesh (infra's V-06 refuses
+      # TS_EXTRA_ARGS, so the tag comes from the key).
       TS_AUTHKEY: ${TS_AUTHKEY:-}
+    # Public resolvers, NOT 100.100.100.100 (quad-100 SERVFAILs public names
+    # here and ACME renewal would die silently).
+    dns: [1.1.1.1, 1.0.0.1]
     volumes:
       - ./state/tailscale:/var/lib/tailscale
       - ./serve.json:/config/serve.json:ro
     networks:
       door:
-        ipv4_address: 10.253.0.2
+        ipv4_address: 10.253.93.2
       egress: {}
+    # Userspace tailscale needs no NET_ADMIN or NET_RAW. Every default
+    # capability is dropped except DAC_OVERRIDE: root here must still open
+    # ./state/tailscale, which the host's stack tool keeps cole-owned at 0700
+    # (cap_add is refused, V-03, so the set is spelled out).
+    cap_drop:
+      - AUDIT_WRITE
+      - CHOWN
+      - FOWNER
+      - FSETID
+      - KILL
+      - MKNOD
+      - NET_BIND_SERVICE
+      - NET_RAW
+      - SETFCAP
+      - SETGID
+      - SETPCAP
+      - SETUID
+      - SYS_CHROOT
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      # Running and logged in (exit 0 once the node is up).
+      test: [CMD, tailscale, status, --peers=false]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   oauth2-proxy:
-    # TODO: pin the digest: docker buildx imagetools inspect quay.io/oauth2-proxy/oauth2-proxy:<tag>
-    image: quay.io/oauth2-proxy/oauth2-proxy@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    # quay.io/oauth2-proxy/oauth2-proxy:v7.15.3, multi-arch index digest (the fleet's pin)
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3@sha256:10a1165743a192e1940b4708fb9647027185ce11a681a1c5519b442ff7f1f561
     container_name: homemesh-oauth2-proxy
     init: true
     restart: unless-stopped
+    user: "65532:65532"  # the image's own nonroot user, spelled out
     depends_on: [ts-homemesh, homemesh]
-    user: "65532:65532"  # the image's nonroot user
     read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
     environment:
       OAUTH2_PROXY_PROVIDER: oidc
-      OAUTH2_PROXY_OIDC_ISSUER_URL: https://id.colobus-stargazer.ts.net
-      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_PROVIDER_DISPLAY_NAME: "Pocket ID"
+      OAUTH2_PROXY_OIDC_ISSUER_URL: ${OIDC_ISSUER:?set OIDC_ISSUER (https://id.<tailnet>) in .env}
+      # The door's own Pocket ID client `homemesh` (confidential, PKCE).
       OAUTH2_PROXY_CLIENT_ID: ${OIDC_CLIENT_ID}
       OAUTH2_PROXY_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OAUTH2_PROXY_REDIRECT_URL: https://${HOMEMESH_FQDN:?set HOMEMESH_FQDN (homemesh.<tailnet>) in .env}/oauth2/callback
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"   # who may sign in = the client's allowed groups in Pocket ID
       OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
-      OAUTH2_PROXY_REDIRECT_URL: https://homemesh.colobus-stargazer.ts.net/oauth2/callback
-      OAUTH2_PROXY_HTTP_ADDRESS: 10.253.0.3:4180
-      OAUTH2_PROXY_UPSTREAMS: http://10.253.0.11:8080
-      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_EXPIRE: 12h
+      OAUTH2_PROXY_HTTP_ADDRESS: 10.253.93.3:4180
       # Off: tailscale serve passes the caller's X-Forwarded-* through, and in
       # reverse-proxy mode X-Forwarded-Uri picks the path the skip-auth routes
       # match (X-Forwarded-Uri: /healthz let any GET past the door). The
       # redirect URL is absolute, so nothing here needs forwarded headers.
       OAUTH2_PROXY_REVERSE_PROXY: "false"
-      # The deploy's witness is stack.toml's health path through the door: let
-      # it through without a session, and strip caller-supplied identity headers.
-      OAUTH2_PROXY_SKIP_AUTH_ROUTES: "GET=^/healthz$$"
+      OAUTH2_PROXY_UPSTREAMS: http://10.253.93.11:8000
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      # The viewer's fetches get 401 without a session, not a login redirect.
+      OAUTH2_PROXY_API_ROUTES: "^/api/"
+      # The deploy witness (GET /api/health, {"ok":true} only) passes without a session.
+      OAUTH2_PROXY_SKIP_AUTH_ROUTES: "GET=^/api/health$$"
+      # The app's identity: X-Forwarded-User (the OIDC subject) and friends.
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "false"
+      OAUTH2_PROXY_PASS_ACCESS_TOKEN: "false"
+      OAUTH2_PROXY_PASS_BASIC_AUTH: "false"
+      # Strip caller-supplied identity headers before setting the proxy-owned
+      # ones (on the skipped route too).
       OAUTH2_PROXY_SKIP_AUTH_STRIP_HEADERS: "true"
-    dns: [1.1.1.1]
+      # A heat map over a large house can take a while.
+      OAUTH2_PROXY_UPSTREAM_TIMEOUT: 120s
+      # Sign-out's rd= chain to Pocket ID's end-session works only for a
+      # whitelisted host.
+      OAUTH2_PROXY_WHITELIST_DOMAINS: ${OIDC_HOST:?set OIDC_HOST (id.<tailnet>) in .env}
+    dns: [1.1.1.1, 1.0.0.1]
     extra_hosts:
-      # OIDC discovery and the token exchange go to the id node over the host's
-      # tailnet; the public resolver cannot answer its name.
-      - "id.colobus-stargazer.ts.net:${ID_TAILNET_IP:?set ID_TAILNET_IP (the id node's tailscale IP) in .env}"
+      # OIDC discovery, JWKS and token exchange go to the id node over the
+      # host's tailnet; the name is pinned because the public resolver cannot
+      # answer it.
+      - "${OIDC_HOST}:${ID_TAILNET_IP:?set ID_TAILNET_IP (the id node's tailscale IP) in .env}"
     networks:
       door:
-        ipv4_address: 10.253.0.3
+        ipv4_address: 10.253.93.3
       upstream:
-        ipv4_address: 10.253.0.10
+        ipv4_address: 10.253.93.10
       egress: {}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
 
+  # --- the app (the pinned image) ----------------------------------------------------
   homemesh:
+    # Built by the host from this repository's Dockerfile at the merged commit
+    # and pinned in the runtime .env by the deploy.
     image: ${HOMEMESH_IMAGE}
     container_name: homemesh
     init: true
-    user: "65532:65532"  # not root; the deploy gives each ./state/<sub> it binds to this uid
     restart: unless-stopped
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    # The app listens on 10.253.0.11:8080 (or 0.0.0.0:8080), where only the door
-    # reaches it, and reads the signed-in person from x-forwarded-user. Add
-    # `egress: {}` below if it needs the internet. Add a healthcheck and its
-    # own state:
-    #   volumes: ["./state/data:/data"]
+    # The image's own user; the deploy hands state/data to this uid (0700).
+    user: "10001:10001"
+    environment:
+      # The data directory (design section 8): the bind below.
+      HOMEMESH_DATA: ${HOMEMESH_DATA:?set HOMEMESH_DATA (/data, the state/data bind) in .env}
+      # The door's identity header: X-Forwarded-User, which oauth2-proxy sets
+      # after sign-in and strips from callers. Never a header the door does not own.
+      HOMEMESH_AUTH_HEADER: ${HOMEMESH_AUTH_HEADER:?set HOMEMESH_AUTH_HEADER (X-Forwarded-User, the door's header) in .env}
+      # A read-only root: nothing writes outside /data and the /tmp tmpfs.
+      HOME: /tmp
+    volumes:
+      - ./state/data:/data
     networks:
       upstream:
-        ipv4_address: 10.253.0.11
+        ipv4_address: 10.253.93.11
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    stop_grace_period: 10s
+    healthcheck:
+      test: [CMD, python, -I, -B, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
