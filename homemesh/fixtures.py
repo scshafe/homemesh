@@ -26,21 +26,12 @@ from .model import (
     Wall,
     Zone,
 )
+from .materials import default_materials
 from .store import export_json
 
 
 def _materials() -> list[Material]:
-    # Placeholder figures for fixtures only; the real priors arrive in M2.
-    def m(i: str, name: str, a: float, b: float, c: float, t: float) -> Material:
-        return Material(id=i, name=name, loss={"2.4": a, "5": b, "6": c}, ref_thickness=t)
-
-    return [
-        m("drywall", "Drywall", 3, 4, 5, 0.1),
-        m("brick", "Brick", 7, 9, 11, 0.2),
-        m("wood-door", "Wooden door", 3, 4, 5, 0.04),
-        m("glass", "Glass", 2, 3, 4, 0.01),
-        m("slab-wood", "Wood joist floor", 9, 12, 14, 0.3),
-    ]
+    return default_materials()
 
 
 def _box(prefix: str, level: str, x0: float, y0: float, x1: float, y1: float, mat: str, t: float) -> list[Wall]:
