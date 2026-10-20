@@ -46,3 +46,4 @@ params = { kind = "service", name = "homemesh", date = "2026-10-20" }
 [identity]
 agent = "agent-homemesh"
 github = ["contents=write", "pull_requests=write", "issues=write", "workflows=write", "actions=write"]
+docker = true
