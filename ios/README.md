@@ -26,8 +26,8 @@ RoomPlan-shaped JSON through the real importer and endpoints.
    sign-in"): the owner session first creates the public "homemesh capture"
    client and changes the door. Needs the client id and Pocket ID's address.
 2. In the app: server address (`https://homemesh.<tailnet>`), the house id (the
-   name in the house list), Pocket ID's address and the capture client id (none
-   of these is a secret). Upload signs you in (passkey, in a system browser
+   name in the house list), Pocket ID's address and the capture client id
+   (`homemesh-capture`; none of these is a secret). Upload signs you in (passkey, in a system browser
    sheet) and keeps the id token in the Keychain; Sign out clears it.
 3. Start scanning a room, walk it, Done; repeat for more rooms (several rooms
    are combined with `StructureBuilder` so they share one frame). Upload.
@@ -44,10 +44,12 @@ RoomPlan-shaped JSON through the real importer and endpoints.
 - The backend reads `walls`, `doors`, `windows`, `openings` (or the same under
   `rooms: [...]`), each surface's `dimensions`, `transform` (4x4, column-major,
   ARKit world frame), `category`, `confidence`, `parentIdentifier`.
-- Refresh tokens: the app asks for `openid profile email` only. If Pocket ID
-  is set to issue refresh tokens to this client, add `offline_access` to the
-  scope in `Auth.swift` and the app renews silently; without it, an expired
-  token means one more tap through Pocket ID.
+- Refresh tokens: Pocket ID issues them to this client, so the app asks for
+  `offline_access` and renews the id token silently; if a refresh fails it
+  signs in again (one tap through Pocket ID).
+- Client id `homemesh-capture` (the default in the app), callback
+  `homemesh-capture://oauth`. The door replaces `Authorization` with its own
+  value before the backend, so nothing downstream reads it.
 - A door that is not accepting the token answers 401, or redirects to its login
   page (which the app sees as an unexpected answer). A 401 clears the stored token; sign
   out and in again if an upload keeps failing that way.

@@ -114,7 +114,7 @@ final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
         var c = URLComponents(string: d.authorization_endpoint)!
         c.queryItems = [
             .init(name: "response_type", value: "code"), .init(name: "client_id", value: clientId),
-            .init(name: "redirect_uri", value: Auth.redirect), .init(name: "scope", value: "openid profile email"),
+            .init(name: "redirect_uri", value: Auth.redirect), .init(name: "scope", value: "openid profile email offline_access"),
             .init(name: "state", value: state), .init(name: "code_challenge", value: Auth.challenge(for: verifier)),
             .init(name: "code_challenge_method", value: "S256"),
         ]
