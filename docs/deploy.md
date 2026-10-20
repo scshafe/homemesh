@@ -56,3 +56,14 @@ export HOMEMESH_DATA=$(mktemp -d) HOMEMESH_DEV=1
 .venv/bin/python -m uvicorn --factory homemesh.api:app_factory --port 8000
 # front end with hot reload: cd web && npm install && npm run dev
 ```
+
+## The capture app's upload path (owner session)
+
+The iOS app (`ios/`) uploads scans with a bearer token instead of the door's
+browser login. The backend accepts the token for `POST /api/houses/<id>/captures`
+and `POST /api/houses/<id>/captures/<id>/usdz` only (and still only from the
+door's address). For the app to get there, the door must pass requests to those
+two paths without the OIDC login (a skip-auth route like `/api/health`), and the
+reverse proxy must allow bodies up to about 200 MB. Tokens: `python -m
+homemesh.tokens create|revoke|list` inside the container (stored hashed in
+`/data/tokens.json`).

@@ -647,6 +647,25 @@ Deliberately small:
   the importer are versioned together. A format contract test on the backend
   side keeps both honest.
 
+### 10.3 As built (M8)
+
+- Backend: `homemesh/roomplan.py` (importer, registration), `captures.py`
+  (stored scans), `tokens.py` (upload tokens). Surfaces become walls in plan
+  coordinates (ARKit X, -Z; Z up), two faces 3 cm to 60 cm apart merge into one
+  wall whose thickness is their separation, everything else gets the class
+  default flagged `thickness_defaulted` / `material_defaulted`. Doors, windows
+  and openings land on the nearest wall (the same door seen from two rooms is
+  kept once). Importing a scan again replaces what it added before (provenance
+  `ref` starts with the capture id); other walls are untouched.
+- Registration is an `Umeyama` fit of rotation and translation from two or more
+  picked point pairs (scale fixed at 1: scans are metric); the worst pick error
+  is reported. The scan is first imported in its own frame, then aligned once.
+- The app uploads with a bearer token that is accepted for the two capture
+  upload endpoints only; reading, listing and importing need the door's login.
+- Not done: exterior detection (all unpaired walls get the interior default),
+  rooms from the scan, objects, floors and sections are ignored.
+- The Swift code in `ios/` is written but not compiled (no Mac here).
+
 ## 11. Blueprint import
 
 Image (PNG/JPEG) or PDF, held as a blob in the data directory.

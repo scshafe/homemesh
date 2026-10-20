@@ -4,7 +4,7 @@ import { addAccessPoint, addHole, addJack, addOpening, addOutlet, addSwitch, add
 import type { House, JackType, P2, Prov, Zone } from "./types";
 
 export type UlTool = "ul-scale" | "ul-rotate" | "ul-move" | "ul-check";
-export type Tool = UlTool | "select" | "wall" | "door" | "window" | "jack" | "outlet" | "switch" | "entry" | "zone" | "hole" | "ap" | "measure" | "delete";
+export type Tool = UlTool | "select" | "wall" | "door" | "window" | "jack" | "outlet" | "switch" | "entry" | "zone" | "hole" | "ap" | "measure" | "reg" | "delete";
 export interface Opts { material: string; thickness: number; jackType: JackType; zoneKind: Zone["kind"] }
 
 interface Props {
@@ -20,6 +20,9 @@ interface Props {
   hints: { level: string; x: number; y: number; material: string }[];
   /** Observed minus predicted RSSI per measurement id after a fit, dB. */
   residuals: Record<string, number>;
+  /** Scan registration: a point is being picked (alternately on the scan, then where it belongs). */
+  onPickPoint: (p: P2) => void;
+  marks: P2[];
 }
 
 const images = new Map<string, HTMLImageElement>();
@@ -123,6 +126,12 @@ export function Editor(p: Props) {
       g.beginPath(); g.arc(X(h.x), Y(h.y), 11, 0, 7); g.strokeStyle = "#e8741a"; g.lineWidth = 2; g.setLineDash([3, 3]); g.stroke(); g.setLineDash([]);
       g.fillStyle = "#a45"; g.font = "10px system-ui"; g.fillText(`measure (${h.material})`, X(h.x) + 13, Y(h.y) + 3);
     }
+    p.marks.forEach((m, i) => {
+      const x = X(m[0]), y = Y(m[1]);
+      g.strokeStyle = i % 2 ? "#1a9850" : "#d6641e"; g.lineWidth = 2; g.beginPath();
+      g.moveTo(x - 7, y); g.lineTo(x + 7, y); g.moveTo(x, y - 7); g.lineTo(x, y + 7); g.stroke();
+      g.fillStyle = g.strokeStyle; g.font = "bold 11px system-ui"; g.fillText(`${Math.floor(i / 2) + 1}${i % 2 ? "b" : "a"}`, x + 8, y - 6);
+    });
     const e = p.house.entry;
     if (e && e.level === p.level) {
       const x = X(e.position[0]), y = Y(e.position[1]);
@@ -172,6 +181,7 @@ export function Editor(p: Props) {
       case "switch": p.onCommit(addSwitch(h, L, s)); break;
       case "entry": p.onCommit(setEntry(h, L, s)); break;
       case "ap": p.onCommit(addAccessPoint(h, L, s)); break;
+      case "reg": p.onPickPoint(w); break;
       case "measure": p.onMeasure(L, w[0] === s[0] && w[1] === s[1] ? w : [Math.round(w[0] * 100) / 100, Math.round(w[1] * 100) / 100]); break;
       case "zone": case "hole": {
         const last = pending[pending.length - 1];

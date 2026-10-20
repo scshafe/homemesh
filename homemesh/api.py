@@ -16,6 +16,7 @@ refuses to start unless HOMEMESH_DEV=1 (local development, loopback only).
 from __future__ import annotations
 
 import base64
+import json
 import os
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, calibration, jobs, store
+from . import blueprint, calibration, captures, jobs, roomplan, store, tokens
 from .equipment import generic_catalogue, generic_clients
 from pydantic import BaseModel, ValidationError
 
@@ -62,6 +63,17 @@ def create_app() -> FastAPI:
             raise HTTPException(401, "no identity from the door")
 
     api = Depends(require_identity)
+
+    def require_capture_identity(request: Request) -> None:
+        """The door's identity, or an upload token (the capture app cannot log in through the door)."""
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer ") and tokens.verify(auth[7:].strip()):
+            if door and (request.client is None or request.client.host not in door):
+                raise HTTPException(403, "not the door")
+            return
+        require_identity(request)
+
+    capture_api = Depends(require_capture_identity)
 
     @app.get("/api/health")
     def health() -> dict:
@@ -200,6 +212,62 @@ def create_app() -> FastAPI:
         return {"fits": out, "suggestions": {b: calibration.suggest(h, b) for b in fits} if fits else {},
                 "calibrated": calibration.apply(h, fits).model_dump(mode="json") if fits else None,
                 "access_points": len(h.access_points), "measurements": len(h.measurements)}
+
+    @app.post("/api/houses/{house_id}/captures", dependencies=[capture_api])
+    async def upload_capture(house_id: str, request: Request, name: str = "") -> dict:
+        """The capture JSON (CapturedRoom / CapturedStructure, or the app's {"rooms": [...]} wrapper)."""
+        get_house(house_id)
+        try:
+            return captures.save_capture(house_id, await request.body(), name)
+        except captures.CaptureError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/houses/{house_id}/captures/{digest}/usdz", dependencies=[capture_api])
+    async def upload_usdz(house_id: str, digest: str, request: Request) -> dict:
+        get_house(house_id)
+        try:
+            return captures.attach_usdz(house_id, digest, await request.body())
+        except captures.CaptureError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.get("/api/houses/{house_id}/captures", dependencies=[api])
+    def list_captures(house_id: str) -> list[dict]:
+        get_house(house_id)
+        return captures.list_captures(house_id)
+
+    @app.post("/api/houses/{house_id}/captures/{digest}/import", dependencies=[api])
+    async def import_capture(house_id: str, digest: str, level: str, request: Request) -> dict:
+        """Scan walls onto `level`. Body (optional JSON): {"house": the editor's house, "registration":
+        {"src": [[x, y], ...], "dst": [[x, y], ...]}}. Stores nothing: the result is a preview the
+        editor takes as an ordinary edit. Importing a scan again replaces what it added before."""
+        raw = await request.body()
+        if len(raw) > MAX_BODY:
+            raise HTTPException(413, "too large")
+        body = {}
+        if raw.strip():
+            try:
+                body = json.loads(raw)
+            except ValueError:
+                raise HTTPException(422, "body is not JSON") from None
+        try:
+            h = House.model_validate(body["house"]) if body.get("house") else get_house(house_id)
+            if h.id != house_id or h.validate_refs():
+                raise HTTPException(422, "invalid house")
+            sim = None
+            reg = body.get("registration")
+            if reg:
+                src, dst = [tuple(map(float, p)) for p in reg["src"]], [tuple(map(float, p)) for p in reg["dst"]]
+                sim = roomplan.register(src, dst)
+            data = captures.load_capture(house_id, digest)
+            new, rep = roomplan.import_capture(h, data, level, digest, sim)
+        except (captures.CaptureError, roomplan.ImportError_, store.StoreError, KeyError, TypeError, ValueError) as e:
+            raise HTTPException(422, str(e)) from None
+        out = {"house": new.model_dump(mode="json"), "report": {"walls": rep.walls, "paired_walls": rep.paired_walls, "openings": rep.openings,
+               "skipped_openings": rep.skipped_openings, "replaced": rep.replaced, "notes": rep.notes}}
+        if sim:
+            out["registration"] = {"rotation": sim.rotation, "tx": sim.tx, "ty": sim.ty,
+                                   "max_error_m": roomplan.registration_error(src, dst, sim)}
+        return out
 
     @app.get("/api/houses/{house_id}/revisions", dependencies=[api])
     def revisions(house_id: str) -> list[int]:

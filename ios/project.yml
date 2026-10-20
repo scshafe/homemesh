@@ -1,0 +1,23 @@
+# XcodeGen spec: `brew install xcodegen && cd ios && xcodegen generate && open HomemeshCapture.xcodeproj`
+# (the .xcodeproj is generated, not committed). Needs a Mac with Xcode 15+, an iPhone/iPad with LiDAR on iOS 17+.
+name: HomemeshCapture
+options:
+  bundleIdPrefix: example.homemesh   # change to your own prefix; free personal-team signing is enough for your own device
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  HomemeshCapture:
+    type: application
+    platform: iOS
+    sources: [HomemeshCapture]
+    settings:
+      base:
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: "The camera and LiDAR scan the rooms of your home."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UIRequiredDeviceCapabilities: arkit
+        INFOPLIST_KEY_UIFileSharingEnabled: YES            # the saved scans show up in the Files app
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
