@@ -25,7 +25,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, calibration, captures, jobs, roomplan, store, tokens
+from . import blueprint, calibration, captures, jobs, roomplan, store
 from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
@@ -63,17 +63,6 @@ def create_app() -> FastAPI:
             raise HTTPException(401, "no identity from the door")
 
     api = Depends(require_identity)
-
-    def require_capture_identity(request: Request) -> None:
-        """The door's identity, or an upload token (the capture app cannot log in through the door)."""
-        auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer ") and tokens.verify(auth[7:].strip()):
-            if door and (request.client is None or request.client.host not in door):
-                raise HTTPException(403, "not the door")
-            return
-        require_identity(request)
-
-    capture_api = Depends(require_capture_identity)
 
     @app.get("/api/health")
     def health() -> dict:
@@ -215,7 +204,7 @@ def create_app() -> FastAPI:
                 "calibrated": calibration.apply(h, fits).model_dump(mode="json") if fits else None,
                 "access_points": len(h.access_points), "measurements": len(h.measurements)}
 
-    @app.post("/api/houses/{house_id}/captures", dependencies=[capture_api])
+    @app.post("/api/houses/{house_id}/captures", dependencies=[api])
     async def upload_capture(house_id: str, request: Request, name: str = "") -> dict:
         """The capture JSON (CapturedRoom / CapturedStructure, or the app's {"rooms": [...]} wrapper)."""
         get_house(house_id)
@@ -224,7 +213,7 @@ def create_app() -> FastAPI:
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 
-    @app.post("/api/houses/{house_id}/captures/{digest}/usdz", dependencies=[capture_api])
+    @app.post("/api/houses/{house_id}/captures/{digest}/usdz", dependencies=[api])
     async def upload_usdz(house_id: str, digest: str, request: Request) -> dict:
         get_house(house_id)
         try:

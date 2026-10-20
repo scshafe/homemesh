@@ -1,12 +1,11 @@
 import json
 import os
-import stat
 import tempfile
 import unittest
 
 from fastapi.testclient import TestClient
 
-from homemesh import api, captures, seed, store, tokens
+from homemesh import api, captures, seed, store
 from tests.roomplan_synth import two_rooms
 
 
@@ -27,28 +26,6 @@ class Base(unittest.TestCase):
         for k, v in self._env.items():
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
         self._tmp.cleanup()
-
-
-class TokenTest(Base):
-    def test_create_verify_revoke(self):
-        t = tokens.create("iphone")
-        self.assertTrue(t.startswith("hm_"))
-        self.assertEqual(tokens.verify(t), "iphone")
-        self.assertIsNone(tokens.verify(t + "x"))
-        self.assertIsNone(tokens.verify(None))
-        self.assertIsNone(tokens.verify("hm_nope"))
-        self.assertNotIn(t, (store.data_dir() / "tokens.json").read_text())  # only the hash is stored
-        self.assertEqual(stat.S_IMODE((store.data_dir() / "tokens.json").stat().st_mode), 0o600)
-        self.assertTrue(tokens.revoke("iphone"))
-        self.assertIsNone(tokens.verify(t))
-        self.assertFalse(tokens.revoke("iphone"))
-
-    def test_names_and_duplicates(self):
-        tokens.create("a")
-        with self.assertRaises(store.StoreError):
-            tokens.create("a")
-        with self.assertRaises(store.StoreError):
-            tokens.create("../x")
 
 
 class CaptureApiTest(Base):
@@ -78,23 +55,10 @@ class CaptureApiTest(Base):
         self.assertEqual(self.c.post(f"{self.url}/{'0' * 64}/usdz", content=b"PK", headers=self.ok).status_code, 422)
         self.assertEqual(self.upload().json()["usdz"], r.json()["usdz"])  # re-upload keeps it
 
-    def test_token_may_upload_but_nothing_else(self):
-        t = tokens.create("iphone")
-        bearer = {"Authorization": f"Bearer {t}"}
-        self.assertEqual(self.upload(bearer).status_code, 200)
-        self.assertEqual(self.c.get(self.url, headers=bearer).status_code, 401)  # reading needs the door's login
-        self.assertEqual(self.c.get("/api/houses", headers=bearer).status_code, 401)
-        self.assertEqual(self.c.put("/api/houses/synthetic-box?expect_revision=1", content=b"{}", headers=bearer).status_code, 401)
-        self.assertEqual(self.upload({"Authorization": "Bearer hm_wrong"}).status_code, 401)
-        tokens.revoke("iphone")
-        self.assertEqual(self.upload(bearer).status_code, 401)
-
-    def test_token_from_the_wrong_peer_is_refused(self):
-        t = tokens.create("iphone")
-        os.environ[api.DOOR_ADDR] = "10.253.93.10"
-        c = TestClient(api.create_app())
-        r = c.post(self.url, content=json.dumps(two_rooms()), headers={"Authorization": f"Bearer {t}"})
-        self.assertEqual(r.status_code, 403)
+    def test_a_bearer_token_is_not_an_identity(self):
+        # the door turns a valid bearer token into the identity header; the app never reads Authorization itself
+        r = self.upload({"Authorization": "Bearer anything"})
+        self.assertEqual(r.status_code, 401)
 
     def test_import_preview_and_registration(self):
         m = self.upload().json()

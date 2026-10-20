@@ -633,8 +633,8 @@ Deliberately small:
 
 - Scan one room or several (`RoomCaptureSession` / structure builder), choose
   a house and level label, review, export JSON + USDZ.
-- Upload to the backend over the tailnet (HTTPS through the door, a token
-  the owner issues), with retry; keep nothing after a successful upload.
+- Upload to the backend over the tailnet (HTTPS through the door, signed in with
+  Pocket ID, see 10.5), with retry; keep nothing after a successful upload.
 - Optional later: log an ARKit position with Wi-Fi/throughput readings for
   calibration (7.2).
 - Out of scope: any editing, viewing of the house, simulation, accounts,
@@ -650,7 +650,7 @@ Deliberately small:
 ### 10.3 As built (M8)
 
 - Backend: `homemesh/roomplan.py` (importer, registration), `captures.py`
-  (stored scans), `tokens.py` (upload tokens). Surfaces become walls in plan
+  (stored scans). Surfaces become walls in plan
   coordinates (ARKit X, -Z; Z up), two faces 3 cm to 60 cm apart merge into one
   wall whose thickness is their separation, everything else gets the class
   default flagged `thickness_defaulted` / `material_defaulted`. Doors, windows
@@ -660,11 +660,25 @@ Deliberately small:
 - Registration is an `Umeyama` fit of rotation and translation from two or more
   picked point pairs (scale fixed at 1: scans are metric); the worst pick error
   is reported. The scan is first imported in its own frame, then aligned once.
-- The app uploads with a bearer token that is accepted for the two capture
-  upload endpoints only; reading, listing and importing need the door's login.
+- The app uploads through the door like any other caller (10.5); the backend
+  has one kind of caller and no upload token.
 - Not done: exterior detection (all unpaired walls get the interior default),
   rooms from the scan, objects, floors and sections are ignored.
 - The Swift code in `ios/` is written but not compiled (no Mac here).
+
+### 10.5 iOS sign-in (owner decision 2026-10-20)
+
+No route skips the door and there is no upload token (the earlier M8 token
+design is dropped). The app is a public OIDC client of Pocket ID: authorization
+code with PKCE (S256) in `ASWebAuthenticationSession`, callback
+`homemesh-capture://oauth`, scopes `openid profile email`, id token kept in the
+Keychain and sent as `Authorization: Bearer <id token>`. The door accepts
+Pocket ID-issued JWTs as bearer tokens (issuer and audience pinned) and sets
+`X-Forwarded-User`, so the backend is unchanged apart from deleting its token
+path. Why the id token and not an access token: it is what the door can verify
+with the settings it already has, and the audience is the capture client alone.
+Body limits (30 MB JSON, 200 MB USDZ), token expiry and the exact list of
+door and Pocket ID changes are in `deploy.md`.
 
 ### 10.4 Equipment catalogue as built (M9)
 
@@ -728,8 +742,8 @@ later option that would use the PC's GPU and is not designed here (D14).
   application itself trusts the gate's identity and refuses requests without
   it, instead of relying on "it's on the tailnet". What the door is (the
   platform's standard door, an identity-header check, a password) is D1.
-  Uploads from the iOS app use a separate revocable token through the same
-  door.
+  Uploads from the iOS app go through the same door with a Pocket ID bearer
+  token (10.5).
 - **Secrets:** none in the repository or image; the token and any door
   secrets are provided by the owner session at deploy time. The agent does
   not hold and cannot reach them.
