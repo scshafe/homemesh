@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { blobUrl } from "./api";
 import { addHole, addJack, addOpening, addOutlet, addSwitch, addWall, addZone, hitTest, nearestWall, remove, setEntry, snap, type Ref } from "./edit";
-import type { House, JackType, P2, Zone } from "./types";
+import type { House, JackType, P2, Prov, Zone } from "./types";
 
-export type Tool = "select" | "wall" | "door" | "window" | "jack" | "outlet" | "switch" | "entry" | "zone" | "hole" | "delete";
+export type UlTool = "ul-scale" | "ul-rotate" | "ul-move" | "ul-check";
+export type Tool = UlTool | "select" | "wall" | "door" | "window" | "jack" | "outlet" | "switch" | "entry" | "zone" | "hole" | "delete";
 export interface Opts { material: string; thickness: number; jackType: JackType; zoneKind: Zone["kind"] }
 
 interface Props {
   house: House; level: string; tool: Tool; opts: Opts; selected: Ref | null;
   onCommit: (h: House) => void; onSelect: (r: Ref | null) => void;
+  /** Two points picked on the drawing (world metres, unsnapped) for an underlay tool. */
+  onTwoPoints: (tool: UlTool, a: P2, b: P2) => void;
+  /** Provenance for walls drawn now (the active blueprint), if any. */
+  traceProv?: Prov;
 }
+
+const images = new Map<string, HTMLImageElement>();
 
 const ZONE_FILL: Record<Zone["kind"], string> = { allow: "rgba(40,160,80,.25)", forbid: "rgba(210,50,50,.25)", demand: "rgba(60,110,220,.22)" };
 const JACK_COLOR = { live: "#1a9850", dead: "#d73027", unknown: "#f0a020" };
@@ -22,6 +30,7 @@ export function Editor(p: Props) {
   const [tick, setTick] = useState(0);
   const drag = useRef<{ x: number; y: number; pan: boolean; moved: boolean } | null>(null);
 
+  const isUl = p.tool.startsWith("ul-");
   const toWorld = (sx: number, sy: number): P2 => [(sx - view.current.ox) / view.current.scale, (view.current.oy - sy) / view.current.scale];
 
   useEffect(() => { setPending([]); }, [p.tool, p.level]);
@@ -42,6 +51,15 @@ export function Editor(p: Props) {
     g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     g.clearRect(0, 0, c.clientWidth, c.clientHeight);
     g.fillStyle = "#fbfbfa"; g.fillRect(0, 0, c.clientWidth, c.clientHeight);
+    for (const u of p.house.underlays) if (u.level === p.level) {
+      const key = `${p.house.id}/${u.blob}`;
+      let img = images.get(key);
+      if (!img) { img = new Image(); img.onload = () => setTick((t) => t + 1); img.src = blobUrl(p.house.id, u.blob); images.set(key, img); }
+      if (img.complete && img.naturalWidth) {
+        g.save(); g.globalAlpha = u.opacity; g.translate(X(u.origin[0]), Y(u.origin[1])); g.rotate((-u.rotation * Math.PI) / 180);
+        g.scale(u.scale * scale, u.scale * scale); g.drawImage(img, 0, 0); g.restore();
+      }
+    }
     // metre grid
     g.strokeStyle = "#e6e6e2"; g.lineWidth = 1; g.beginPath();
     const w0 = toWorld(0, c.clientHeight), w1 = toWorld(c.clientWidth, 0);
@@ -90,7 +108,7 @@ export function Editor(p: Props) {
     }
     if (pending.length || (cursor && p.tool === "wall")) {
       const pts = cursor ? [...pending, cursor] : pending;
-      g.strokeStyle = "#1e5bd6"; g.lineWidth = 2; g.setLineDash([4, 3]); poly(pts, p.tool === "zone" || p.tool === "hole"); g.stroke(); g.setLineDash([]);
+      g.strokeStyle = isUl ? "#d6641e" : "#1e5bd6"; g.lineWidth = 2; g.setLineDash([4, 3]); poly(pts, p.tool === "zone" || p.tool === "hole"); g.stroke(); g.setLineDash([]);
     }
     if (cursor) { g.beginPath(); g.arc(X(cursor[0]), Y(cursor[1]), 3, 0, 7); g.fillStyle = "#1e5bd6"; g.fill(); }
   }, [p.house, p.level, p.selected, pending, cursor, tick, p.tool]);
@@ -109,12 +127,17 @@ export function Editor(p: Props) {
   function click(w: P2) {
     const h = p.house, L = p.level;
     const s = snap(h, L, w);
+    if (isUl) {
+      if (!pending.length) setPending([w]);
+      else { const a = pending[0]; setPending([]); p.onTwoPoints(p.tool as UlTool, a, w); }
+      return;
+    }
     switch (p.tool) {
       case "select": p.onSelect(hitTest(h, L, w, 10 / view.current.scale)); break;
       case "delete": { const r = hitTest(h, L, w, 10 / view.current.scale); if (r) { p.onCommit(remove(h, r)); p.onSelect(null); } break; }
       case "wall":
         if (!pending.length) setPending([s]);
-        else { p.onCommit(addWall(h, L, pending[0], s, p.opts.material, p.opts.thickness)); setPending([s]); }
+        else { p.onCommit(addWall(h, L, pending[0], s, p.opts.material, p.opts.thickness, p.traceProv)); setPending([s]); }
         break;
       case "door": case "window": {
         const n = nearestWall(h, L, w, 0.4);
@@ -152,7 +175,7 @@ export function Editor(p: Props) {
       }}
       onPointerMove={(e) => {
         const [sx, sy] = local(e), d = drag.current;
-        setCursor(snap(p.house, p.level, toWorld(sx, sy)));
+        setCursor(isUl ? toWorld(sx, sy) : snap(p.house, p.level, toWorld(sx, sy)));
         if (d && d.pan) {
           if (Math.hypot(sx - d.x, sy - d.y) > 3) d.moved = true;
           view.current.ox += sx - d.x; view.current.oy += sy - d.y; d.x = sx; d.y = sy; setTick((t) => t + 1);

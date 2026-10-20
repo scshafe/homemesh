@@ -40,3 +40,9 @@ export async function loadHeatmap(id: string, x: number, y: number, level: strin
     }),
   };
 }
+
+export interface Page { blob: string; width_px: number; height_px: number }
+/** Upload a blueprint image or PDF; the server re-encodes each page as PNG. */
+export const uploadBlueprint = (houseId: string, file: File) =>
+  req<Page[]>(`/api/houses/${encodeURIComponent(houseId)}/blueprints`, { method: "POST", body: file });
+export const blobUrl = (houseId: string, digest: string) => `/api/houses/${encodeURIComponent(houseId)}/blobs/${digest}`;

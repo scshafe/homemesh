@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { History, addHole, addJack, addLevel, addOpening, addWall, addZone, hitTest, nearestWall, nextId, remove, setEntry, snap } from "./edit";
+import { addUnderlay, removeUnderlay, History, addHole, addJack, addLevel, addOpening, addWall, addZone, hitTest, nearestWall, nextId, remove, setEntry, snap } from "./edit";
 import type { House } from "./types";
 
 const base = (): House => ({
   id: "t", name: "t", synthetic: true, revision: 1, region: "US",
   levels: [{ id: "L0", name: "g", elevation: 0, height: 2.5, slab: null }], materials: [],
-  walls: [], rooms: [], slab_holes: [], stairs: [], zones: [], jacks: [], outlets: [], switches: [], entry: null,
+  walls: [], rooms: [], underlays: [], slab_holes: [], stairs: [], zones: [], jacks: [], outlets: [], switches: [], entry: null,
 });
 
 describe("edit", () => {
@@ -78,6 +78,15 @@ describe("edit", () => {
     expect(hitTest(h, "L0", [2, 0.05], 0.15)).toEqual({ kind: "wall", id: "w1" });
     expect(hitTest(h, "L0", [2, 0.8], 0.15)).toEqual({ kind: "zone", id: "z1" });
     expect(hitTest(h, "L0", [2, 5], 0.15)).toBeNull();
+  });
+
+  it("walls keep the provenance they are drawn with; underlays add and remove", () => {
+    const prov = { source: "blueprint" as const, ref: "a".repeat(64) };
+    const h = addWall(base(), "L0", [0, 0], [3, 0], "drywall", 0.1, prov);
+    expect(h.walls[0].prov).toEqual(prov);
+    expect(addWall(base(), "L0", [0, 0], [3, 0], "drywall", 0.1).walls[0].prov?.source).toBe("manual");
+    const u = { id: "u1", level: "L0", blob: "a".repeat(64), width_px: 1, height_px: 1, scale: 1, rotation: 0, origin: [0, 0] as [number, number], opacity: 0.5, scaled: false, name: "" };
+    expect(removeUnderlay(addUnderlay(h, u), "u1").underlays).toEqual([]);
   });
 
   it("history undoes and redoes, and a new edit drops the redo branch", () => {

@@ -1,6 +1,6 @@
 // Pure editing operations on a House: no DOM, no network. Each returns a new
 // House (shallow-copied along the changed path) so history is a stack of values.
-import type { House, JackType, Opening, P2, Prov, Wall, Zone } from "./types";
+import type { House, JackType, Opening, P2, Prov, Underlay, Wall, Zone } from "./types";
 
 export const manual: Prov = { source: "manual" };
 
@@ -43,11 +43,11 @@ export function nearestWall(h: House, level: string, p: P2, max = 0.4): { wall: 
 
 export const wallLength = (w: Wall) => dist(w.a, w.b);
 
-export function addWall(h: House, level: string, a: P2, b: P2, material: string, thickness: number): House {
+export function addWall(h: House, level: string, a: P2, b: P2, material: string, thickness: number, prov: Prov = manual): House {
   if (dist(a, b) < 0.05) return h;
   const w: Wall = {
     id: nextId("w", h.walls.map((x) => x.id)), level, a, b, thickness, height: levelOf(h, level).height,
-    base_z: 0, material, openings: [], prov: manual,
+    base_z: 0, material, openings: [], prov,
   };
   return { ...h, walls: [...h.walls, w] };
 }
@@ -111,6 +111,18 @@ export function addZone(h: House, level: string, polygon: P2[], kind: Zone["kind
 export function addHole(h: House, level: string, polygon: P2[]): House {
   if (polygon.length < 3) return h;
   return { ...h, slab_holes: [...h.slab_holes, { id: nextId("h", h.slab_holes.map((x) => x.id)), level, polygon, prov: manual }] };
+}
+
+export function addUnderlay(h: House, u: Underlay): House {
+  return { ...h, underlays: [...h.underlays, u] };
+}
+
+export function mapUnderlay(h: House, id: string, f: (u: Underlay) => Underlay): House {
+  return { ...h, underlays: h.underlays.map((u) => (u.id === id ? f(u) : u)) };
+}
+
+export function removeUnderlay(h: House, id: string): House {
+  return { ...h, underlays: h.underlays.filter((u) => u.id !== id) };
 }
 
 export function addLevel(h: House, name: string, height = 2.5, slabMaterial = "slab-wood"): House {

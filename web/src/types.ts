@@ -15,11 +15,12 @@ export interface Jack { id: string; position: P2; level: string; z: number; wall
 export interface Outlet { id: string; position: P2; level: string; z: number; prov?: Prov }
 export interface Switch { id: string; position: P2; level: string; ports: number; port_rate: number; uplink?: string | null; prov?: Prov }
 export interface Entry { position: P2; level: string; kind: string; wan_down?: number | null; wan_up?: number | null; prov?: Prov }
+export interface Underlay { id: string; level: string; blob: string; width_px: number; height_px: number; scale: number; rotation: number; origin: P2; opacity: number; scaled: boolean; name: string; prov?: Prov }
 export interface Stair extends Poly { from_level: string; to_level: string; void: boolean }
 export interface House {
   id: string; name: string; synthetic: boolean; revision: number; region: string;
   levels: Level[]; materials: Material[]; walls: Wall[]; rooms: Poly[];
-  slab_holes: Poly[]; stairs: Stair[]; zones: Zone[]; jacks: Jack[]; outlets: Outlet[]; switches: Switch[];
+  slab_holes: Poly[]; stairs: Stair[]; zones: Zone[]; underlays: Underlay[]; jacks: Jack[]; outlets: Outlet[]; switches: Switch[];
   entry: Entry | null;
   [k: string]: unknown;
 }
