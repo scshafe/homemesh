@@ -32,6 +32,7 @@ paths = ["state/data", ".env"]
 # homemesh.<tailnet>, ID_TAILNET_IP the id node's tailscale IPv4 (containers
 # resolve public names only). HOMEMESH_DATA=/data (the state/data bind) and
 # HOMEMESH_AUTH_HEADER=X-Forwarded-User (the door's header) for the app.
-required = ["TS_AUTHKEY", "OIDC_ISSUER", "OIDC_HOST", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "ID_TAILNET_IP", "HOMEMESH_FQDN", "HOMEMESH_DATA", "HOMEMESH_AUTH_HEADER"]
+# OIDC_CAPTURE_CLIENT_ID: the iOS app's public client, the door's bearer audience.
+required = ["TS_AUTHKEY", "OIDC_ISSUER", "OIDC_HOST", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_CAPTURE_CLIENT_ID", "ID_TAILNET_IP", "HOMEMESH_FQDN", "HOMEMESH_DATA", "HOMEMESH_AUTH_HEADER"]
 generated = ["OAUTH2_PROXY_COOKIE_SECRET"]
 owner = []

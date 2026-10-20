@@ -12,9 +12,11 @@
 #
 # Auth (the house data is private): oauth2-proxy -> Pocket ID
 # (https://id.<tailnet>), the confidential client `homemesh` (PKCE), allowed to
-# the owner's group only. After sign-in the door sets X-Forwarded-User (and
-# -Email, -Groups, -Preferred-Username) on every request it passes upstream,
-# and strips any copy a caller sent. The app refuses every /api request
+# the owner's group only. The iOS capture app comes through the same door with
+# a bearer id token from the public client `homemesh-capture` (same group).
+# After sign-in the door sets X-Forwarded-User (and -Email, -Groups,
+# -Preferred-Username) on every request it passes upstream, and strips any
+# copy a caller sent; it replaces the caller's Authorization too. The app refuses every /api request
 # without HOMEMESH_AUTH_HEADER (X-Forwarded-User in the host's .env), so the
 # header must stay one the door owns. /api/ answers 401, never a login
 # redirect. GET /api/health (no data) passes without a session: the deploy
@@ -150,12 +152,33 @@ services:
       OAUTH2_PROXY_PASS_USER_HEADERS: "true"
       OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "false"
       OAUTH2_PROXY_PASS_ACCESS_TOKEN: "false"
-      OAUTH2_PROXY_PASS_BASIC_AUTH: "false"
+      # The caller's Authorization (the capture app's bearer id token) must not
+      # reach the app. With both pass flags off, oauth2-proxy forwards it
+      # untouched; it strips it only when it sets Authorization itself. So the
+      # door sets it: Basic base64(<sub>:none), a fixed, non-secret
+      # placeholder that replaces whatever the caller sent. The app never
+      # reads Authorization (its identity is X-Forwarded-User).
+      OAUTH2_PROXY_PASS_BASIC_AUTH: "true"
+      OAUTH2_PROXY_BASIC_AUTH_PASSWORD: "none"
       # Strip caller-supplied identity headers before setting the proxy-owned
       # ones (on the skipped route too).
       OAUTH2_PROXY_SKIP_AUTH_STRIP_HEADERS: "true"
-      # A heat map over a large house can take a while.
-      OAUTH2_PROXY_UPSTREAM_TIMEOUT: 120s
+      # A heat map over a large house can take a while, and a capture's USDZ
+      # (up to 200 MB) is written whole before the app answers. oauth2-proxy
+      # streams the body and sets no size limit; this is the wait for the
+      # upstream's response.
+      OAUTH2_PROXY_UPSTREAM_TIMEOUT: 600s
+      # The iOS capture app (docs/deploy.md, "The capture app's sign-in"):
+      # `Authorization: Bearer <id token>` from Pocket ID's public client
+      # `homemesh-capture` (PKCE, the owner's group only). A bearer JWT is a
+      # session only if its signature, expiry, issuer and audience verify:
+      # the issuer is OIDC_ISSUER (never skipped) and the audience is the
+      # capture client (or the door's own client, whose tokens never leave
+      # the door). Any other JWT is no session (fallback on): /api/ answers
+      # 401. X-Forwarded-User is the token's `sub`, as for a browser session;
+      # Authorization is not passed upstream (above).
+      OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS: "true"
+      OAUTH2_PROXY_EXTRA_JWT_ISSUERS: ${OIDC_ISSUER}=${OIDC_CAPTURE_CLIENT_ID:?set OIDC_CAPTURE_CLIENT_ID (homemesh-capture) in .env}
       # Sign-out's rd= chain to Pocket ID's end-session works only for a
       # whitelisted host.
       OAUTH2_PROXY_WHITELIST_DOMAINS: ${OIDC_HOST:?set OIDC_HOST (id.<tailnet>) in .env}
