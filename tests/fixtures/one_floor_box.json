@@ -37,22 +37,10 @@
         "5": 4.0,
         "6": 5.0
       },
-      "name": "Drywall",
+      "name": "Drywall partition",
       "prior_sd": 2.0,
       "ref_thickness": 0.1,
-      "source": "unsourced"
-    },
-    {
-      "id": "brick",
-      "loss": {
-        "2.4": 7.0,
-        "5": 9.0,
-        "6": 11.0
-      },
-      "name": "Brick",
-      "prior_sd": 2.0,
-      "ref_thickness": 0.2,
-      "source": "unsourced"
+      "source": "unsourced: spread of vendor/survey tables; see module docstring"
     },
     {
       "id": "wood-door",
@@ -64,7 +52,7 @@
       "name": "Wooden door",
       "prior_sd": 2.0,
       "ref_thickness": 0.04,
-      "source": "unsourced"
+      "source": "unsourced: spread of vendor/survey tables; see module docstring"
     },
     {
       "id": "glass",
@@ -73,10 +61,34 @@
         "5": 3.0,
         "6": 4.0
       },
-      "name": "Glass",
+      "name": "Plain glass",
       "prior_sd": 2.0,
       "ref_thickness": 0.01,
-      "source": "unsourced"
+      "source": "unsourced: spread of vendor/survey tables; see module docstring"
+    },
+    {
+      "id": "brick",
+      "loss": {
+        "2.4": 7.0,
+        "5": 9.0,
+        "6": 11.0
+      },
+      "name": "Brick",
+      "prior_sd": 3.0,
+      "ref_thickness": 0.2,
+      "source": "unsourced: spread of vendor/survey tables; see module docstring"
+    },
+    {
+      "id": "concrete",
+      "loss": {
+        "2.4": 12.0,
+        "5": 17.0,
+        "6": 20.0
+      },
+      "name": "Poured concrete",
+      "prior_sd": 5.0,
+      "ref_thickness": 0.2,
+      "source": "unsourced: spread of vendor/survey tables; see module docstring"
     },
     {
       "id": "slab-wood",
@@ -86,9 +98,21 @@
         "6": 14.0
       },
       "name": "Wood joist floor",
-      "prior_sd": 2.0,
+      "prior_sd": 4.0,
       "ref_thickness": 0.3,
-      "source": "unsourced"
+      "source": "unsourced: spread of vendor/survey tables; see module docstring"
+    },
+    {
+      "id": "slab-concrete",
+      "loss": {
+        "2.4": 15.0,
+        "5": 20.0,
+        "6": 24.0
+      },
+      "name": "Concrete floor slab",
+      "prior_sd": 6.0,
+      "ref_thickness": 0.2,
+      "source": "unsourced: spread of vendor/survey tables; see module docstring"
     }
   ],
   "measurements": [],
