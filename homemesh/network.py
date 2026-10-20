@@ -106,6 +106,7 @@ class Context:
         self.cell_ok = np.concatenate(ok) if ok else np.zeros(0, dtype=bool)
         self._loss: dict[tuple, np.ndarray] = {}
         self._pair: dict[tuple, float] = {}
+        self._access: dict[tuple, np.ndarray] = {}
         self._elev = level_z(house)
 
     def abs_pos(self, pl: Placement) -> tuple[float, float, float]:
@@ -190,14 +191,18 @@ def _client_radio(client: Client, band: str) -> ClientRadio | None:
 
 def access_rate(ctx: Context, pl: Placement, radio: Radio, policy: Policy, margin: float) -> np.ndarray:
     """Client rate per cell served by `radio` of the node at `pl` (Mbit/s)."""
+    key = (pl, radio.band, radio.tx_dbm, radio.ant_gain_dbi, radio.chains, radio.max_width, radio.standard, margin, policy.mac_eff)
+    hit = ctx._access.get(key)
+    if hit is not None:
+        return hit
     cr = _client_radio(ctx.client, radio.band)
     if cr is None:
-        return np.zeros(len(ctx.cells))
+        return ctx._access.setdefault(key, np.zeros(len(ctx.cells)))
     width = min(radio.max_width, cr.max_width, BAND_WIDTH_CAP[radio.band])
     rssi = radio.tx_dbm + radio.ant_gain_dbi + cr.ant_gain_dbi - (ctx.loss_to_cells(pl, radio.band) + margin)
     snr = rssi - noise_floor_dbm(width, ctx.client.noise_figure_db)
     rate = throughput(snr, _std_min(radio.standard, cr.standard), width, min(radio.chains, cr.chains), policy.mac_eff)
-    return np.where(ctx.cell_ok, rate, 0.0)
+    return ctx._access.setdefault(key, np.where(ctx.cell_ok, rate, 0.0))
 
 
 def link_rate(ctx: Context, parent: Placement, child: Placement, policy: Policy, margin: float = 0.0):
