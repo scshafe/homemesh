@@ -40,8 +40,8 @@ class PlanConfig:
     policy: Policy = Policy()
     candidate_step: float = 0.5
     gateway_height: float = 1.2
-    max_representatives: int = 60
-    exhaustive_limit: int = 40_000
+    max_representatives: int = 40
+    exhaustive_limit: int = 12_000
     swap_rounds: int = 3
     top_n: int = 5
 
@@ -142,9 +142,12 @@ def _weights(house: House) -> tuple[list[str], np.ndarray]:
     return [z.id for z in zs], np.array([max(z.weight, 0.0) for z in zs])
 
 
-def score(ctx: Context, gateway: Placement, extras: list[Placement], equipment: str, cfg: PlanConfig) -> Scored:
+def score(ctx: Context, gateway: Placement, extras: list[Placement], equipment: str, cfg: PlanConfig,
+          robust: bool = True) -> Scored:
+    """`robust=False` skips the second evaluation at the shadowing margin (search speed); the
+    margin fields then repeat the median ones until `search` finalises its kept results."""
     ev = evaluate(ctx, gateway, extras, cfg.policy)
-    evm = evaluate(ctx, gateway, extras, cfg.policy, margin=cfg.policy.margin_db)
+    evm = evaluate(ctx, gateway, extras, cfg.policy, margin=cfg.policy.margin_db) if robust else ev
     zs = zone_scores(ctx, ev, evm, cfg.policy)
     _, w = _weights(ctx.house)
     tot = float(w.sum()) or 1.0
@@ -196,8 +199,10 @@ def search(ctx: Context, cfg: PlanConfig, catalogue: dict[str, Equipment],
                 how = "greedy"
             kept = [_swap(ctx, gateway, cands, sc, cfg) for sc in kept]
             kept.sort(key=_key)
-            results.extend(_dedupe(kept)[: cfg.top_n])
-            progress(f"{name} k={k}: {how}, best score {kept[0].score:.3f}")
+            final = [score(ctx, gateway, sc.extras, sc.equipment, cfg) for sc in _dedupe(kept)[: cfg.top_n]]
+            final.sort(key=_key)
+            results.extend(final)
+            progress(f"{name} k={k}: {how}, best score {final[0].score:.3f}")
     results.sort(key=_key)
     return results
 
@@ -210,7 +215,7 @@ def _near_live_jack(house: House, c: Placement, near: float = 0.6) -> bool:
 def _exhaustive(ctx, gateway, cands, reps, k, name, cfg) -> list[Scored]:
     best: list[Scored] = []
     for combo in itertools.combinations(reps, k):
-        sc = score(ctx, gateway, [_place(cands[i], name) for i in combo], name, cfg)
+        sc = score(ctx, gateway, [_place(cands[i], name) for i in combo], name, cfg, robust=False)
         sc.evaluation = None  # keep memory flat; re-evaluated for the final top entries
         best.append(sc)
         if len(best) > 200:
@@ -224,14 +229,14 @@ def _greedy(ctx, gateway, cands, k, name, cfg) -> list[Scored]:
     chosen: list[Placement] = []
     for _ in range(k):
         pool = [_place(c, name) for c in cands]
-        scored = [(score(ctx, gateway, chosen + [p], name, cfg), p) for p in pool if p not in chosen]
+        scored = [(score(ctx, gateway, chosen + [p], name, cfg, robust=False), p) for p in pool if p not in chosen]
         sc, p = min(scored, key=lambda t: _key(t[0]))
         chosen.append(p)
     return [score(ctx, gateway, chosen, name, cfg)]
 
 
 def _swap(ctx, gateway, cands, sc: Scored, cfg) -> Scored:
-    cur = sc if sc.evaluation is not None else score(ctx, gateway, sc.extras, sc.equipment, cfg)
+    cur = score(ctx, gateway, sc.extras, sc.equipment, cfg, robust=False)
     for _ in range(cfg.swap_rounds):
         improved = False
         for i in range(len(cur.extras)):
@@ -239,7 +244,7 @@ def _swap(ctx, gateway, cands, sc: Scored, cfg) -> Scored:
                 p = _place(c, cur.equipment)
                 if p in cur.extras:
                     continue
-                trial = score(ctx, gateway, cur.extras[:i] + [p] + cur.extras[i + 1:], cur.equipment, cfg)
+                trial = score(ctx, gateway, cur.extras[:i] + [p] + cur.extras[i + 1:], cur.equipment, cfg, robust=False)
                 if _key(trial) < _key(cur):
                     cur, improved = trial, True
         if not improved:

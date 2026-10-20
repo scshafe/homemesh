@@ -83,11 +83,9 @@ def _perturbed(ctx: Context, rng: np.random.Generator) -> Context:
     for mat in h.materials:
         d = rng.normal(0.0, mat.prior_sd)
         mat.loss = {b: max(0.0, v + d) for b, v in mat.loss.items()}
-    return Context(h, ctx.catalogue, ctx.client, ctx.params, rx_height=ctx.grids[0].z - level_z(h)[ctx.grids[0].level] if ctx.grids else 1.0)
-
-
-def _step_of(ctx: Context) -> float:
-    return ctx.grids[0].step if ctx.grids else 0.5
+    g = ctx.grids[0] if ctx.grids else None
+    return Context(h, ctx.catalogue, ctx.client, ctx.params, step=g.step if g else 0.5,
+                   rx_height=(g.z - level_z(h)[g.level]) if g else 1.0)
 
 
 def explain(ctx: Context, gateway: Placement, best: Scored, runner_up: Scored | None, cfg: PlanConfig,
@@ -128,8 +126,6 @@ def explain(ctx: Context, gateway: Placement, best: Scored, runner_up: Scored | 
         wins = 0
         for _ in range(samples):
             c2 = _perturbed(ctx, rng)
-            c2 = Context(c2.house, ctx.catalogue, ctx.client, ctx.params, step=_step_of(ctx),
-                         rx_height=(ctx.grids[0].z - level_z(ctx.house)[ctx.grids[0].level]) if ctx.grids else 1.0)
             a = score(c2, gateway, best.extras, best.equipment, cfg)
             b = score(c2, gateway, runner_up.extras, runner_up.equipment, cfg)
             wins += a.score >= b.score

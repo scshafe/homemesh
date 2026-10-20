@@ -5,6 +5,7 @@ import { Editor, type Opts, type Tool, type UlTool } from "./Editor";
 import { History, addLevel, addUnderlay, mapUnderlay, nextId, removeUnderlay, type Ref } from "./edit";
 import { levelLine, moveBy, scaleAbout, scaleErrorPct } from "./underlay";
 import type { P2 } from "./types";
+import { Mesh } from "./Mesh";
 import { Panel } from "./Panel";
 import { Viewer } from "./scene";
 import type { HeatMap, House } from "./types";
@@ -22,7 +23,7 @@ function App() {
   const [, redraw] = useState(0);
   const [ids, setIds] = useState<string[]>([]);
   const [saved, setSaved] = useState<House | null>(null); // what the server has
-  const [mode, setMode] = useState<"3d" | "plan">("3d");
+  const [mode, setMode] = useState<"3d" | "plan" | "mesh">("3d");
   const [level, setLevel] = useState("L0");
   const [tool, setTool] = useState<Tool>("select");
   const [sel, setSel] = useState<Ref | null>(null);
@@ -144,6 +145,7 @@ function App() {
           <p>
             <button style={btn(mode === "3d")} onClick={() => setMode("3d")}>3D</button>
             <button style={btn(mode === "plan")} onClick={() => setMode("plan")}>Plan editor</button>
+            <button style={btn(mode === "mesh")} onClick={() => setMode("mesh")}>Mesh plans</button>
           </p>
           <p>
             <button disabled={!dirty} onClick={save}>{dirty ? "Save" : "Saved"} (rev {saved?.revision})</button>{" "}
@@ -203,6 +205,7 @@ function App() {
       </div>
       <div style="flex:1;min-width:0;position:relative">
         <div ref={host} style={`position:absolute;inset:0;${mode === "3d" ? "" : "visibility:hidden"}`} />
+        {mode === "mesh" && saved && <div style="position:absolute;inset:0;background:#fff"><Mesh house={saved} dirty={dirty} /></div>}
         {mode === "plan" && house && <div style="position:absolute;inset:0">
           <Editor house={house} level={level} tool={tool} opts={opts} selected={sel} onCommit={commit} onSelect={setSel} onTwoPoints={twoPoints} traceProv={traceProv} />
         </div>}
