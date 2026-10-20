@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .equipment import generic_catalogue, generic_clients
+from . import catalogue
 from .explain import explain
 from .model import House
 from .network import Context, Placement, Policy
@@ -34,7 +34,8 @@ def main(argv: list[str] | None = None) -> int:
     problems = house.validate_refs()
     if problems:
         ap.error("invalid house: " + "; ".join(problems))
-    cat, clients = generic_catalogue(), generic_clients()
+    loaded = catalogue.load()
+    cat, clients = loaded.equipment, loaded.clients
     ctx = Context(house, cat, clients[a.client], step=a.grid)
     cfg = PlanConfig(equipment=tuple(a.equipment), k_max=a.k_max, candidate_step=a.step,
                      policy=Policy(trust_unknown_jacks=a.trust_unknown_jacks))

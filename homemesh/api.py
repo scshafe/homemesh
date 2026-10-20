@@ -26,7 +26,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from . import blueprint, calibration, captures, jobs, roomplan, store, tokens
-from .equipment import generic_catalogue, generic_clients
+from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
 from .materials import default_materials
@@ -148,8 +148,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/catalogue", dependencies=[api])
     def catalogue() -> dict:
-        return {"equipment": [e.model_dump(mode="json") for e in generic_catalogue().values()],
-                "clients": [c.model_dump(mode="json") for c in generic_clients().values()]}
+        try:
+            return catalogue_mod.describe(catalogue_mod.load())
+        except catalogue_mod.CatalogueError as e:
+            raise HTTPException(500, str(e)) from None
 
     @app.post("/api/houses/{house_id}/plans", dependencies=[api], status_code=202)
     def start_plan(house_id: str, req: dict = Body(default_factory=dict)) -> dict:

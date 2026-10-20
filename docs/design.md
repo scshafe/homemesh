@@ -666,6 +666,17 @@ Deliberately small:
   rooms from the scan, objects, floors and sections are ignored.
 - The Swift code in `ios/` is written but not compiled (no Mac here).
 
+### 10.4 Equipment catalogue as built (M9)
+
+`homemesh/catalogue.py` layers three sources, later wins: the built-in generic
+entries (invented round numbers, always `assumed`), `catalogue/*.json` in the
+repository (public spec-sheet figures; an entry without `sources` is refused),
+and the owner's `$HOMEMESH_DATA/catalogue/*.json` (private, no source required).
+Each radio carries `assumed`; the planner form shows the origin and the flag.
+**No real models are seeded yet:** that waits for the owner's shortlist (D12),
+because vendors rarely publish antenna gain or per-band power and an unrequested
+broad catalogue would be mostly guesses.
+
 ## 11. Blueprint import
 
 Image (PNG/JPEG) or PDF, held as a blob in the data directory.
