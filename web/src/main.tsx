@@ -8,6 +8,7 @@ import type { P2 } from "./types";
 import { CalPanel } from "./CalPanel";
 import { Mesh } from "./Mesh";
 import { Panel } from "./Panel";
+import { ScanPanel } from "./ScanPanel";
 import { Viewer } from "./scene";
 import type { HeatMap, House } from "./types";
 import { fmtLength, loadUnits, saveUnits, type Units } from "./units";
@@ -36,6 +37,7 @@ function App() {
   const [hints, setHints] = useState<{ level: string; x: number; y: number; material: string }[]>([]);
   const [residuals, setResiduals] = useState<Record<string, number>>({});
   const [calBand, setCalBand] = useState("5");
+  const [picks, setPicks] = useState<P2[]>([]);
 
   const house = hist.current?.present ?? null;
   const dirty = !!house && house !== saved;
@@ -203,6 +205,8 @@ function App() {
           {note && <p style="color:#345">{note}</p>}
           {tool === "measure" && <p><label>Band <select value={calBand} onChange={(e) => setCalBand((e.target as HTMLSelectElement).value)}>{["2.4", "5", "6"].map((b) => <option>{b}</option>)}</select></label>
             <br /><small>Click where you stood; you will be asked for the dBm.</small></p>}
+          <hr /><ScanPanel house={house} level={level} saved={!dirty} onCommit={commit} onError={fail} picks={picks} onPicksChange={setPicks}
+            regActive={tool === "reg"} onRegTool={(on) => setTool(on ? "reg" : "select")} />
           <hr /><CalPanel house={house} level={level} band={calBand} onCommit={commit} onError={fail} onResult={(h, r) => { setHints(h); setResiduals(r); }} />
           <hr /><Panel house={house} selected={sel} onCommit={commit} onSelect={setSel} />
         </>}
@@ -222,7 +226,7 @@ function App() {
         <div ref={host} style={`position:absolute;inset:0;${mode === "3d" ? "" : "visibility:hidden"}`} />
         {mode === "mesh" && saved && <div style="position:absolute;inset:0;background:#fff"><Mesh house={saved} dirty={dirty} /></div>}
         {mode === "plan" && house && <div style="position:absolute;inset:0">
-          <Editor house={house} level={level} tool={tool} opts={opts} selected={sel} onCommit={commit} onSelect={setSel} onTwoPoints={twoPoints} traceProv={traceProv} onMeasure={measure} hints={hints} residuals={residuals} />
+          <Editor house={house} level={level} tool={tool} opts={opts} selected={sel} onCommit={commit} onSelect={setSel} onTwoPoints={twoPoints} traceProv={traceProv} onMeasure={measure} hints={hints} residuals={residuals} onPickPoint={(p) => setPicks((x) => [...x, p])} marks={picks} />
         </div>}
       </div>
     </div>

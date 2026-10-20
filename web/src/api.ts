@@ -77,3 +77,11 @@ export interface CalibrationOut { fits: Record<string, BandFit>; suggestions: Re
 export const calibrate = (h: House) => req<CalibrationOut>(`/api/houses/${encodeURIComponent(h.id)}/calibrate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(h) });
 export const parseMeasurements = (houseId: string, csv: File, level: string, device: string) =>
   req<import("./types").Measurement[]>(`/api/houses/${encodeURIComponent(houseId)}/measurements/parse?${new URLSearchParams({ level, device })}`, { method: "POST", body: csv });
+
+export interface CaptureMeta { blob: string; name: string; at: number; counts: Record<string, number>; usdz: string | null }
+export interface ImportReport { walls: number; paired_walls: number; openings: number; skipped_openings: number; replaced: number; notes: string[] }
+export const listCaptures = (houseId: string) => req<CaptureMeta[]>(`/api/houses/${encodeURIComponent(houseId)}/captures`);
+export const importCapture = (h: House, blob: string, level: string, registration?: { src: number[][]; dst: number[][] }) =>
+  req<{ house: House; report: ImportReport; registration?: { rotation: number; tx: number; ty: number; max_error_m: number } }>(
+    `/api/houses/${encodeURIComponent(h.id)}/captures/${blob}/import?${new URLSearchParams({ level })}`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ house: h, registration }) });
