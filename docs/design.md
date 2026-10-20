@@ -91,6 +91,7 @@ never silently used by the simulator.
 | `Switch` | `id`, `position`, `ports`, `port_rate` | Optional. Gives the wired network a topology: a jack is usable for backhaul only if the wired graph connects it to the gateway. |
 | `Outlet` | `id`, `position`, `level`, `height`, `circuit?` | Only where power matters: a node needs an outlet within reach of its spot, or PoE. |
 | `Zone` | `id`, `level`, `polygon[]`, `z_min`, `z_max`, `kind`, `weight`, `need` | See 2.4. |
+| `Underlay` | `id`, `level`, `blob`, `width_px`, `height_px`, `scale` (m/px), `rotation`, `origin`, `opacity`, `scaled` | A blueprint page under one level's plan (section 11). The blob is a PNG re-encoded on upload, so no EXIF/GPS survives. Walls traced over it carry `prov.source = blueprint` and `ref = blob`. |
 | `Measurement` | `id`, `position`, `level`, `device`, `band`, `bssid?`, `rssi?`, `snr?`, `throughput?`, `at` | Calibration input, section 7. Private data; lives in the data directory like the rest of the house. |
 | `Equipment` | catalogue item, see 2.5 | Not part of a house; a shared catalogue. |
 | `Arrangement` | `nodes[]` of `{equipment, spot, mount_height, backhaul: auto | wired(jack) | wireless(parent)}` | The planner's output and a user's hand-built what-if; stored with the house. |
@@ -530,6 +531,26 @@ Consequences:
 - Throughput readings calibrate the MAC efficiency and the MCS mapping
   separately from the path loss.
 
+### 7.4 As built (M7)
+
+- The existing access point is an `AccessPoint` in the house (position, height,
+  EIRP, BSSIDs); a reading belongs to it by BSSID, or by default when it is the
+  only one. Its EIRP error is absorbed by the fitted `extra loss`.
+- Readings come in by tap-to-place (Reading tool, you type the dBm) or CSV
+  (`x, y, band, rssi`, optional `level, device, snr, throughput, bssid, time`).
+- The fit is per band: unknowns are `extra loss`, the exponent `n` and the loss
+  of each material the readings cross; path loss is linear in them, so the fit
+  is a Huber-reweighted ridge regression toward the priors (bounded). At least
+  8 matched readings per band. "Area" for cross-validation is a 4 m block of one
+  level; below three areas there is no held-out figure and the planner's margin
+  stays at 6 dB. With one, the margin becomes the held-out RMSE, clamped to 3-10 dB.
+- Accepting a fit updates only the *identified* materials (posterior sd below
+  80% of the prior sd), stores `Calibration` (n, extra loss, held-out error) and
+  is an ordinary undoable edit. The throughput readings do not yet calibrate the
+  MAC efficiency; that stays at 0.6.
+- Measure-next hints are the cells with the largest exposure to still
+  unidentified materials, at least 3 m from existing readings.
+
 ## 8. Storage outside git
 
 ```
@@ -612,8 +633,8 @@ Deliberately small:
 
 - Scan one room or several (`RoomCaptureSession` / structure builder), choose
   a house and level label, review, export JSON + USDZ.
-- Upload to the backend over the tailnet (HTTPS through the door, a token
-  the owner issues), with retry; keep nothing after a successful upload.
+- Upload to the backend over the tailnet (HTTPS through the door, signed in with
+  Pocket ID, see 10.5), with retry; keep nothing after a successful upload.
 - Optional later: log an ARKit position with Wi-Fi/throughput readings for
   calibration (7.2).
 - Out of scope: any editing, viewing of the house, simulation, accounts,
@@ -625,6 +646,50 @@ Deliberately small:
   in the same repository under `ios/` (recommended) so the export format and
   the importer are versioned together. A format contract test on the backend
   side keeps both honest.
+
+### 10.3 As built (M8)
+
+- Backend: `homemesh/roomplan.py` (importer, registration), `captures.py`
+  (stored scans). Surfaces become walls in plan
+  coordinates (ARKit X, -Z; Z up), two faces 3 cm to 60 cm apart merge into one
+  wall whose thickness is their separation, everything else gets the class
+  default flagged `thickness_defaulted` / `material_defaulted`. Doors, windows
+  and openings land on the nearest wall (the same door seen from two rooms is
+  kept once). Importing a scan again replaces what it added before (provenance
+  `ref` starts with the capture id); other walls are untouched.
+- Registration is an `Umeyama` fit of rotation and translation from two or more
+  picked point pairs (scale fixed at 1: scans are metric); the worst pick error
+  is reported. The scan is first imported in its own frame, then aligned once.
+- The app uploads through the door like any other caller (10.5); the backend
+  has one kind of caller and no upload token.
+- Not done: exterior detection (all unpaired walls get the interior default),
+  rooms from the scan, objects, floors and sections are ignored.
+- The Swift code in `ios/` is written but not compiled (no Mac here).
+
+### 10.5 iOS sign-in (owner decision 2026-10-20)
+
+No route skips the door and there is no upload token (the earlier M8 token
+design is dropped). The app is a public OIDC client of Pocket ID: authorization
+code with PKCE (S256) in `ASWebAuthenticationSession`, callback
+`homemesh-capture://oauth`, scopes `openid profile email`, id token kept in the
+Keychain and sent as `Authorization: Bearer <id token>`. The door accepts
+Pocket ID-issued JWTs as bearer tokens (issuer and audience pinned) and sets
+`X-Forwarded-User`, so the backend is unchanged apart from deleting its token
+path. Why the id token and not an access token: it is what the door can verify
+with the settings it already has, and the audience is the capture client alone.
+Body limits (30 MB JSON, 200 MB USDZ), token expiry and the exact list of
+door and Pocket ID changes are in `deploy.md`.
+
+### 10.4 Equipment catalogue as built (M9)
+
+`homemesh/catalogue.py` layers three sources, later wins: the built-in generic
+entries (invented round numbers, always `assumed`), `catalogue/*.json` in the
+repository (public spec-sheet figures; an entry without `sources` is refused),
+and the owner's `$HOMEMESH_DATA/catalogue/*.json` (private, no source required).
+Each radio carries `assumed`; the planner form shows the origin and the flag.
+**No real models are seeded yet:** that waits for the owner's shortlist (D12),
+because vendors rarely publish antenna gain or per-band power and an unrequested
+broad catalogue would be mostly guesses.
 
 ## 11. Blueprint import
 
@@ -677,8 +742,8 @@ later option that would use the PC's GPU and is not designed here (D14).
   application itself trusts the gate's identity and refuses requests without
   it, instead of relying on "it's on the tailnet". What the door is (the
   platform's standard door, an identity-header check, a password) is D1.
-  Uploads from the iOS app use a separate revocable token through the same
-  door.
+  Uploads from the iOS app go through the same door with a Pocket ID bearer
+  token (10.5).
 - **Secrets:** none in the repository or image; the token and any door
   secrets are provided by the owner session at deploy time. The agent does
   not hold and cannot reach them.

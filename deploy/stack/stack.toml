@@ -1,0 +1,37 @@
+# The stack's data (stack.toml, schema 1). The host's tools/stack reads it as
+# data, never as shell, and rejects an unknown key; `dev check` (DEPLOY-03)
+# checks the same schema. Secrets are named here and never valued: the owner's
+# provisioning places them on the host (`stack env-set homemesh NAME`). Infra's
+# stacks/homemesh/host.conf grants what this file cannot (host paths, loopback
+# ports, groups).
+schema = 1
+
+[deploy]
+image = "homemesh"                   # the image built from this repository's Dockerfile
+pin = "HOMEMESH_IMAGE"               # the .env variable stack deploy writes (name:tag)
+pin_style = "ref"
+dockerfile = "Dockerfile"
+containers = ["homemesh"]            # all must be ready on the candidate
+health = "/api/health"               # probed through the door at the tailnet name (skip-auth route, no data)
+ready_attempts = 20
+rollback_services = ["homemesh"]     # the app only: never the sidecar (the node identity) or the door
+
+[check]
+required_health_services = ["homemesh"]
+
+[backup]
+tailscale = true                     # the node identity (always, with a sidecar)
+# HOMEMESH_DATA (design section 8): JSON documents and content-addressed blobs,
+# written whole (temp file + rename); index.sqlite is derived and rebuildable.
+# state/data belongs to the app's uid; stack-backup reads it through its
+# one-shot read-only container. .env holds the door's client and cookie secrets.
+paths = ["state/data", ".env"]
+
+[env]
+# OIDC_ISSUER https://id.<tailnet>, OIDC_HOST id.<tailnet>, HOMEMESH_FQDN
+# homemesh.<tailnet>, ID_TAILNET_IP the id node's tailscale IPv4 (containers
+# resolve public names only). HOMEMESH_DATA=/data (the state/data bind) and
+# HOMEMESH_AUTH_HEADER=X-Forwarded-User (the door's header) for the app.
+required = ["TS_AUTHKEY", "OIDC_ISSUER", "OIDC_HOST", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "ID_TAILNET_IP", "HOMEMESH_FQDN", "HOMEMESH_DATA", "HOMEMESH_AUTH_HEADER"]
+generated = ["OAUTH2_PROXY_COOKIE_SECRET"]
+owner = []
