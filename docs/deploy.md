@@ -77,6 +77,8 @@ oauth2-proxy: verifies signature, issuer, audience, expiry, allowed user --> X-F
 
 ### What the owner session must change
 
+Done 2026-10-20 (what was set is in "As set" below the checklist).
+
 In Pocket ID:
 
 1. Create an OIDC client "homemesh capture": **public client** (no secret), PKCE
@@ -119,6 +121,34 @@ Then check (the app is not needed for these; a token from a test client works):
     `POST /api/houses/<house>/captures/<id>/usdz` reaches the backend (a 422
     "not a USDZ" for junk is the success signal); the backend's limits are
     30 MB for the capture JSON and 200 MB for the USDZ.
+
+### As set (2026-10-20)
+
+- Pocket ID client id `homemesh-capture` ("homemesh capture"): public, PKCE,
+  callback `homemesh-capture://oauth`, skip consent, allowed to the same group
+  as `homemesh`. Pocket ID issues it a refresh token on the code exchange (no
+  `offline_access` needed) and refreshes it with `client_id` alone; there is no
+  per-client switch. Enter this id in the app's settings.
+- The door (`deploy/stack/compose.yaml`), on oauth2-proxy v7.15.3:
+  `OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS=true` and
+  `OAUTH2_PROXY_EXTRA_JWT_ISSUERS=${OIDC_ISSUER}=${OIDC_CAPTURE_CLIENT_ID}`
+  (the id in the host's `.env`, `stack env-set homemesh OIDC_CAPTURE_CLIENT_ID`).
+  The extra-issuer verifier checks signature (the issuer's JWKS), issuer,
+  expiry and `aud` = the capture client; the provider's own verifier also
+  accepts `aud` = `homemesh`, whose tokens never leave the door. A JWT that
+  fails both is no session (`--bearer-token-login-fallback` stays on), so
+  `/api/` answers 401. `X-Forwarded-User` is the token's `sub`, the same claim
+  a browser session uses. The capture client's access token (also a JWT with
+  that audience) passes too. `--oidc-extra-audience` is not used (it would widen
+  the browser login's audience too).
+- `Authorization`: with `--pass-authorization-header` and
+  `--pass-basic-auth` both off, oauth2-proxy forwards the caller's own
+  `Authorization` untouched (it strips the header only when it sets it). So
+  the door sets it: `--pass-basic-auth=true` with the fixed, non-secret
+  password `none` replaces the caller's header with `Basic base64(<sub>:none)`.
+  The app never reads it.
+- `--upstream-timeout` 600 s. oauth2-proxy, `tailscale serve` and uvicorn set
+  no request-body limit; the app's own limits apply.
 
 ### Token expiry
 
