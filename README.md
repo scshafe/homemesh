@@ -13,7 +13,7 @@ tailnet; an iOS RoomPlan capture app later.
 ## Verify
 
 ```sh
-./scripts/verify      # the Python tests (standard library unittest)
+./scripts/verify      # installs requirements.lock into .venv, runs the unittest suite
 ```
 
 ## License

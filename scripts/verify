@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
-# The repository's one verify command (dev.toml [verify]): run every Python
-# test with the standard library's unittest. CI runs the same command.
+# The repository's one verify command (dev.toml [verify]): install the pinned
+# dependencies into .venv, then run every Python test with unittest. CI runs the
+# same command.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-python3 -B -m unittest discover -s tests -t . -v
+if [ ! -x .venv/bin/python ]; then
+  python3 -m venv .venv
+fi
+# Reinstall only when the lock file changed.
+stamp=.venv/.lock-stamp
+if [ ! -f "$stamp" ] || ! cmp -s requirements.lock "$stamp"; then
+  .venv/bin/pip install --quiet --disable-pip-version-check -r requirements.lock
+  cp requirements.lock "$stamp"
+fi
+
+.venv/bin/python -B -m unittest discover -s tests -t . -v

@@ -1,0 +1,10 @@
+[project]
+name = "homemesh"
+version = "0.0.0"
+description = "Model a home in 3D and plan a Wi-Fi mesh."
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = ["pydantic>=2.9"]
+
+[tool.setuptools]
+packages = ["homemesh"]
