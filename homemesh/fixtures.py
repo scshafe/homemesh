@@ -94,7 +94,7 @@ def wired_ends() -> House:
         "id": "synthetic-wired", "name": "Synthetic wired ends",
         "switches": [Switch(id="sw0", position=(0.6, 3), level="L0", uplink="entry")],
         "jacks": [Jack(id="j0", position=(0.2, 3), level="L0", wall="e3", type="cat6", state="live", switch="sw0", poe=True),
-                  Jack(id="j1", position=(29.8, 1), level="L0", wall="e1", type="cat5e", state="unknown", leads_to="switch sw0")],
+                  Jack(id="j1", position=(29.8, 1), level="L0", wall="e1", type="cat5e", state="unknown", leads_to="switch sw0", switch="sw0")],
     })
 
 

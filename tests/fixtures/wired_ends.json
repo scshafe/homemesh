@@ -63,7 +63,7 @@
       },
       "run_length": null,
       "state": "unknown",
-      "switch": null,
+      "switch": "sw0",
       "type": "cat5e",
       "wall": "e1",
       "z": 0.3
