@@ -21,7 +21,7 @@ enum Settings {
         set { d.set(newValue, forKey: "issuer") }
     }
     static var clientId: String {
-        get { d.string(forKey: "clientId") ?? "" }
+        get { d.string(forKey: "clientId") ?? "homemesh-capture" }  // the public client; not a secret
         set { d.set(newValue, forKey: "clientId") }
     }
 

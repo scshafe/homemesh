@@ -75,7 +75,18 @@ app --POST /api/... Authorization: Bearer <id token>--> tailscale serve --> oaut
 oauth2-proxy: verifies signature, issuer, audience, expiry, allowed user --> X-Forwarded-User --> homemesh
 ```
 
-### What the owner session must change
+### Status: done (2026-10-20, door PR #21)
+
+Pocket ID public client `homemesh-capture`, callback `homemesh-capture://oauth`,
+refresh tokens on (Pocket ID 2.13). The door accepts only that client's tokens
+and sets `X-Forwarded-User`; upstream timeout 600 s; 200 MB bodies pass. One
+deviation from the list below: oauth2-proxy 7.15.3 forwards the client's
+`Authorization` even with `--pass-authorization-header` off, so the door
+overwrites it with `Basic base64(<sub>:none)` (`PASS_BASIC_AUTH=true`). The app
+never reads or trusts `Authorization`. Not yet checked: a scan from a real
+device (owner check).
+
+### What the owner session changed
 
 Done 2026-10-20 (what was set is in "As set" below the checklist).
 
