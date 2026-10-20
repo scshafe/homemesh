@@ -81,10 +81,11 @@ class UnderlayModelTest(unittest.TestCase):
 class ApiBlueprintTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self._env = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST)}
+        self._env = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST, api.DOOR_ADDR)}
         os.environ[store.ENV] = self._tmp.name
         os.environ[api.AUTH_HEADER] = "X-Door-User"
         os.environ.pop(api.DEV, None)
+        os.environ[api.DOOR_ADDR] = "testclient"
         os.environ[api.WEB_DIST] = os.path.join(self._tmp.name, "none")
         seed.main()
         self.c = TestClient(api.create_app())

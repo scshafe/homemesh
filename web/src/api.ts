@@ -46,3 +46,26 @@ export interface Page { blob: string; width_px: number; height_px: number }
 export const uploadBlueprint = (houseId: string, file: File) =>
   req<Page[]>(`/api/houses/${encodeURIComponent(houseId)}/blueprints`, { method: "POST", body: file });
 export const blobUrl = (houseId: string, digest: string) => `/api/houses/${encodeURIComponent(houseId)}/blobs/${digest}`;
+
+export interface Equip { id: string; name: string; kind: string; price: number; radios: { band: string; dedicated_backhaul: boolean }[]; max_nodes: number | null }
+export interface ClientProfile { id: string; name: string }
+export const loadCatalogue = () => req<{ equipment: Equip[]; clients: ClientProfile[] }>("/api/catalogue");
+
+export interface PlanRequest { k_max: number; equipment: string[]; gateway_equipment: string; client: string; trust_unknown_jacks: boolean; price_ceiling: number | null; candidate_step: number; grid: number }
+export interface NodeSpec { equipment: string; position: [number, number]; level: string; height: number }
+export interface BackhaulNote { index: number; kind: string; parent: number | null; mbps: number | null; hops: number; jack: string | null; band: string | null; shared: boolean }
+export interface PlanResult {
+  equipment: string; k: number; score: number; score_margin: number; worst: number; cost: number; valid: boolean; must_ok: boolean; stable: boolean; pareto: boolean;
+  nodes: NodeSpec[]; zones: { zone: string; utility: number; mean_rate: number; frac_target: number; must_met: boolean | null }[];
+  backhaul: BackhaulNote[]; problems: string[]; jacks_used: string[]; jacks_unverified: string[];
+  explanation?: { lines: string[]; stability: number | null };
+}
+export interface PlanOutput { gateway: NodeSpec; results: PlanResult[] }
+export interface JobState { state: "running" | "done" | "error"; progress: string[]; error: string | null; result: PlanOutput | null }
+const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+export const startPlan = (houseId: string, r: PlanRequest) => req<{ job: string }>(`/api/houses/${encodeURIComponent(houseId)}/plans`, json(r));
+export const getJob = (id: string) => req<JobState>(`/api/jobs/${id}`);
+
+export interface RateGrid { level: string; x0: number; y0: number; step: number; nx: number; ny: number; rate: (number | null)[]; serving: number[] }
+export const rateMap = (houseId: string, nodes: NodeSpec[], r: Pick<PlanRequest, "gateway_equipment" | "client" | "trust_unknown_jacks" | "grid">) =>
+  req<{ grids: RateGrid[]; problems: string[] }>(`/api/houses/${encodeURIComponent(houseId)}/ratemap`, json({ nodes, ...r }));

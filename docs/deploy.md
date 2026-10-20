@@ -1,58 +1,52 @@
-# Deploying homemesh (M3)
+# Deploying homemesh
 
-The design is `design.md` section 12; the owner's answers are in its decisions
-table (D1, D2, D11). This file is the runbook the owner session needs. Nothing
-here contains a hostname, a secret or house data.
+Live since M3: `https://homemesh.<tailnet>/`, behind the Pocket ID door. The
+design is `design.md` section 12; the owner's answers are in its decisions
+table (D1, D2, D11). Nothing here contains a hostname, a secret or house data.
 
-## The image
+## How a change reaches production
 
-`Dockerfile` builds the front end (node stage) and the backend (python stage)
-into one image. It runs as an unprivileged user, serves the API and the static
-front end on port 8000, and holds **no data**.
+Every merge to `main` deploys (`dev.toml [deploy]`, lane `runner`):
+
+1. `.github/workflows/deploy.yml` runs `./scripts/verify` on a GitHub-hosted
+   runner.
+2. The deploy job runs on the self-hosted runner `pc-homemesh-prod` (label
+   `homemesh-prod`) and calls the host entrypoint, which fetches `main`, checks
+   the commit's ancestry against what is live, backs up, builds the image from
+   `Dockerfile` and starts the stack from `deploy/stack/`.
+3. A read-only health check probes `/api/health` through the door.
+
+Watch it: `gh run list -w deploy`, `gh run watch <id>`. The full log stays on
+the host; a public repository's job shows stage lines and the result. Roll
+back by merging a `git revert`, or `gh workflow run deploy.yml -f sha=<sha>
+-f allow_rollback=true`. No self-hosted job runs for pull requests (D11).
+
+## The stack (`deploy/stack/`, owned by the owner session)
+
+| Part | What it is |
+|---|---|
+| `homemesh` container | This repository's image. Stateless; unprivileged user; port 8000 on the stack network only. |
+| Door | oauth2-proxy with Pocket ID in front, plus the tailnet node (sidecar). Authenticates the owner and sets `X-Forwarded-User`; strips client-supplied `X-Forwarded-*`. |
+| Data | `/data` in the container = `/srv/stacks/homemesh/state/data` on the host, owned by the app's uid, covered by `stack-backup@homemesh`. |
+
+## What the app enforces (defence in depth)
 
 | Setting | Meaning |
 |---|---|
-| `HOMEMESH_DATA=/data` | The data directory. Mount the stack's `/srv` volume path here (D2). The app refuses to start if it is unset, relative or inside the checkout. |
-| `HOMEMESH_AUTH_HEADER=<name>` | The request header the door adds after Pocket ID has authenticated the user. Every `/api` request without it gets 401. The app refuses to start without it (`HOMEMESH_DEV=1` is for local loopback development only). |
+| `HOMEMESH_DATA=/data` | The data directory. The app refuses to start if it is unset, relative or inside the checkout. |
+| `HOMEMESH_AUTH_HEADER=X-Forwarded-User` | Every `/api` call without it gets 401. The app refuses to start without it (`HOMEMESH_DEV=1` is for local loopback development only). |
+| `HOMEMESH_DOOR_ADDR` | Comma-separated peer addresses allowed to call `/api`; default `10.253.93.10`, the door on the stack network. Any other peer gets 403 before the header is read, so a forged header from another container or host is useless. |
 | `HOMEMESH_WEB_DIST` | Where the built front end is; set by the image. |
 
-`/api/health` is open (no data) for the stack's health check. Bind the
-container port to the door's network only, never to a public interface.
+`/api/health` carries no house data and answers any peer (the container's own
+health check calls it on loopback).
 
-First run: `docker exec <container> python -m homemesh.seed` puts the four
-synthetic demo houses into the data directory (it never overwrites). A real
-house enters later through the editor/import milestones, never through git.
+## Data on the live site
 
-## What the owner session provisions (needs from the owner)
-
-1. The stack: where it lives in infra, the compose service, the `/srv` path for
-   the data volume and its inclusion in the stack-backup timer.
-2. The door: the Pocket ID client and door container in front of the app, and
-   **the exact identity header name** the door sets (to put in
-   `HOMEMESH_AUTH_HEADER`). The door must strip any client-supplied copy of
-   that header.
-3. The runner lane: registered self-hosted runner on the PC, then
-   `dev.toml [deploy]` set to `lane = "runner"` with stack and host. D11 holds:
-   deploy only on push to `main`, no self-hosted jobs for pull requests.
-4. The deploy workflow, a separate reviewed file. Proposed shape (not active;
-   it is added with the lane so `dev check` and the runner agree):
-
-```yaml
-on:
-  push:
-    branches: [main]
-permissions:
-  contents: read
-jobs:
-  deploy:
-    runs-on: [self-hosted, <runner-label>]
-    steps:
-      - uses: actions/checkout@<sha>
-        with: { persist-credentials: false }
-      - run: ./scripts/verify
-      - run: docker build -t homemesh:${{ github.sha }} .
-      - run: <stack's redeploy command with the new image tag>
-```
+The synthetic demo houses are not seeded automatically. For a first look,
+`docker exec` is not available to the agent: the owner session can run
+`python -m homemesh.seed` in the container. Real houses are created and edited
+in the app (New, Plan editor, blueprint upload) and live only under `/data`.
 
 ## Local run (development, synthetic data only)
 

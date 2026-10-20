@@ -1,6 +1,11 @@
 """HTTP API (design section 6) and the static front end.
 
-Access: the door (the platform's Pocket ID + door container) sits in front of
+Access: besides the header, /api answers only to the door's own address on the
+stack network (HOMEMESH_DOOR_ADDR, comma-separated; default the stack's door;
+unset in development with HOMEMESH_DEV=1 means any peer on loopback). A forged
+header from any other peer is refused with 403 before the header is looked at.
+
+The door (the platform's Pocket ID + door container) sits in front of
 this app and adds an identity header. The app trusts only that header: with
 HOMEMESH_AUTH_HEADER set, every /api request without it is refused (401), so
 "it is on the tailnet" is never the only protection. With it unset the app
@@ -15,11 +20,12 @@ import os
 from pathlib import Path
 
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, store
+from . import blueprint, jobs, store
+from .equipment import generic_catalogue, generic_clients
 from pydantic import BaseModel, ValidationError
 
 from .materials import default_materials
@@ -29,6 +35,8 @@ from .propagation import BAND_MHZ, Tx, level_grid, rssi_map
 DEV = "HOMEMESH_DEV"
 AUTH_HEADER = "HOMEMESH_AUTH_HEADER"
 WEB_DIST = "HOMEMESH_WEB_DIST"
+DOOR_ADDR = "HOMEMESH_DOOR_ADDR"
+DEFAULT_DOOR_ADDR = "10.253.93.10"  # the door on the stack network (deploy/stack/compose.yaml)
 MAX_BODY = 8 * 1024 * 1024
 
 
@@ -42,11 +50,14 @@ def create_app() -> FastAPI:
     dev = os.environ.get(DEV) == "1"
     if not header and not dev:
         raise RuntimeError(f"set {AUTH_HEADER} (the door's identity header) or {DEV}=1 for local development")
+    door = {a.strip() for a in os.environ.get(DOOR_ADDR, "" if dev else DEFAULT_DOOR_ADDR).split(",") if a.strip()}
     store.data_dir()  # fail at startup if the data directory is unset or inside the checkout
 
     app = FastAPI(title="homemesh", docs_url=None, redoc_url=None, openapi_url=None)
 
     def require_identity(request: Request) -> None:
+        if door and (request.client is None or request.client.host not in door):
+            raise HTTPException(403, "not the door")
         if header and not request.headers.get(header):
             raise HTTPException(401, "no identity from the door")
 
@@ -122,6 +133,37 @@ def create_app() -> FastAPI:
         return Response(data, media_type="image/png" if png else "application/octet-stream",
                         headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600",
                                  **({} if png else {"Content-Disposition": "attachment"})})
+
+    @app.get("/api/catalogue", dependencies=[api])
+    def catalogue() -> dict:
+        return {"equipment": [e.model_dump(mode="json") for e in generic_catalogue().values()],
+                "clients": [c.model_dump(mode="json") for c in generic_clients().values()]}
+
+    @app.post("/api/houses/{house_id}/plans", dependencies=[api], status_code=202)
+    def start_plan(house_id: str, req: dict = Body(default_factory=dict)) -> dict:
+        h = get_house(house_id)
+        if h.entry is None:
+            raise HTTPException(422, "mark the internet entry first")
+        if not any(z.kind == "allow" for z in h.zones):
+            raise HTTPException(422, "mark at least one allow zone first")
+        if not any(z.kind == "demand" for z in h.zones):
+            raise HTTPException(422, "mark at least one demand zone first")
+        return {"job": jobs.start(h, req).id}
+
+    @app.get("/api/jobs/{job_id}", dependencies=[api])
+    def job(job_id: str) -> dict:
+        j = jobs.get(job_id)
+        if j is None:
+            raise HTTPException(404, "no such job")
+        return {"state": j.state, "progress": j.progress[-20:], "error": j.error, "result": j.result}
+
+    @app.post("/api/houses/{house_id}/ratemap", dependencies=[api])
+    def ratemap(house_id: str, req: dict = Body(...)) -> dict:
+        h = get_house(house_id)
+        try:
+            return jobs.rate_map(h, req)
+        except (ValueError, KeyError, TypeError) as e:
+            raise HTTPException(422, str(e)) from None
 
     @app.get("/api/houses/{house_id}/revisions", dependencies=[api])
     def revisions(house_id: str) -> list[int]:
