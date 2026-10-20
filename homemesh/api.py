@@ -16,9 +16,10 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import store
+from . import blueprint, store
 from pydantic import BaseModel, ValidationError
 
 from .materials import default_materials
@@ -99,6 +100,28 @@ def create_app() -> FastAPI:
             raise HTTPException(409, str(e)) from None
         except store.StoreError as e:
             raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/houses/{house_id}/blueprints", dependencies=[api])
+    async def upload_blueprint(house_id: str, request: Request) -> list[dict]:
+        """Raw image or PDF body. Returns one PNG blob per page: [{blob, width_px, height_px}]."""
+        get_house(house_id)
+        raw = await request.body()
+        try:
+            pages = blueprint.pages(raw)
+        except blueprint.BlueprintError as e:
+            raise HTTPException(422, str(e)) from None
+        return [{"blob": store.put_blob(house_id, p.png), "width_px": p.width, "height_px": p.height} for p in pages]
+
+    @app.get("/api/houses/{house_id}/blobs/{digest}", dependencies=[api])
+    def blob(house_id: str, digest: str) -> Response:
+        try:
+            data = store.get_blob(house_id, digest)
+        except store.StoreError:
+            raise HTTPException(404, "no such blob") from None
+        png = data[:8] == b"\x89PNG\r\n\x1a\n"
+        return Response(data, media_type="image/png" if png else "application/octet-stream",
+                        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600",
+                                 **({} if png else {"Content-Disposition": "attachment"})})
 
     @app.get("/api/houses/{house_id}/revisions", dependencies=[api])
     def revisions(house_id: str) -> list[int]:

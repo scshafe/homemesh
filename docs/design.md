@@ -91,6 +91,7 @@ never silently used by the simulator.
 | `Switch` | `id`, `position`, `ports`, `port_rate` | Optional. Gives the wired network a topology: a jack is usable for backhaul only if the wired graph connects it to the gateway. |
 | `Outlet` | `id`, `position`, `level`, `height`, `circuit?` | Only where power matters: a node needs an outlet within reach of its spot, or PoE. |
 | `Zone` | `id`, `level`, `polygon[]`, `z_min`, `z_max`, `kind`, `weight`, `need` | See 2.4. |
+| `Underlay` | `id`, `level`, `blob`, `width_px`, `height_px`, `scale` (m/px), `rotation`, `origin`, `opacity`, `scaled` | A blueprint page under one level's plan (section 11). The blob is a PNG re-encoded on upload, so no EXIF/GPS survives. Walls traced over it carry `prov.source = blueprint` and `ref = blob`. |
 | `Measurement` | `id`, `position`, `level`, `device`, `band`, `bssid?`, `rssi?`, `snr?`, `throughput?`, `at` | Calibration input, section 7. Private data; lives in the data directory like the rest of the house. |
 | `Equipment` | catalogue item, see 2.5 | Not part of a house; a shared catalogue. |
 | `Arrangement` | `nodes[]` of `{equipment, spot, mount_height, backhaul: auto | wired(jack) | wireless(parent)}` | The planner's output and a user's hand-built what-if; stored with the house. |

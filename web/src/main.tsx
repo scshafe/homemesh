@@ -1,8 +1,10 @@
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ApiError, createHouse, listHouses, loadHeatmap, loadHouse, saveHouse } from "./api";
-import { Editor, type Opts, type Tool } from "./Editor";
-import { History, addLevel, type Ref } from "./edit";
+import { ApiError, createHouse, listHouses, loadHeatmap, loadHouse, saveHouse, uploadBlueprint } from "./api";
+import { Editor, type Opts, type Tool, type UlTool } from "./Editor";
+import { History, addLevel, addUnderlay, mapUnderlay, nextId, removeUnderlay, type Ref } from "./edit";
+import { levelLine, moveBy, scaleAbout, scaleErrorPct } from "./underlay";
+import type { P2 } from "./types";
 import { Panel } from "./Panel";
 import { Viewer } from "./scene";
 import type { HeatMap, House } from "./types";
@@ -78,6 +80,49 @@ function App() {
     try { const s = await saveHouse(house); hist.current = new History(s); setSaved(s); setError(""); redraw((n) => n + 1); } catch (e) { fail(e); }
   }
 
+  const levelUnderlays = house?.underlays.filter((u) => u.level === level) ?? [];
+  const [ulId, setUlId] = useState<string | null>(null);
+  const activeUl = levelUnderlays.find((u) => u.id === ulId) ?? levelUnderlays[0] ?? null;
+  const [note, setNote] = useState("");
+
+  async function upload(file: File) {
+    if (!house) return;
+    try {
+      const pages = await uploadBlueprint(house.id, file);
+      let idx = 0;
+      if (pages.length > 1) { idx = Math.min(pages.length, Math.max(1, parseInt(prompt(`The PDF has ${pages.length} pages. Which page for this level?`, "1") ?? "1") || 1)) - 1; }
+      const pg = pages[idx];
+      const id = nextId("u", house.underlays.map((u) => u.id));
+      commit(addUnderlay(house, { id, level, blob: pg.blob, width_px: pg.width_px, height_px: pg.height_px, scale: 0.01, rotation: 0, origin: [0, 0], opacity: 0.5, scaled: false, name: file.name.slice(0, 60) }));
+      setUlId(id); setMode("plan");
+      setNote("Now set the scale: pick Scale, click two points of a known distance on the drawing.");
+    } catch (e) { fail(e); }
+  }
+
+  function twoPoints(t: UlTool, a: P2, b: P2) {
+    if (!house || !activeUl) return;
+    const up = (f: (u: typeof activeUl) => typeof activeUl) => commit(mapUnderlay(house, activeUl.id, f));
+    if (t === "ul-scale") {
+      const raw = prompt(`Real distance between the two points (${units === "metric" ? "metres" : "feet"})`);
+      const v = parseFloat(raw ?? "");
+      if (!(v > 0)) return;
+      up((u) => scaleAbout(u, a, b, units === "metric" ? v : v * 0.3048));
+      setNote("Scale set. Use Check to compare a second known dimension.");
+    } else if (t === "ul-rotate") {
+      const horizontal = confirm("OK: this line should be horizontal. Cancel: vertical.");
+      up((u) => levelLine(u, a, b, horizontal ? "x" : "y"));
+    } else if (t === "ul-move") {
+      up((u) => moveBy(u, a, b));
+    } else if (t === "ul-check") {
+      const raw = prompt(`Known distance between the two points (${units === "metric" ? "metres" : "feet"})`);
+      const known = (parseFloat(raw ?? "") || 0) * (units === "metric" ? 1 : 0.3048);
+      if (known > 0) setNote(`Measured ${fmtLength(Math.hypot(b[0] - a[0], b[1] - a[1]), units)}; ${scaleErrorPct(Math.hypot(b[0] - a[0], b[1] - a[1]), known).toFixed(1)}% off the known distance.`);
+    }
+    setTool("select");
+  }
+
+  const traceProv = activeUl ? { source: "blueprint" as const, ref: activeUl.blob } : undefined;
+
   async function newHouse() {
     const name = prompt("Name of the new house");
     if (!name) return;
@@ -124,6 +169,24 @@ function App() {
             <option value="allow">allow</option><option value="forbid">forbid</option><option value="demand">demand</option></select>
             <br /><small>Click corners; Enter or double-click finishes (one point = one spot).</small></p>}
           {tool === "hole" && <p><small>Click corners of a stairwell/atrium; Enter or double-click finishes.</small></p>}
+          <hr />
+          <b>Blueprint</b>
+          <p><input type="file" accept="image/*,application/pdf" onChange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) upload(f); (e.target as HTMLInputElement).value = ""; }} /></p>
+          {levelUnderlays.length > 1 && <p><select value={activeUl?.id} onChange={(e) => setUlId((e.target as HTMLSelectElement).value)}>
+            {levelUnderlays.map((u) => <option value={u.id}>{u.name || u.id}</option>)}</select></p>}
+          {activeUl && <div>
+            <div>{activeUl.name || activeUl.id}{!activeUl.scaled && <span style="color:#a60"> (scale not set)</span>}</div>
+            <label>Opacity <input type="range" min="0.1" max="1" step="0.05" value={activeUl.opacity}
+              onInput={(e) => commit(mapUnderlay(house, activeUl.id, (u) => ({ ...u, opacity: parseFloat((e.target as HTMLInputElement).value) })))} /></label>
+            <div>
+              {([["ul-scale", "Scale"], ["ul-rotate", "Level"], ["ul-move", "Move"], ["ul-check", "Check"]] as [UlTool, string][]).map(([t, l]) =>
+                <button style={btn(tool === t)} onClick={() => { setTool(t); setSel(null); }}>{l}</button>)}
+              <button onClick={() => { commit(removeUnderlay(house, activeUl.id)); setUlId(null); }}>Remove</button>
+            </div>
+            {tool.startsWith("ul-") && <small>Click two points on the drawing.</small>}
+            <p><small>Walls you draw now are recorded as coming from this blueprint.</small></p>
+          </div>}
+          {note && <p style="color:#345">{note}</p>}
           <hr /><Panel house={house} selected={sel} onCommit={commit} onSelect={setSel} />
         </>}
         {mode === "3d" && <>
@@ -141,7 +204,7 @@ function App() {
       <div style="flex:1;min-width:0;position:relative">
         <div ref={host} style={`position:absolute;inset:0;${mode === "3d" ? "" : "visibility:hidden"}`} />
         {mode === "plan" && house && <div style="position:absolute;inset:0">
-          <Editor house={house} level={level} tool={tool} opts={opts} selected={sel} onCommit={commit} onSelect={setSel} />
+          <Editor house={house} level={level} tool={tool} opts={opts} selected={sel} onCommit={commit} onSelect={setSel} onTwoPoints={twoPoints} traceProv={traceProv} />
         </div>}
       </div>
     </div>

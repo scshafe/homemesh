@@ -126,6 +126,7 @@
   "stairs": [],
   "switches": [],
   "synthetic": true,
+  "underlays": [],
   "walls": [
     {
       "a": [
