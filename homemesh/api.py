@@ -19,12 +19,21 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
 from . import store
-from .model import House
+from pydantic import BaseModel, ValidationError
+
+from .materials import default_materials
+from .model import House, Level
 from .propagation import BAND_MHZ, Tx, level_grid, rssi_map
 
 DEV = "HOMEMESH_DEV"
 AUTH_HEADER = "HOMEMESH_AUTH_HEADER"
 WEB_DIST = "HOMEMESH_WEB_DIST"
+MAX_BODY = 8 * 1024 * 1024
+
+
+class NewHouse(BaseModel):
+    id: str
+    name: str
 
 
 def create_app() -> FastAPI:
@@ -59,6 +68,41 @@ def create_app() -> FastAPI:
     @app.get("/api/houses/{house_id}", dependencies=[api])
     def house(house_id: str) -> dict:
         return get_house(house_id).model_dump(mode="json")
+
+    @app.post("/api/houses", dependencies=[api], status_code=201)
+    def create_house(req: NewHouse) -> dict:
+        h = House(id=req.id, name=req.name, levels=[Level(id="L0", name="Ground", elevation=0.0, height=2.5)],
+                  materials=default_materials())
+        try:
+            return store.save(h).model_dump(mode="json")
+        except store.Conflict:
+            raise HTTPException(409, "house exists") from None
+        except store.StoreError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.put("/api/houses/{house_id}", dependencies=[api])
+    async def save_house(house_id: str, request: Request, expect_revision: int) -> dict:
+        """Save an edited house as the next revision. `expect_revision` is the
+        revision the editor started from; a stale one gets 409."""
+        raw = await request.body()
+        if len(raw) > MAX_BODY:
+            raise HTTPException(413, "house too large")
+        try:
+            h = House.model_validate_json(raw)
+        except ValidationError as e:
+            raise HTTPException(422, e.errors(include_url=False, include_input=False)) from None
+        if h.id != house_id:
+            raise HTTPException(422, "id does not match the URL")
+        try:
+            return store.save(h, expect_revision=expect_revision).model_dump(mode="json")
+        except store.Conflict as e:
+            raise HTTPException(409, str(e)) from None
+        except store.StoreError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.get("/api/houses/{house_id}/revisions", dependencies=[api])
+    def revisions(house_id: str) -> list[int]:
+        return store.list_revisions(house_id)
 
     @app.get("/api/houses/{house_id}/heatmap", dependencies=[api])
     def heatmap(house_id: str, x: float, y: float, level: str, band: str = "5",

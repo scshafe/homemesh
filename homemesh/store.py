@@ -98,6 +98,11 @@ def save(house: House, expect_revision: int | None = None) -> House:
     return new
 
 
+def list_revisions(house_id: str) -> list[int]:
+    d = _house_dir(house_id) / "revisions"
+    return sorted(int(p.stem) for p in d.glob("*.json")) if d.is_dir() else []
+
+
 def put_blob(house_id: str, content: bytes) -> str:
     digest = hashlib.sha256(content).hexdigest()
     path = _house_dir(house_id) / "blobs" / digest
