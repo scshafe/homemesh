@@ -48,6 +48,7 @@ RoomPlan-shaped JSON through the real importer and endpoints.
   is set to issue refresh tokens to this client, add `offline_access` to the
   scope in `Auth.swift` and the app renews silently; without it, an expired
   token means one more tap through Pocket ID.
-- A door that is not accepting the token redirects to its login page; the app
-  shows that as a failed upload ("sign in again") and clears the stored token.
+- A door that is not accepting the token answers 401, or redirects to its login
+  page (which the app sees as an unexpected answer). A 401 clears the stored token; sign
+  out and in again if an upload keeps failing that way.
 - Sign-in, token expiry and the door settings: `docs/deploy.md`, "The capture app's sign-in".
