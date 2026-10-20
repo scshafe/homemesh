@@ -720,7 +720,28 @@ M8 can move ahead of M5/M6 (D9b).
 
 ## Owner decisions
 
-For each: options, and the designer's recommendation. None is decided here.
+Status 2026-10-20: the owner accepted the design as recommended, with the
+answers below. The options and recommendations that follow are kept as the
+record of what was weighed.
+
+| Decision | Answer |
+|---|---|
+| D1 door | The platform's standard door: Pocket ID plus the door container in front of the app, as other stacks do. Provisioned with the agent at M3. |
+| D2 data and backups | Under the stack's `/srv` volume, covered by the standard stack-backup timer. The owner session sets the path at M3. |
+| D3 units | Configurable per user; the default follows the browser locale's convention. |
+| D4 front end | Preact. |
+| D5 propagation | As written (MWM from geometry, P.1238 baseline, ray-tracing gate). |
+| D7 search | Exhaustive + greedy first, ILP bound later; `K_max` 5; the owner's shortlist plus an all-catalogue mode. |
+| D8 calibration | Mac laptop (CoreWLAN, tap-to-place) now; the iPhone capture app later. |
+| D9 wired defaults | Conservative table; unknown jacks dead in the base plan with an "if it works" variant; a measured speed overrides. |
+| D9b order | As in section 13. |
+| D11 runner policy | Deploy only on push to `main`; no self-hosted jobs for PRs; fork workflows need approval (already the repository setting). `[deploy]` is set when M3 adds the stack. |
+| D14 photos/video | Deferred. |
+| D15 storage | JSON documents + content-addressed blobs + rebuildable SQLite index. |
+| D16 latency | Not simulated in v1. |
+| **Open, needed later (not blocking M1-M5)** | D6 the owner's main client devices and zone needs; D10 iPhone model (LiDAR) and iOS version; D12 equipment shortlist, budget, WAN rate; D13 region. Until answered: the strictest common region and the designer's defaults. |
+
+Original text of each decision:
 
 **D1. The door (access gate).** What sits in front of the app?
 (a) The platform's standard door, if one exists for tailnet services;
