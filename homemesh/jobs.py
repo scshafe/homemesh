@@ -19,6 +19,7 @@ import numpy as np
 
 from . import store
 from .equipment import Equipment, generic_catalogue, generic_clients
+from .calibration import margin_for, params_for
 from .explain import explain
 from .model import House
 from .network import Context, Evaluation, Placement, Policy
@@ -58,13 +59,14 @@ def serialise(sc: Scored, ev: Evaluation | None = None) -> dict:
     }
 
 
-def make_config(req: dict) -> PlanConfig:
+def make_config(req: dict, house: House | None = None) -> PlanConfig:
     return PlanConfig(
         gateway_equipment=req.get("gateway_equipment", "generic-router-ax"),
         equipment=tuple(req.get("equipment", [])),
         k_max=int(min(max(req.get("k_max", 5), 0), 8)),
         price_ceiling=req.get("price_ceiling"),
-        policy=Policy(trust_unknown_jacks=bool(req.get("trust_unknown_jacks", False))),
+        policy=Policy(trust_unknown_jacks=bool(req.get("trust_unknown_jacks", False)),
+                      margin_db=margin_for(house) if house else Policy().margin_db),
         candidate_step=float(min(max(req.get("candidate_step", 1.0), 0.25), 3.0)),
     )
 
@@ -74,13 +76,13 @@ def make_context(house: House, req: dict, catalogue: dict[str, Equipment]) -> Co
     client = clients.get(req.get("client", "phone-2x2-ax"))
     if client is None:
         raise ValueError("unknown client")
-    return Context(house, catalogue, client, step=float(min(max(req.get("grid", 1.0), 0.25), 2.0)))
+    return Context(house, catalogue, client, params=params_for(house), step=float(min(max(req.get("grid", 1.0), 0.25), 2.0)))
 
 
 def _run(job: Job, house: House, req: dict) -> None:
     try:
         cat = generic_catalogue()
-        cfg = make_config(req)
+        cfg = make_config(req, house)
         for name in (cfg.gateway_equipment, *cfg.equipment):
             if name not in cat:
                 raise ValueError(f"unknown equipment {name}")
@@ -134,7 +136,7 @@ def rate_map(house: House, req: dict) -> dict:
 
     cat = generic_catalogue()
     ctx = make_context(house, req, cat)
-    cfg = make_config(req)
+    cfg = make_config(req, house)
     if house.entry is None:
         raise ValueError("the house has no internet entry")
     gw = Placement(cfg.gateway_equipment, house.entry.position, house.entry.level, cfg.gateway_height)

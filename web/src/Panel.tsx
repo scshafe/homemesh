@@ -67,6 +67,28 @@ export function Panel({ house: h, selected: s, onCommit, onSelect }: Props) {
       <p>{delBtn}</p>
     </div>;
   }
+  if (s.kind === "ap") {
+    const a = h.access_points.find((x) => x.id === s.id);
+    if (!a) return null;
+    const set = (patch: Partial<typeof a>) => onCommit({ ...h, access_points: h.access_points.map((x) => (x.id === a.id ? { ...x, ...patch } : x)) });
+    return <div><b>Existing access point {a.id}</b>
+      <Row label="Name"><input value={a.name} onChange={(e) => set({ name: (e.target as HTMLInputElement).value })} /></Row>
+      <Row label="EIRP (dBm: transmit power + antenna gain)"><input type="number" step="0.5" value={a.eirp_dbm} onChange={(e) => set({ eirp_dbm: num((e.target as HTMLInputElement).value, a.eirp_dbm) })} /></Row>
+      <Row label="Height above floor (m)"><input type="number" step="0.1" min="0" value={a.height} onChange={(e) => set({ height: Math.max(0, num((e.target as HTMLInputElement).value, a.height)) })} /></Row>
+      <Row label="BSSIDs (comma separated)"><input value={a.bssids.join(",")} onChange={(e) => set({ bssids: (e.target as HTMLInputElement).value.split(",").map((b) => b.trim().toLowerCase()).filter(Boolean) })} /></Row>
+      <small>Readings from this AP match by BSSID; with exactly one AP, readings without a BSSID count as its.</small>
+      <p>{delBtn}</p></div>;
+  }
+  if (s.kind === "measurement") {
+    const m = h.measurements.find((x) => x.id === s.id);
+    if (!m) return null;
+    const set = (patch: Partial<typeof m>) => onCommit({ ...h, measurements: h.measurements.map((x) => (x.id === m.id ? { ...x, ...patch } : x)) });
+    return <div><b>Reading {m.id}</b>
+      <Row label="RSSI (dBm)"><input type="number" step="1" value={m.rssi ?? ""} onChange={(e) => set({ rssi: num((e.target as HTMLInputElement).value, 0) || null })} /></Row>
+      <Row label="Band"><select value={m.band} onChange={(e) => set({ band: (e.target as HTMLSelectElement).value as typeof m.band })}>{["2.4", "5", "6"].map((b) => <option>{b}</option>)}</select></Row>
+      <Row label="BSSID"><input value={m.bssid ?? ""} onChange={(e) => set({ bssid: (e.target as HTMLInputElement).value.toLowerCase() || null })} /></Row>
+      <p>{delBtn}</p></div>;
+  }
   if (s.kind === "entry" && h.entry) {
     const e = h.entry;
     const set = (patch: Partial<typeof e>) => onCommit({ ...h, entry: { ...e, ...patch } });

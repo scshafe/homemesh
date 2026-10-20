@@ -69,3 +69,11 @@ export const getJob = (id: string) => req<JobState>(`/api/jobs/${id}`);
 export interface RateGrid { level: string; x0: number; y0: number; step: number; nx: number; ny: number; rate: (number | null)[]; serving: number[] }
 export const rateMap = (houseId: string, nodes: NodeSpec[], r: Pick<PlanRequest, "gateway_equipment" | "client" | "trust_unknown_jacks" | "grid">) =>
   req<{ grids: RateGrid[]; problems: string[] }>(`/api/houses/${encodeURIComponent(houseId)}/ratemap`, json({ nodes, ...r }));
+
+export interface ParamFit { mean: number; sd: number; prior_mean: number; prior_sd: number; identified: boolean }
+export interface BandFit { band: string; n_meas: number; n: ParamFit; extra_loss: ParamFit; materials: Record<string, ParamFit>; sigma: number; rmse_train: number; rmse_cv: number | null; bias_cv: number | null; residuals: Record<string, number>; note: string }
+export interface Hint { material: string; level: string; x: number; y: number; units: number }
+export interface CalibrationOut { fits: Record<string, BandFit>; suggestions: Record<string, Hint[]>; calibrated: House | null; access_points: number; measurements: number }
+export const calibrate = (h: House) => req<CalibrationOut>(`/api/houses/${encodeURIComponent(h.id)}/calibrate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(h) });
+export const parseMeasurements = (houseId: string, csv: File, level: string, device: string) =>
+  req<import("./types").Measurement[]>(`/api/houses/${encodeURIComponent(houseId)}/measurements/parse?${new URLSearchParams({ level, device })}`, { method: "POST", body: csv });

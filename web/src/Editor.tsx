@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { blobUrl } from "./api";
-import { addHole, addJack, addOpening, addOutlet, addSwitch, addWall, addZone, hitTest, nearestWall, remove, setEntry, snap, type Ref } from "./edit";
+import { addAccessPoint, addHole, addJack, addOpening, addOutlet, addSwitch, addWall, addZone, hitTest, nearestWall, remove, setEntry, snap, type Ref } from "./edit";
 import type { House, JackType, P2, Prov, Zone } from "./types";
 
 export type UlTool = "ul-scale" | "ul-rotate" | "ul-move" | "ul-check";
-export type Tool = UlTool | "select" | "wall" | "door" | "window" | "jack" | "outlet" | "switch" | "entry" | "zone" | "hole" | "delete";
+export type Tool = UlTool | "select" | "wall" | "door" | "window" | "jack" | "outlet" | "switch" | "entry" | "zone" | "hole" | "ap" | "measure" | "delete";
 export interface Opts { material: string; thickness: number; jackType: JackType; zoneKind: Zone["kind"] }
 
 interface Props {
@@ -14,6 +14,12 @@ interface Props {
   onTwoPoints: (tool: UlTool, a: P2, b: P2) => void;
   /** Provenance for walls drawn now (the active blueprint), if any. */
   traceProv?: Prov;
+  /** A reading is being placed at this plan point (tap-to-place, design section 7). */
+  onMeasure: (level: string, p: P2) => void;
+  /** "Measure here next" spots from the last fit. */
+  hints: { level: string; x: number; y: number; material: string }[];
+  /** Observed minus predicted RSSI per measurement id after a fit, dB. */
+  residuals: Record<string, number>;
 }
 
 const images = new Map<string, HTMLImageElement>();
@@ -100,6 +106,23 @@ export function Editor(p: Props) {
       g.beginPath(); g.moveTo(x, y - 7); g.lineTo(x + 7, y); g.lineTo(x, y + 7); g.lineTo(x - 7, y); g.closePath();
       g.fillStyle = "#7a4fc4"; g.fill(); if (sel({ kind: "switch", id: s.id })) { g.strokeStyle = "#000"; g.lineWidth = 2; g.stroke(); }
     }
+    for (const a of p.house.access_points) if (a.level === p.level) {
+      const x = X(a.position[0]), y = Y(a.position[1]);
+      g.beginPath(); g.arc(x, y, 8, 0, 7); g.fillStyle = "#e8741a"; g.fill();
+      g.strokeStyle = sel({ kind: "ap", id: a.id }) ? "#000" : "#fff"; g.lineWidth = 2; g.stroke();
+      g.fillStyle = "#fff"; g.font = "bold 9px system-ui"; g.textAlign = "center"; g.fillText("AP", x, y + 3); g.textAlign = "left";
+    }
+    for (const m of p.house.measurements) if (m.level === p.level) {
+      const x = X(m.position[0]), y = Y(m.position[1]), r = p.residuals[m.id];
+      g.beginPath(); g.arc(x, y, 5, 0, 7);
+      const t = Math.min(1, Math.max(0, ((m.rssi ?? -90) + 90) / 55));
+      g.fillStyle = `hsl(${t * 120},70%,45%)`; g.fill();
+      g.strokeStyle = sel({ kind: "measurement", id: m.id }) ? "#000" : r === undefined ? "#fff" : Math.abs(r) > 6 ? "#c00" : "#fff"; g.lineWidth = 2; g.stroke();
+    }
+    for (const h of p.hints) if (h.level === p.level) {
+      g.beginPath(); g.arc(X(h.x), Y(h.y), 11, 0, 7); g.strokeStyle = "#e8741a"; g.lineWidth = 2; g.setLineDash([3, 3]); g.stroke(); g.setLineDash([]);
+      g.fillStyle = "#a45"; g.font = "10px system-ui"; g.fillText(`measure (${h.material})`, X(h.x) + 13, Y(h.y) + 3);
+    }
     const e = p.house.entry;
     if (e && e.level === p.level) {
       const x = X(e.position[0]), y = Y(e.position[1]);
@@ -148,6 +171,8 @@ export function Editor(p: Props) {
       case "outlet": p.onCommit(addOutlet(h, L, s)); break;
       case "switch": p.onCommit(addSwitch(h, L, s)); break;
       case "entry": p.onCommit(setEntry(h, L, s)); break;
+      case "ap": p.onCommit(addAccessPoint(h, L, s)); break;
+      case "measure": p.onMeasure(L, w[0] === s[0] && w[1] === s[1] ? w : [Math.round(w[0] * 100) / 100, Math.round(w[1] * 100) / 100]); break;
       case "zone": case "hole": {
         const last = pending[pending.length - 1];
         if (!last || last[0] !== s[0] || last[1] !== s[1]) setPending([...pending, s]);

@@ -24,7 +24,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, jobs, store
+from . import blueprint, calibration, jobs, store
 from .equipment import generic_catalogue, generic_clients
 from pydantic import BaseModel, ValidationError
 
@@ -164,6 +164,42 @@ def create_app() -> FastAPI:
             return jobs.rate_map(h, req)
         except (ValueError, KeyError, TypeError) as e:
             raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/houses/{house_id}/measurements/parse", dependencies=[api])
+    async def parse_measurements(house_id: str, request: Request, level: str | None = None, device: str = "unknown") -> list[dict]:
+        """CSV body to validated measurements (not stored: the editor adds them to the house and saves)."""
+        h = get_house(house_id)
+        try:
+            text = (await request.body()).decode("utf-8-sig")
+            return [m.model_dump(mode="json") for m in calibration.parse_csv(text, h, level, device)]
+        except (calibration.MeasurementParseError, UnicodeDecodeError) as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/houses/{house_id}/calibrate", dependencies=[api])
+    async def calibrate(house_id: str, request: Request) -> dict:
+        """Fit the model to the measurements. Body: the house as the editor has it (unsaved edits
+        included); the saved house when the body is empty. Nothing is stored: `calibrated` is the
+        house with the fit applied, for the owner to accept (it becomes an ordinary edit) or discard."""
+        raw = await request.body()
+        if len(raw) > MAX_BODY:
+            raise HTTPException(413, "house too large")
+        if raw.strip():
+            try:
+                h = House.model_validate_json(raw)
+            except ValidationError as e:
+                raise HTTPException(422, e.errors(include_url=False, include_input=False)) from None
+            if h.id != house_id:
+                raise HTTPException(422, "id does not match the URL")
+            if h.validate_refs():
+                raise HTTPException(422, "invalid house")
+        else:
+            h = get_house(house_id)
+        fits = calibration.fit(h)
+        from dataclasses import asdict
+        out = {band: asdict(f) for band, f in fits.items()}
+        return {"fits": out, "suggestions": {b: calibration.suggest(h, b) for b in fits} if fits else {},
+                "calibrated": calibration.apply(h, fits).model_dump(mode="json") if fits else None,
+                "access_points": len(h.access_points), "measurements": len(h.measurements)}
 
     @app.get("/api/houses/{house_id}/revisions", dependencies=[api])
     def revisions(house_id: str) -> list[int]:
