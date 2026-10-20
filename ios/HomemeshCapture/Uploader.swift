@@ -1,6 +1,7 @@
 import Foundation
 
-/// Uploads a scan to the homemesh backend: the capture JSON first, then the USDZ, both with the bearer token.
+/// Uploads a scan to the homemesh backend: the capture JSON first, then the USDZ, both with the Pocket ID id token as the bearer token
+/// (a fresh one is fetched before each request, so a long first upload cannot outlive the second's token).
 /// The server reads the JSON (homemesh/roomplan.py); the USDZ is kept for display only.
 struct Uploader {
     struct Failure: LocalizedError {
@@ -10,7 +11,8 @@ struct Uploader {
 
     let server: String   // for example https://homemesh.<tailnet>  (no trailing slash needed)
     let house: String
-    let token: String
+    /// Returns a token with at least two minutes left; signs in again if it has to.
+    let token: () async throws -> String
 
     private func url(_ path: String, query: [URLQueryItem] = []) throws -> URL {
         var base = server.trimmingCharacters(in: .whitespaces)
@@ -27,10 +29,14 @@ struct Uploader {
         var r = URLRequest(url: u)
         r.httpMethod = "POST"
         r.setValue(type, forHTTPHeaderField: "Content-Type")
-        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        r.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
         r.timeoutInterval = 300
         let (data, resp) = try await URLSession.shared.upload(for: r, from: body)
         guard let http = resp as? HTTPURLResponse else { throw Failure(message: "No response") }
+        if http.statusCode == 401 || http.statusCode == 302 {
+            Auth.signOut()
+            throw Failure(message: "The door did not accept the sign-in; sign in again")
+        }
         guard (200..<300).contains(http.statusCode) else {
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String ?? ""
             throw Failure(message: "Server said \(http.statusCode) \(detail)")

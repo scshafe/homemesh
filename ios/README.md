@@ -22,12 +22,13 @@ RoomPlan-shaped JSON through the real importer and endpoints.
 
 ## Use
 
-1. Planned sign-in (docs/deploy.md): the app signs in through Pocket ID and
-   sends the id token as a bearer token. **The Swift code still uses the old
-   upload token and is replaced in the next PR**; do not build it for real use
-   before the owner session has made the door and Pocket ID changes.
-2. In the app: server address (`https://homemesh.<tailnet>`) and the house id
-   (the name in the house list).
+1. Sign-in goes through Pocket ID (docs/deploy.md, "The capture app's
+   sign-in"): the owner session first creates the public "homemesh capture"
+   client and changes the door. Needs the client id and Pocket ID's address.
+2. In the app: server address (`https://homemesh.<tailnet>`), the house id (the
+   name in the house list), Pocket ID's address and the capture client id (none
+   of these is a secret). Upload signs you in (passkey, in a system browser
+   sheet) and keeps the id token in the Keychain; Sign out clears it.
 3. Start scanning a room, walk it, Done; repeat for more rooms (several rooms
    are combined with `StructureBuilder` so they share one frame). Upload.
 4. In homemesh: Plan editor, Scans, Import to this level; then Align scan
@@ -43,4 +44,11 @@ RoomPlan-shaped JSON through the real importer and endpoints.
 - The backend reads `walls`, `doors`, `windows`, `openings` (or the same under
   `rooms: [...]`), each surface's `dimensions`, `transform` (4x4, column-major,
   ARKit world frame), `category`, `confidence`, `parentIdentifier`.
+- Refresh tokens: the app asks for `openid profile email` only. If Pocket ID
+  is set to issue refresh tokens to this client, add `offline_access` to the
+  scope in `Auth.swift` and the app renews silently; without it, an expired
+  token means one more tap through Pocket ID.
+- A door that is not accepting the token answers 401, or redirects to its login
+  page (which the app sees as an unexpected answer). A 401 clears the stored token; sign
+  out and in again if an upload keeps failing that way.
 - Sign-in, token expiry and the door settings: `docs/deploy.md`, "The capture app's sign-in".
