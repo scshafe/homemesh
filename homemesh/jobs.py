@@ -18,7 +18,8 @@ from pathlib import Path
 import numpy as np
 
 from . import store
-from .equipment import Equipment, generic_catalogue, generic_clients
+from . import catalogue as cat_mod
+from .equipment import Equipment
 from .calibration import margin_for, params_for
 from .explain import explain
 from .model import House
@@ -72,8 +73,7 @@ def make_config(req: dict, house: House | None = None) -> PlanConfig:
 
 
 def make_context(house: House, req: dict, catalogue: dict[str, Equipment]) -> Context:
-    clients = generic_clients()
-    client = clients.get(req.get("client", "phone-2x2-ax"))
+    client = cat_mod.load().clients.get(req.get("client", "phone-2x2-ax"))
     if client is None:
         raise ValueError("unknown client")
     return Context(house, catalogue, client, params=params_for(house), step=float(min(max(req.get("grid", 1.0), 0.25), 2.0)))
@@ -81,7 +81,7 @@ def make_context(house: House, req: dict, catalogue: dict[str, Equipment]) -> Co
 
 def _run(job: Job, house: House, req: dict) -> None:
     try:
-        cat = generic_catalogue()
+        cat = cat_mod.load().equipment
         cfg = make_config(req, house)
         for name in (cfg.gateway_equipment, *cfg.equipment):
             if name not in cat:
@@ -134,7 +134,7 @@ def rate_map(house: House, req: dict) -> dict:
     """Per-level client-rate grids for a given arrangement (for the comparison view)."""
     from .network import evaluate
 
-    cat = generic_catalogue()
+    cat = cat_mod.load().equipment
     ctx = make_context(house, req, cat)
     cfg = make_config(req, house)
     if house.entry is None:

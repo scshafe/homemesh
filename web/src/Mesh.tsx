@@ -101,8 +101,8 @@ export function Mesh({ house, dirty }: { house: House; dirty: boolean }) {
         </fieldset>
         <fieldset><legend>Node models (none ticked = all)</legend>
           {cat?.equipment.filter((q) => q.kind !== "router").map((q) => <div><label><input type="checkbox" checked={cfg.equipment.includes(q.id)}
-            onChange={(e) => setCfg({ ...cfg, equipment: (e.target as HTMLInputElement).checked ? [...cfg.equipment, q.id] : cfg.equipment.filter((x) => x !== q.id) })} /> {q.name} ({q.price})</label></div>)}
-          <small>Catalogue figures are generic and assumed.</small>
+            onChange={(e) => setCfg({ ...cfg, equipment: (e.target as HTMLInputElement).checked ? [...cfg.equipment, q.id] : cfg.equipment.filter((x) => x !== q.id) })} /> {q.name} ({q.price}) <small style="color:#777" title={q.sources.join(", ")}>{q.origin}{q.assumed ? ", assumed figures" : ""}</small></label></div>)}
+          <small>Generic entries are invented round numbers. Your own models go in the data directory's catalogue folder.</small>
         </fieldset>
         <div><button disabled={busy !== null} onClick={run}>{busy ? "Planning…" : "Find arrangements"}</button>
           {busy && <div style="font-size:12px;color:#555;max-width:300px">{busy.slice(-4).map((l) => <div>{l}</div>)}</div>}

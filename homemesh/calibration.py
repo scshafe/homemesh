@@ -214,7 +214,7 @@ def margin_for(house: House, default: float = 6.0) -> float:
 def suggest(house: House, band: str, k: int = 5, step: float = 1.0) -> list[dict]:
     """Where to measure next: cells of heavy exposure to materials the walk has not pinned down."""
     from .network import Context  # grid helpers
-    from .equipment import generic_catalogue, generic_clients
+    from . import catalogue
 
     if not house.access_points:
         return []
@@ -224,7 +224,8 @@ def suggest(house: House, band: str, k: int = 5, step: float = 1.0) -> list[dict
     if not unidentified:
         return []
     ap = house.access_points[0]
-    ctx = Context(house, generic_catalogue(), next(iter(generic_clients().values())), step=step, rx_height=RX_HEIGHT)
+    cat = catalogue.load()
+    ctx = Context(house, cat.equipment, next(iter(cat.clients.values())), step=step, rx_height=RX_HEIGHT)
     tx = (ap.position[0], ap.position[1], level_z(house)[ap.level] + ap.height)
     ex = exposures(house, tx, ctx.cells, band)  # type: ignore[arg-type]
     have = np.array([[m.position[0], m.position[1]] for m in house.measurements if m.band == band]).reshape(-1, 2)

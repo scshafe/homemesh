@@ -48,6 +48,7 @@ class Equipment(_Base):
     wired_backhaul: bool = True
     price: float = Field(default=0.0, ge=0)
     notes: str = ""
+    sources: list[str] = Field(default_factory=list)  # where the figures came from (spec sheet URLs, "measured by the owner")
 
     def radio(self, band: str) -> Radio | None:
         return next((r for r in self.radios if r.band == band and not r.dedicated_backhaul), None)
@@ -69,6 +70,7 @@ class Client(_Base):
     name: str
     radios: dict[Band, "ClientRadio"]
     noise_figure_db: float = 7.0
+    sources: list[str] = Field(default_factory=list)
 
 
 class ClientRadio(_Base):

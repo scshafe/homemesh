@@ -47,7 +47,7 @@ export const uploadBlueprint = (houseId: string, file: File) =>
   req<Page[]>(`/api/houses/${encodeURIComponent(houseId)}/blueprints`, { method: "POST", body: file });
 export const blobUrl = (houseId: string, digest: string) => `/api/houses/${encodeURIComponent(houseId)}/blobs/${digest}`;
 
-export interface Equip { id: string; name: string; kind: string; price: number; radios: { band: string; dedicated_backhaul: boolean }[]; max_nodes: number | null }
+export interface Equip { id: string; name: string; kind: string; price: number; radios: { band: string; dedicated_backhaul: boolean }[]; max_nodes: number | null; origin: string; assumed: boolean; sources: string[] }
 export interface ClientProfile { id: string; name: string }
 export const loadCatalogue = () => req<{ equipment: Equip[]; clients: ClientProfile[] }>("/api/catalogue");
 
