@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
-    "dev": "vite"
+    "build": "tsc --noEmit && vitest run && vite build",
+    "dev": "vite",
+    "test": "vitest run"
   },
   "dependencies": {
     "preact": "10.26.5",
@@ -15,6 +16,7 @@
     "@preact/preset-vite": "2.10.1",
     "@types/three": "0.176.0",
     "typescript": "5.8.3",
-    "vite": "6.3.5"
+    "vite": "6.3.5",
+    "vitest": "3.1.4"
   }
 }

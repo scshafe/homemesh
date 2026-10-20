@@ -54,6 +54,28 @@ class ApiTest(unittest.TestCase):
         bad = self.c.get("/api/houses/synthetic-box/heatmap?x=2&y=2&level=ZZ", headers=self.ok)
         self.assertEqual(bad.status_code, 422)
 
+    def test_create_edit_conflict(self):
+        r = self.c.post("/api/houses", json={"id": "mine", "name": "Mine"}, headers=self.ok)
+        self.assertEqual(r.status_code, 201)
+        h = r.json()
+        self.assertEqual(h["revision"], 1)
+        self.assertEqual(self.c.post("/api/houses", json={"id": "mine", "name": "x"}, headers=self.ok).status_code, 409)
+        self.assertEqual(self.c.post("/api/houses", json={"id": "../x", "name": "x"}, headers=self.ok).status_code, 422)
+        h["name"] = "Renamed"
+        r = self.c.put("/api/houses/mine?expect_revision=1", json=h, headers=self.ok)
+        self.assertEqual((r.status_code, r.json()["revision"]), (200, 2))
+        r = self.c.put("/api/houses/mine?expect_revision=1", json=h, headers=self.ok)
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(self.c.get("/api/houses/mine/revisions", headers=self.ok).json(), [1, 2])
+
+    def test_put_validation(self):
+        h = self.c.post("/api/houses", json={"id": "v", "name": "V"}, headers=self.ok).json()
+        bad = dict(h, walls=[{"id": "w", "level": "L0", "a": [0, 0], "b": [1, 0], "thickness": 0.1, "height": 2.5, "material": "nope"}])
+        self.assertEqual(self.c.put("/api/houses/v?expect_revision=1", json=bad, headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.put("/api/houses/v?expect_revision=1", json=dict(h, id="other"), headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.put("/api/houses/v?expect_revision=1", json={"junk": 1}, headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.put("/api/houses/v?expect_revision=1", json=h).status_code, 401)
+
     def test_startup_requires_door_or_dev(self):
         del os.environ[api.AUTH_HEADER]
         with self.assertRaises(RuntimeError):
