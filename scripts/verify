@@ -16,3 +16,13 @@ if [ ! -f "$stamp" ] || ! cmp -s requirements.lock "$stamp"; then
 fi
 
 .venv/bin/python -B -m unittest discover -s tests -t . -v
+
+# Front end: type-check and build (node if present, else a node container).
+if command -v node >/dev/null 2>&1; then
+  (cd web && npm ci --no-audit --no-fund --silent && npm run build --silent)
+elif command -v docker >/dev/null 2>&1; then
+  docker run --rm -v "$PWD/web":/w -w /w node:22-slim sh -c 'npm ci --no-audit --no-fund --silent && npm run build --silent'
+else
+  echo "verify: need node or docker to build the front end" >&2
+  exit 1
+fi
