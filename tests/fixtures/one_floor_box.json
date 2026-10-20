@@ -1,0 +1,433 @@
+{
+  "arrangements": [],
+  "entry": {
+    "kind": "modem",
+    "leads_to": null,
+    "level": "L0",
+    "position": [
+      0.5,
+      0.5
+    ],
+    "prov": {
+      "at": null,
+      "confidence": 1.0,
+      "edited": false,
+      "ref": null,
+      "source": "manual"
+    },
+    "wan_down": 1000.0,
+    "wan_up": 1000.0
+  },
+  "id": "synthetic-box",
+  "jacks": [],
+  "levels": [
+    {
+      "elevation": 0.0,
+      "height": 2.5,
+      "id": "L0",
+      "name": "Ground",
+      "slab": null
+    }
+  ],
+  "materials": [
+    {
+      "id": "drywall",
+      "loss": {
+        "2.4": 3.0,
+        "5": 4.0,
+        "6": 5.0
+      },
+      "name": "Drywall",
+      "prior_sd": 2.0,
+      "ref_thickness": 0.1,
+      "source": "unsourced"
+    },
+    {
+      "id": "brick",
+      "loss": {
+        "2.4": 7.0,
+        "5": 9.0,
+        "6": 11.0
+      },
+      "name": "Brick",
+      "prior_sd": 2.0,
+      "ref_thickness": 0.2,
+      "source": "unsourced"
+    },
+    {
+      "id": "wood-door",
+      "loss": {
+        "2.4": 3.0,
+        "5": 4.0,
+        "6": 5.0
+      },
+      "name": "Wooden door",
+      "prior_sd": 2.0,
+      "ref_thickness": 0.04,
+      "source": "unsourced"
+    },
+    {
+      "id": "glass",
+      "loss": {
+        "2.4": 2.0,
+        "5": 3.0,
+        "6": 4.0
+      },
+      "name": "Glass",
+      "prior_sd": 2.0,
+      "ref_thickness": 0.01,
+      "source": "unsourced"
+    },
+    {
+      "id": "slab-wood",
+      "loss": {
+        "2.4": 9.0,
+        "5": 12.0,
+        "6": 14.0
+      },
+      "name": "Wood joist floor",
+      "prior_sd": 2.0,
+      "ref_thickness": 0.3,
+      "source": "unsourced"
+    }
+  ],
+  "measurements": [],
+  "name": "Synthetic box",
+  "outlets": [
+    {
+      "circuit": null,
+      "id": "o0",
+      "level": "L0",
+      "position": [
+        1.0,
+        0.2
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "z": 0.3
+    },
+    {
+      "circuit": null,
+      "id": "o1",
+      "level": "L0",
+      "position": [
+        9.0,
+        7.8
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "z": 0.3
+    }
+  ],
+  "region": "US",
+  "revision": 0,
+  "rooms": [
+    {
+      "id": "r0",
+      "kind": "room",
+      "level": "L0",
+      "name": "West",
+      "polygon": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          5.0,
+          0.0
+        ],
+        [
+          5.0,
+          8.0
+        ],
+        [
+          0.0,
+          8.0
+        ]
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      }
+    },
+    {
+      "id": "r1",
+      "kind": "room",
+      "level": "L0",
+      "name": "East",
+      "polygon": [
+        [
+          5.0,
+          0.0
+        ],
+        [
+          10.0,
+          0.0
+        ],
+        [
+          10.0,
+          8.0
+        ],
+        [
+          5.0,
+          8.0
+        ]
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      }
+    }
+  ],
+  "schema_version": 1,
+  "slab_holes": [],
+  "stairs": [],
+  "switches": [],
+  "synthetic": true,
+  "walls": [
+    {
+      "a": [
+        0.0,
+        0.0
+      ],
+      "b": [
+        10.0,
+        0.0
+      ],
+      "base_z": 0.0,
+      "height": 2.5,
+      "id": "e0",
+      "level": "L0",
+      "material": "brick",
+      "material_defaulted": false,
+      "openings": [],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "thickness": 0.2,
+      "thickness_defaulted": false
+    },
+    {
+      "a": [
+        10.0,
+        0.0
+      ],
+      "b": [
+        10.0,
+        8.0
+      ],
+      "base_z": 0.0,
+      "height": 2.5,
+      "id": "e1",
+      "level": "L0",
+      "material": "brick",
+      "material_defaulted": false,
+      "openings": [],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "thickness": 0.2,
+      "thickness_defaulted": false
+    },
+    {
+      "a": [
+        10.0,
+        8.0
+      ],
+      "b": [
+        0.0,
+        8.0
+      ],
+      "base_z": 0.0,
+      "height": 2.5,
+      "id": "e2",
+      "level": "L0",
+      "material": "brick",
+      "material_defaulted": false,
+      "openings": [],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "thickness": 0.2,
+      "thickness_defaulted": false
+    },
+    {
+      "a": [
+        0.0,
+        8.0
+      ],
+      "b": [
+        0.0,
+        0.0
+      ],
+      "base_z": 0.0,
+      "height": 2.5,
+      "id": "e3",
+      "level": "L0",
+      "material": "brick",
+      "material_defaulted": false,
+      "openings": [],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "thickness": 0.2,
+      "thickness_defaulted": false
+    },
+    {
+      "a": [
+        5.0,
+        0.0
+      ],
+      "b": [
+        5.0,
+        8.0
+      ],
+      "base_z": 0.0,
+      "height": 2.5,
+      "id": "p0",
+      "level": "L0",
+      "material": "drywall",
+      "material_defaulted": false,
+      "openings": [
+        {
+          "height": 2.0,
+          "kind": "door",
+          "material": "wood-door",
+          "offset": 3.5,
+          "prov": {
+            "at": null,
+            "confidence": 1.0,
+            "edited": false,
+            "ref": null,
+            "source": "manual"
+          },
+          "sill": 0.0,
+          "state": "closed",
+          "width": 0.9
+        }
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "thickness": 0.1,
+      "thickness_defaulted": false
+    }
+  ],
+  "zones": [
+    {
+      "heights": [],
+      "id": "z-allow",
+      "kind": "allow",
+      "level": "L0",
+      "mounts": [],
+      "name": "",
+      "need": null,
+      "polygon": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          10.0,
+          0.0
+        ],
+        [
+          10.0,
+          8.0
+        ],
+        [
+          0.0,
+          8.0
+        ]
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "requires": "outlet",
+      "weight": 1.0
+    },
+    {
+      "heights": [],
+      "id": "z-office",
+      "kind": "demand",
+      "level": "L0",
+      "mounts": [],
+      "name": "Office",
+      "need": {
+        "band_pref": null,
+        "max_latency": null,
+        "min_rssi": null,
+        "min_throughput": 300.0,
+        "must": true,
+        "rx_height": 1.0
+      },
+      "polygon": [
+        [
+          6.0,
+          4.0
+        ],
+        [
+          9.0,
+          4.0
+        ],
+        [
+          9.0,
+          7.0
+        ],
+        [
+          6.0,
+          7.0
+        ]
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "requires": "none",
+      "weight": 3.0
+    }
+  ]
+}
