@@ -22,10 +22,12 @@ RoomPlan-shaped JSON through the real importer and endpoints.
 
 ## Use
 
-1. On the server, create an upload token (the owner session runs it in the
-   container): `python -m homemesh.tokens create iphone`. It is printed once.
-2. In the app: server address (`https://homemesh.<tailnet>`), the house id (the
-   name in the house list), the token. The token is kept in the Keychain.
+1. Planned sign-in (docs/deploy.md): the app signs in through Pocket ID and
+   sends the id token as a bearer token. **The Swift code still uses the old
+   upload token and is replaced in the next PR**; do not build it for real use
+   before the owner session has made the door and Pocket ID changes.
+2. In the app: server address (`https://homemesh.<tailnet>`) and the house id
+   (the name in the house list).
 3. Start scanning a room, walk it, Done; repeat for more rooms (several rooms
    are combined with `StructureBuilder` so they share one frame). Upload.
 4. In homemesh: Plan editor, Scans, Import to this level; then Align scan
@@ -37,9 +39,8 @@ RoomPlan-shaped JSON through the real importer and endpoints.
 - `POST /api/houses/<house>/captures?name=...` with the encoded `CapturedRoom`
   (one room) or `CapturedStructure` (several) as the JSON body, then
   `POST .../captures/<id>/usdz` with the exported USDZ. Both carry
-  `Authorization: Bearer <token>`; the token is good for these two endpoints only.
+  `Authorization: Bearer <id token>`; the door verifies it and sets the identity header.
 - The backend reads `walls`, `doors`, `windows`, `openings` (or the same under
   `rooms: [...]`), each surface's `dimensions`, `transform` (4x4, column-major,
   ARKit world frame), `category`, `confidence`, `parentIdentifier`.
-- The upload path through the door must be reachable without the browser login
-  (the app cannot do it): that is a door setting for the owner session.
+- Sign-in, token expiry and the door settings: `docs/deploy.md`, "The capture app's sign-in".

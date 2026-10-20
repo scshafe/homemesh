@@ -57,13 +57,81 @@ export HOMEMESH_DATA=$(mktemp -d) HOMEMESH_DEV=1
 # front end with hot reload: cd web && npm install && npm run dev
 ```
 
-## The capture app's upload path (owner session)
+## The capture app's sign-in (owner session)
 
-The iOS app (`ios/`) uploads scans with a bearer token instead of the door's
-browser login. The backend accepts the token for `POST /api/houses/<id>/captures`
-and `POST /api/houses/<id>/captures/<id>/usdz` only (and still only from the
-door's address). For the app to get there, the door must pass requests to those
-two paths without the OIDC login (a skip-auth route like `/api/health`), and the
-reverse proxy must allow bodies up to about 200 MB. Tokens: `python -m
-homemesh.tokens create|revoke|list` inside the container (stored hashed in
-`/data/tokens.json`).
+Decision (2026-10-20): the iOS app signs in through Pocket ID and uploads through
+the normal door. No route skips the door and the backend has no upload token.
+The app does the OIDC authorization-code flow with PKCE as a public client,
+and sends `Authorization: Bearer <id token>` on every upload. The door
+(oauth2-proxy) accepts a Pocket ID-issued JWT as a bearer token and sets
+`X-Forwarded-User` exactly as it does for a browser session, so the backend
+sees one kind of caller. The app never reads `Authorization`.
+
+```
+app --ASWebAuthenticationSession, PKCE S256--> Pocket ID  (user passkey login)
+app <--homemesh-capture://oauth?code=...-------
+app --code + verifier--> Pocket ID token endpoint --> id token (JWT)
+app --POST /api/... Authorization: Bearer <id token>--> tailscale serve --> oauth2-proxy
+oauth2-proxy: verifies signature, issuer, audience, expiry, allowed user --> X-Forwarded-User --> homemesh
+```
+
+### What the owner session must change
+
+In Pocket ID:
+
+1. Create an OIDC client "homemesh capture": **public client** (no secret), PKCE
+   on, callback URL `homemesh-capture://oauth` (the app's custom scheme).
+   Note its client id (not a secret).
+2. Allow only the owner's user group for it, as for the web client.
+3. Scopes: `openid profile email`. If this Pocket ID version can issue refresh
+   tokens to public clients, enable that (see "Token expiry"); if not, leave
+   it, the app falls back to signing in again.
+
+On the door (oauth2-proxy):
+
+4. `--skip-jwt-bearer-tokens=true`.
+5. Pin the issuer and the audience: the main `--oidc-issuer-url` stays as is;
+   accept the app's tokens with `--extra-jwt-issuers=<pocket-id-issuer-url>=<capture-client-id>`
+   (or `--oidc-extra-audiences=<capture-client-id>` if the installed version
+   prefers it; check against the deployed oauth2-proxy version). Do not set
+   `--insecure-oidc-skip-issuer-verification`. A token for any other issuer or
+   client id must get 401.
+6. Make sure the same authorization applies to bearer sessions as to browser
+   ones (the allowed user, email or group setting), and that the user claim
+   that becomes `X-Forwarded-User` is the same one (`--user-id-claim`) so the
+   audit identity is identical.
+7. Do not forward the `Authorization` header to homemesh (leave
+   `--pass-authorization-header` off) and keep stripping client-supplied
+   `X-Forwarded-*`.
+8. Remove the skip-auth route for the capture paths, if one was added.
+9. Body size and timeouts for the USDZ upload (up to 200 MB, see below):
+   oauth2-proxy streams request bodies and has no body limit of its own; raise
+   `--upstream-timeout` (default 30 s) to at least 600 s; if anything else sits
+   between (a Caddy or nginx), allow 200 MB and a 600 s read timeout there.
+   `tailscale serve` is a plain TCP/HTTP reverse proxy and sets no body limit;
+   check that a 200 MB POST passes end to end (step 11).
+
+Then check (the app is not needed for these; a token from a test client works):
+
+10. No token: 302/401 as before. A token from the wrong client id, wrong issuer
+    or expired: 401. A valid token of another Pocket ID user: refused.
+11. A valid token with a 200 MB body to
+    `POST /api/houses/<house>/captures/<id>/usdz` reaches the backend (a 422
+    "not a USDZ" for junk is the success signal); the backend's limits are
+    30 MB for the capture JSON and 200 MB for the USDZ.
+
+### Token expiry
+
+- The id token is short-lived (Pocket ID default about one hour). The door
+  checks `exp` when a request starts; a transfer that began in time is not cut
+  off mid-body.
+- The app checks `exp` before every request and refuses to start one with less
+  than two minutes left. With a refresh token it refreshes silently; without
+  one it re-runs the authorization flow (Pocket ID's browser session usually
+  makes this one tap). The JSON and the USDZ are two requests, each checked.
+- A 401 from the door during upload is shown as "sign in again", the scan is
+  kept on the device until an upload succeeds, and the upload retries after
+  sign-in.
+- Tokens are stored only in the Keychain; the app stores no password and no
+  long-lived upload secret, so there is nothing to revoke except the Pocket ID
+  client or the user's session.
