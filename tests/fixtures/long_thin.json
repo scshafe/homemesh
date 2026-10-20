@@ -1,5 +1,7 @@
 {
+  "access_points": [],
   "arrangements": [],
+  "calibration": null,
   "entry": {
     "kind": "modem",
     "leads_to": null,
@@ -126,6 +128,7 @@
   "stairs": [],
   "switches": [],
   "synthetic": true,
+  "underlays": [],
   "walls": [
     {
       "a": [
@@ -264,6 +267,42 @@
         [
           26.0,
           3.0
+        ]
+      ],
+      "prov": {
+        "at": null,
+        "confidence": 1.0,
+        "edited": false,
+        "ref": null,
+        "source": "manual"
+      },
+      "requires": "none",
+      "weight": 1.0
+    },
+    {
+      "heights": [],
+      "id": "z-allow",
+      "kind": "allow",
+      "level": "L0",
+      "mounts": [],
+      "name": "",
+      "need": null,
+      "polygon": [
+        [
+          1.0,
+          0.5
+        ],
+        [
+          29.0,
+          0.5
+        ],
+        [
+          29.0,
+          3.5
+        ],
+        [
+          1.0,
+          3.5
         ]
       ],
       "prov": {

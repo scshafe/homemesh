@@ -83,7 +83,8 @@ def long_thin() -> House:
         materials=_materials(), walls=_box("e", "L0", 0, 0, 30, 4, "brick", 0.2),
         entry=Entry(position=(0.5, 2), level="L0"),
         zones=[Zone(id="z-far", level="L0", kind="demand", polygon=[(26, 1), (29, 1), (29, 3), (26, 3)],
-                    need=Need(min_throughput=200))],
+                    need=Need(min_throughput=200)),
+               Zone(id="z-allow", level="L0", kind="allow", polygon=[(1, 0.5), (29, 0.5), (29, 3.5), (1, 3.5)])],
     )
 
 
@@ -94,7 +95,7 @@ def wired_ends() -> House:
         "id": "synthetic-wired", "name": "Synthetic wired ends",
         "switches": [Switch(id="sw0", position=(0.6, 3), level="L0", uplink="entry")],
         "jacks": [Jack(id="j0", position=(0.2, 3), level="L0", wall="e3", type="cat6", state="live", switch="sw0", poe=True),
-                  Jack(id="j1", position=(29.8, 1), level="L0", wall="e1", type="cat5e", state="unknown", leads_to="switch sw0")],
+                  Jack(id="j1", position=(29.8, 1), level="L0", wall="e1", type="cat5e", state="unknown", leads_to="switch sw0", switch="sw0")],
     })
 
 

@@ -195,6 +195,50 @@ class Zone(_Base):
         return self
 
 
+class Underlay(_Base):
+    """A blueprint image under the plan of one level (design section 11).
+
+    World position of image pixel (u, v), v down: origin + R(rotation) * (scale*u, -scale*v).
+    `blob` is a PNG in the house's blob store (the upload is re-encoded, so no metadata survives).
+    """
+
+    id: str
+    level: str
+    blob: str = Field(pattern=r"^[0-9a-f]{64}$")
+    width_px: int = Field(gt=0)
+    height_px: int = Field(gt=0)
+    scale: float = Field(gt=0)  # metres per pixel
+    rotation: float = 0.0  # degrees, counter-clockwise in the plan
+    origin: Point2 = (0.0, 0.0)  # world position of the top-left pixel
+    opacity: float = Field(default=0.5, ge=0.0, le=1.0)
+    scaled: bool = False  # true once the owner has set the scale from a known dimension
+    name: str = ""
+    prov: Prov = Field(default_factory=lambda: Prov(source="blueprint"))
+
+
+class AccessPoint(_Base):
+    """The house's existing access point: the known source for calibration walks."""
+
+    id: str
+    name: str = ""
+    position: Point2
+    level: str
+    height: float = Field(default=1.5, ge=0)
+    eirp_dbm: float = 23.0  # transmit power plus antenna gain; the fit absorbs an error in it as extra loss
+    bssids: list[str] = Field(default_factory=list)  # one per band/radio, as the device reports them
+    prov: Prov = Field(default_factory=manual)
+
+
+class Calibration(_Base):
+    """What the last accepted fit changed (design section 7)."""
+
+    at: datetime | None = None
+    n: dict[Band, float] = Field(default_factory=dict)
+    extra_loss_db: dict[Band, float] = Field(default_factory=dict)
+    rmse_cv: dict[Band, float | None] = Field(default_factory=dict)  # held-out error by area
+    n_measurements: dict[Band, int] = Field(default_factory=dict)
+
+
 class Measurement(_Base):
     id: str
     position: Point2
@@ -242,6 +286,9 @@ class House(_Base):
     jacks: list[Jack] = Field(default_factory=list)
     outlets: list[Outlet] = Field(default_factory=list)
     zones: list[Zone] = Field(default_factory=list)
+    underlays: list[Underlay] = Field(default_factory=list)
+    access_points: list[AccessPoint] = Field(default_factory=list)
+    calibration: Calibration | None = None
     measurements: list[Measurement] = Field(default_factory=list)
     arrangements: list[Arrangement] = Field(default_factory=list)
 
@@ -313,6 +360,13 @@ class House(_Base):
             lv(f"outlet {o.id}", o.level)
         for z in self.zones:
             lv(f"zone {z.id}", z.level)
+        dupes("underlay", [x.id for x in self.underlays])
+        dupes("access point", [x.id for x in self.access_points])
+        dupes("measurement", [x.id for x in self.measurements])
+        for a in self.access_points:
+            lv(f"access point {a.id}", a.level)
+        for u in self.underlays:
+            lv(f"underlay {u.id}", u.level)
         for m in self.measurements:
             lv(f"measurement {m.id}", m.level)
         for a in self.arrangements:

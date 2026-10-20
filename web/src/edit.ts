@@ -1,10 +1,10 @@
 // Pure editing operations on a House: no DOM, no network. Each returns a new
 // House (shallow-copied along the changed path) so history is a stack of values.
-import type { House, JackType, Opening, P2, Prov, Wall, Zone } from "./types";
+import type { AccessPoint, House, JackType, Measurement, Opening, P2, Prov, Underlay, Wall, Zone } from "./types";
 
 export const manual: Prov = { source: "manual" };
 
-export type Kind = "wall" | "jack" | "outlet" | "switch" | "zone" | "hole";
+export type Kind = "wall" | "jack" | "outlet" | "switch" | "zone" | "hole" | "ap" | "measurement";
 export type Ref = { kind: Kind; id: string } | { kind: "entry" } | { kind: "opening"; wall: string; index: number };
 
 export function nextId(prefix: string, taken: Iterable<string>): string {
@@ -43,11 +43,11 @@ export function nearestWall(h: House, level: string, p: P2, max = 0.4): { wall: 
 
 export const wallLength = (w: Wall) => dist(w.a, w.b);
 
-export function addWall(h: House, level: string, a: P2, b: P2, material: string, thickness: number): House {
+export function addWall(h: House, level: string, a: P2, b: P2, material: string, thickness: number, prov: Prov = manual): House {
   if (dist(a, b) < 0.05) return h;
   const w: Wall = {
     id: nextId("w", h.walls.map((x) => x.id)), level, a, b, thickness, height: levelOf(h, level).height,
-    base_z: 0, material, openings: [], prov: manual,
+    base_z: 0, material, openings: [], prov,
   };
   return { ...h, walls: [...h.walls, w] };
 }
@@ -113,6 +113,30 @@ export function addHole(h: House, level: string, polygon: P2[]): House {
   return { ...h, slab_holes: [...h.slab_holes, { id: nextId("h", h.slab_holes.map((x) => x.id)), level, polygon, prov: manual }] };
 }
 
+export function addUnderlay(h: House, u: Underlay): House {
+  return { ...h, underlays: [...h.underlays, u] };
+}
+
+export function mapUnderlay(h: House, id: string, f: (u: Underlay) => Underlay): House {
+  return { ...h, underlays: h.underlays.map((u) => (u.id === id ? f(u) : u)) };
+}
+
+export function removeUnderlay(h: House, id: string): House {
+  return { ...h, underlays: h.underlays.filter((u) => u.id !== id) };
+}
+
+export function addAccessPoint(h: House, level: string, p: P2): House {
+  const ap: AccessPoint = { id: nextId("ap", h.access_points.map((x) => x.id)), name: "", position: p, level, height: 1.5, eirp_dbm: 23, bssids: [], prov: manual };
+  return { ...h, access_points: [...h.access_points, ap] };
+}
+
+export function addMeasurements(h: House, ms: Measurement[]): House {
+  const taken = new Set(h.measurements.map((m) => m.id));
+  let n = 1;
+  const fresh = ms.map((m) => { while (taken.has(`m${n}`)) n++; taken.add(`m${n}`); return { ...m, id: `m${n}` }; });
+  return fresh.length ? { ...h, measurements: [...h.measurements, ...fresh] } : h;
+}
+
 export function addLevel(h: House, name: string, height = 2.5, slabMaterial = "slab-wood"): House {
   const top = h.levels.reduce((m, l) => Math.max(m, l.elevation + l.height), 0);
   const slabT = 0.3;
@@ -135,6 +159,8 @@ export function remove(h: House, r: Ref): House {
       };
     case "zone": return { ...h, zones: h.zones.filter((z) => z.id !== r.id) };
     case "hole": return { ...h, slab_holes: h.slab_holes.filter((x) => x.id !== r.id) };
+    case "ap": return { ...h, access_points: h.access_points.filter((a) => a.id !== r.id) };
+    case "measurement": return { ...h, measurements: h.measurements.filter((m) => m.id !== r.id) };
     case "entry": return { ...h, entry: null };
     case "opening":
       return mapWall(h, r.wall, (w) => ({ ...w, openings: w.openings.filter((_, i) => i !== r.index) }));
@@ -162,6 +188,8 @@ export function hitTest(h: House, level: string, p: P2, tol: number): Ref | null
     ...h.jacks.filter((j) => j.level === level).map((j): [Ref, P2] => [{ kind: "jack", id: j.id }, j.position]),
     ...h.outlets.filter((o) => o.level === level).map((o): [Ref, P2] => [{ kind: "outlet", id: o.id }, o.position]),
     ...h.switches.filter((s) => s.level === level).map((s): [Ref, P2] => [{ kind: "switch", id: s.id }, s.position]),
+    ...h.access_points.filter((a) => a.level === level).map((a): [Ref, P2] => [{ kind: "ap", id: a.id }, a.position]),
+    ...h.measurements.filter((m) => m.level === level).map((m): [Ref, P2] => [{ kind: "measurement", id: m.id }, m.position]),
   ];
   if (h.entry && h.entry.level === level) pts.push([{ kind: "entry" }, h.entry.position]);
   let best: Ref | null = null, bd = tol;

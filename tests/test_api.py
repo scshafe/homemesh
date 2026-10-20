@@ -12,10 +12,11 @@ from homemesh import api, fixtures, seed, store
 class ApiTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self._env = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST)}
+        self._env = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST, api.DOOR_ADDR)}
         os.environ[store.ENV] = self._tmp.name
         os.environ[api.AUTH_HEADER] = "X-Door-User"
         os.environ.pop(api.DEV, None)
+        os.environ[api.DOOR_ADDR] = "testclient"  # the TestClient peer plays the door
         os.environ[api.WEB_DIST] = os.path.join(self._tmp.name, "no-dist")
         seed.main()
         self.c = TestClient(api.create_app())
@@ -28,6 +29,14 @@ class ApiTest(unittest.TestCase):
             else:
                 os.environ[k] = v
         self._tmp.cleanup()
+
+    def test_only_the_door_may_call_api(self):
+        os.environ[api.DOOR_ADDR] = "10.253.93.10"
+        c = TestClient(api.create_app())
+        self.assertEqual(c.get("/api/houses", headers=self.ok).status_code, 403)  # right header, wrong peer
+        self.assertEqual(c.get("/api/health").status_code, 200)
+        os.environ.pop(api.DOOR_ADDR)
+        self.assertEqual(TestClient(api.create_app()).get("/api/houses", headers=self.ok).status_code, 403)  # the default is the door too
 
     def test_health_open(self):
         self.assertEqual(self.c.get("/api/health").json(), {"ok": True})
@@ -92,3 +101,91 @@ class ApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _PlanBase(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._env = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST, api.DOOR_ADDR)}
+        os.environ[store.ENV] = self._tmp.name
+        os.environ[api.AUTH_HEADER] = "X-Door-User"
+        os.environ.pop(api.DEV, None)
+        os.environ[api.DOOR_ADDR] = "testclient"  # the TestClient peer plays the door
+        os.environ[api.WEB_DIST] = os.path.join(self._tmp.name, "none")
+        seed.main()
+        self.c = TestClient(api.create_app())
+        self.ok = {"X-Door-User": "o"}
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        self._tmp.cleanup()
+
+    def wait(self, job):
+        import time
+        for _ in range(600):
+            r = self.c.get(f"/api/jobs/{job}", headers=self.ok).json()
+            if r["state"] != "running":
+                return r
+            time.sleep(0.1)
+        self.fail("job did not finish")
+
+
+class PlanApiTest(_PlanBase):
+    def test_catalogue(self):
+        r = self.c.get("/api/catalogue", headers=self.ok).json()
+        self.assertTrue(r["equipment"] and r["clients"])
+        self.assertEqual(self.c.get("/api/catalogue").status_code, 401)
+
+    def test_plan_needs_rules(self):
+        r = self.c.post("/api/houses/synthetic-two-floor/plans", json={}, headers=self.ok)
+        self.assertEqual(r.status_code, 422)  # no allow zone
+        self.assertEqual(self.c.post("/api/houses/synthetic-long/plans", json={}).status_code, 401)
+
+    def test_plan_job_and_ratemap(self):
+        r = self.c.post("/api/houses/synthetic-long/plans",
+                        json={"k_max": 1, "equipment": ["generic-mesh-tri"], "gateway_equipment": "generic-mesh-tri", "candidate_step": 4, "grid": 2},
+                        headers=self.ok)
+        self.assertEqual(r.status_code, 202)
+        done = self.wait(r.json()["job"])
+        self.assertEqual(done["state"], "done", done.get("error"))
+        res = done["result"]["results"]
+        self.assertTrue(res and res[0]["valid"])
+        self.assertIn("explanation", res[0])
+        self.assertTrue(any(x["pareto"] for x in res))
+        rm = self.c.post("/api/houses/synthetic-long/ratemap",
+                         json={"nodes": res[-1]["nodes"], "gateway_equipment": "generic-mesh-tri", "grid": 2}, headers=self.ok).json()
+        self.assertEqual(rm["grids"][0]["level"], "L0")
+        self.assertEqual(len(rm["grids"][0]["rate"]), rm["grids"][0]["nx"] * rm["grids"][0]["ny"])
+        bad = self.c.post("/api/houses/synthetic-long/ratemap", json={"nodes": [{"equipment": "x", "position": [1, 1], "level": "L0", "height": 1}]}, headers=self.ok)
+        self.assertEqual(bad.status_code, 422)
+
+    def test_unknown_equipment_is_an_error_state(self):
+        r = self.c.post("/api/houses/synthetic-long/plans", json={"equipment": ["nope"]}, headers=self.ok)
+        done = self.wait(r.json()["job"])
+        self.assertEqual(done["state"], "error")
+        self.assertIn("unknown equipment", done["error"])
+
+
+class CalibrationApiTest(_PlanBase):
+    def make(self):
+        from tests.test_calibration import house, synth
+        h = house()
+        h.measurements = synth(h, n=40, bands=("5",))
+        return h
+
+    def test_parse_and_calibrate(self):
+        h = self.make()
+        self.c.post("/api/houses", json={"id": "cal", "name": "cal"}, headers=self.ok)
+        csv = "x,y,band,rssi\n1,1,5,-60\n"
+        self.assertEqual(self.c.post("/api/houses/cal/measurements/parse", content=csv, headers=self.ok).json()[0]["id"], "m1")
+        self.assertEqual(self.c.post("/api/houses/cal/measurements/parse", content="junk", headers=self.ok).status_code, 422)
+        r = self.c.post("/api/houses/cal/calibrate", content=h.model_copy(update={"id": "cal"}).model_dump_json(), headers=self.ok)
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertIn("5", body["fits"])
+        self.assertEqual(body["calibrated"]["calibration"]["n_measurements"]["5"], 40)
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=b"", headers=self.ok).json()["fits"], {})
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=h.model_copy(update={"id": "other"}).model_dump_json(), headers=self.ok).status_code, 422)  # id mismatch
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=b"{}", headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=b"").status_code, 401)

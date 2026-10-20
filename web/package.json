@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "preact": "10.26.5",
+    "preact": "10.29.8",
     "three": "0.176.0"
   },
   "devDependencies": {

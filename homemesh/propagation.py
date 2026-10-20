@@ -34,6 +34,8 @@ class Params:
     """Per-band model parameters; the calibration (M7) fits these."""
 
     n: dict[str, float] = field(default_factory=lambda: {"2.4": 2.0, "5": 2.0, "6": 2.0})
+    # calibration: dB added to every path loss in the band (clutter, device and body loss, antenna error)
+    extra_loss: dict[str, float] = field(default_factory=lambda: {"2.4": 0.0, "5": 0.0, "6": 0.0})
 
 
 @dataclass(frozen=True)
@@ -106,11 +108,10 @@ def _slab_holes(house: House, level: str) -> list[list[tuple[float, float]]]:
     return polys
 
 
-def terms(house: House, tx: tuple[float, float, float], rx: np.ndarray, band: Band) -> Iterator[tuple[str, str, np.ndarray]]:
-    """Yield (kind, element id, loss in dB per receiver) for every wall and slab
-    that costs something. `tx` is (x, y, z) absolute; `rx` is (N, 3) absolute.
-    Only the sum is physical; the pieces are what the planner explains.
-    """
+def _walk(house: House, tx: tuple[float, float, float], rx: np.ndarray, band: Band):
+    """Yield (kind, element id, [(material id, loss dB per receiver), ...]) for every wall and
+    slab the segment tx-rx crosses, with the loss split by the material that causes it (a wall's
+    own material, and each opening's material where the ray passes through the opening)."""
     mats = _mat(house)
     elev = level_z(house)
     n = len(rx)
@@ -142,15 +143,20 @@ def terms(house: House, tx: tuple[float, float, float], rx: np.ndarray, band: Ba
             cos_t = np.abs((d[:, 0] * -ey + d[:, 1] * ex) / (np.where(dlen > 0, dlen, 1.0) * wlen))
         cos_t = np.clip(cos_t, _COS_MAX_INCIDENCE, 1.0)
         wall_db = _loss(mats, w.material, band) * (w.thickness / cos_t) / _ref(mats, w.material)
-        loss = np.where(hit, wall_db, 0.0)
         along = u * wlen
         zrel = z - floor
+        remaining = hit.copy()
+        parts: list[tuple[str, np.ndarray]] = []
         for o in w.openings:
-            inside = hit & (along >= o.offset) & (along <= o.offset + o.width) & (zrel >= o.sill) & (zrel <= o.sill + o.height)
-            op_db = 0.0 if o.state == "open" else _loss(mats, o.material, band)
-            loss = np.where(inside, op_db, loss)
-        if loss.any():
-            yield "wall", w.id, loss
+            inside = remaining & (along >= o.offset) & (along <= o.offset + o.width) & (zrel >= o.sill) & (zrel <= o.sill + o.height)
+            if inside.any():
+                op_db = 0.0 if o.state == "open" else _loss(mats, o.material, band)
+                if op_db:
+                    parts.append((o.material, np.where(inside, op_db, 0.0)))
+                remaining &= ~inside
+        parts.insert(0, (w.material, np.where(remaining, wall_db, 0.0)))
+        if any(arr.any() for _, arr in parts):
+            yield "wall", w.id, parts
 
     # slabs: each level boundary the segment crosses, outside every hole
     for lv in house.levels:
@@ -169,13 +175,39 @@ def terms(house: House, tx: tuple[float, float, float], rx: np.ndarray, band: Ba
         db = _loss(mats, lv.slab.material, band) * lv.slab.thickness / _ref(mats, lv.slab.material)
         loss = np.where(crossing & ~in_hole, db, 0.0)
         if loss.any():
-            yield "slab", lv.id, loss
+            yield "slab", lv.id, [(lv.slab.material, loss)]
+
+
+def terms(house: House, tx: tuple[float, float, float], rx: np.ndarray, band: Band) -> Iterator[tuple[str, str, np.ndarray]]:
+    """Yield (kind, element id, loss in dB per receiver) for every wall and slab
+    that costs something. `tx` is (x, y, z) absolute; `rx` is (N, 3) absolute.
+    Only the sum is physical; the pieces are what the planner explains.
+    """
+    for kind, ident, parts in _walk(house, tx, rx, band):
+        total = parts[0][1]
+        for _, arr in parts[1:]:
+            total = total + arr
+        yield kind, ident, total
+
+
+def exposures(house: House, tx: tuple[float, float, float], rx: np.ndarray, band: Band) -> dict[str, np.ndarray]:
+    """Per material, how many reference-thickness units of it each segment tx-rx crosses.
+
+    Path loss is linear in the material losses: loss = sum_m exposure_m * L_m. This is what
+    calibration regresses on. Computed by running the same geometry with every loss set to 1 dB.
+    """
+    unit = house.model_copy(update={"materials": [m.model_copy(update={"loss": {b: 1.0 for b in m.loss}}) for m in house.materials]})
+    out: dict[str, np.ndarray] = {}
+    for _, _, parts in _walk(unit, tx, rx, band):
+        for mid, arr in parts:
+            out[mid] = out.get(mid, 0.0) + arr
+    return out
 
 
 def path_loss(house: House, tx: tuple[float, float, float], rx: np.ndarray, band: Band, params: Params = Params()) -> np.ndarray:
     """Total path loss in dB from absolute point `tx` to each row of `rx` (N, 3)."""
     d = np.sqrt(((rx - np.array(tx)) ** 2).sum(axis=1))
-    total = free_space_1m(band) + 10.0 * params.n[band] * np.log10(np.maximum(d, 1.0))
+    total = free_space_1m(band) + params.extra_loss[band] + 10.0 * params.n[band] * np.log10(np.maximum(d, 1.0))
     for _, _, loss in terms(house, tx, rx, band):
         total = total + loss
     return total

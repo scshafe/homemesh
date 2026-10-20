@@ -1,5 +1,7 @@
 {
+  "access_points": [],
   "arrangements": [],
+  "calibration": null,
   "entry": {
     "kind": "modem",
     "leads_to": null,
@@ -224,6 +226,7 @@
   "stairs": [],
   "switches": [],
   "synthetic": true,
+  "underlays": [],
   "walls": [
     {
       "a": [
