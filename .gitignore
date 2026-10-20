@@ -1,0 +1,51 @@
+# House data never enters git (docs/brief.md): it lives outside the repository.
+/data/
+data/
+
+# Capture formats: scans, RoomPlan exports, photos, video, blueprints.
+*.usdz
+*.usd
+*.usda
+*.usdc
+*.obj
+*.ply
+*.e57
+*.las
+*.laz
+*.glb
+*.gltf
+*.mov
+*.mp4
+*.m4v
+*.heic
+*.heif
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.dng
+*.raw
+*.dwg
+*.dxf
+*.pdf
+# Images and PDFs the docs need are allowed under docs/ (never a real house).
+!docs/**/*.pdf
+!docs/**/*.png
+!docs/**/*.jpg
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+/build/
+/dist/
+
+# Node (the web front end)
+node_modules/
+
+.DS_Store
+*.log
+.env

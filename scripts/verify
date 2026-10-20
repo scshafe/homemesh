@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# The repository's one verify command (dev.toml [verify]): run every Python
+# test with the standard library's unittest. CI runs the same command.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+python3 -B -m unittest discover -s tests -t . -v
