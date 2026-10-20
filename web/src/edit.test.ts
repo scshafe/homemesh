@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { addUnderlay, removeUnderlay, History, addHole, addJack, addLevel, addOpening, addWall, addZone, hitTest, nearestWall, nextId, remove, setEntry, snap } from "./edit";
+import { addAccessPoint, addMeasurements, addUnderlay, removeUnderlay, History, addHole, addJack, addLevel, addOpening, addWall, addZone, hitTest, nearestWall, nextId, remove, setEntry, snap } from "./edit";
 import type { House } from "./types";
 
 const base = (): House => ({
   id: "t", name: "t", synthetic: true, revision: 1, region: "US",
   levels: [{ id: "L0", name: "g", elevation: 0, height: 2.5, slab: null }], materials: [],
-  walls: [], rooms: [], underlays: [], slab_holes: [], stairs: [], zones: [], jacks: [], outlets: [], switches: [], entry: null,
+  walls: [], rooms: [], underlays: [], access_points: [], measurements: [], slab_holes: [], stairs: [], zones: [], jacks: [], outlets: [], switches: [], entry: null,
 });
 
 describe("edit", () => {
@@ -87,6 +87,19 @@ describe("edit", () => {
     expect(addWall(base(), "L0", [0, 0], [3, 0], "drywall", 0.1).walls[0].prov?.source).toBe("manual");
     const u = { id: "u1", level: "L0", blob: "a".repeat(64), width_px: 1, height_px: 1, scale: 1, rotation: 0, origin: [0, 0] as [number, number], opacity: 0.5, scaled: false, name: "" };
     expect(removeUnderlay(addUnderlay(h, u), "u1").underlays).toEqual([]);
+  });
+
+  it("access points and measurements: add, hit-test, remove, ids stay unique", () => {
+    let h = addAccessPoint(base(), "L0", [1, 1]);
+    const m = (x: number) => ({ id: "?", position: [x, 2] as [number, number], level: "L0", device: "mac", band: "5" as const, rssi: -60 });
+    h = addMeasurements(h, [m(3), m(4)]);
+    h = addMeasurements(h, [m(5)]);
+    expect(h.measurements.map((x) => x.id)).toEqual(["m1", "m2", "m3"]);
+    expect(addMeasurements(h, [])).toBe(h);
+    expect(hitTest(h, "L0", [1.05, 1], 0.15)).toEqual({ kind: "ap", id: "ap1" });
+    expect(hitTest(h, "L0", [4, 2.05], 0.15)).toEqual({ kind: "measurement", id: "m2" });
+    expect(remove(h, { kind: "measurement", id: "m2" }).measurements.map((x) => x.id)).toEqual(["m1", "m3"]);
+    expect(remove(h, { kind: "ap", id: "ap1" }).access_points).toEqual([]);
   });
 
   it("history undoes and redoes, and a new edit drops the redo branch", () => {

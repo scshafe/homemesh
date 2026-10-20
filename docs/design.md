@@ -531,6 +531,26 @@ Consequences:
 - Throughput readings calibrate the MAC efficiency and the MCS mapping
   separately from the path loss.
 
+### 7.4 As built (M7)
+
+- The existing access point is an `AccessPoint` in the house (position, height,
+  EIRP, BSSIDs); a reading belongs to it by BSSID, or by default when it is the
+  only one. Its EIRP error is absorbed by the fitted `extra loss`.
+- Readings come in by tap-to-place (Reading tool, you type the dBm) or CSV
+  (`x, y, band, rssi`, optional `level, device, snr, throughput, bssid, time`).
+- The fit is per band: unknowns are `extra loss`, the exponent `n` and the loss
+  of each material the readings cross; path loss is linear in them, so the fit
+  is a Huber-reweighted ridge regression toward the priors (bounded). At least
+  8 matched readings per band. "Area" for cross-validation is a 4 m block of one
+  level; below three areas there is no held-out figure and the planner's margin
+  stays at 6 dB. With one, the margin becomes the held-out RMSE, clamped to 3-10 dB.
+- Accepting a fit updates only the *identified* materials (posterior sd below
+  80% of the prior sd), stores `Calibration` (n, extra loss, held-out error) and
+  is an ordinary undoable edit. The throughput readings do not yet calibrate the
+  MAC efficiency; that stays at 0.6.
+- Measure-next hints are the cells with the largest exposure to still
+  unidentified materials, at least 3 m from existing readings.
+
 ## 8. Storage outside git
 
 ```

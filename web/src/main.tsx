@@ -2,9 +2,10 @@ import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, createHouse, listHouses, loadHeatmap, loadHouse, saveHouse, uploadBlueprint } from "./api";
 import { Editor, type Opts, type Tool, type UlTool } from "./Editor";
-import { History, addLevel, addUnderlay, mapUnderlay, nextId, removeUnderlay, type Ref } from "./edit";
+import { History, addMeasurements, addLevel, addUnderlay, mapUnderlay, nextId, removeUnderlay, type Ref } from "./edit";
 import { levelLine, moveBy, scaleAbout, scaleErrorPct } from "./underlay";
 import type { P2 } from "./types";
+import { CalPanel } from "./CalPanel";
 import { Mesh } from "./Mesh";
 import { Panel } from "./Panel";
 import { Viewer } from "./scene";
@@ -13,7 +14,7 @@ import { fmtLength, loadUnits, saveUnits, type Units } from "./units";
 
 const TOOLS: [Tool, string][] = [
   ["select", "Select"], ["wall", "Wall"], ["door", "Door"], ["window", "Window"], ["jack", "Jack"], ["outlet", "Outlet"],
-  ["switch", "Switch"], ["entry", "Entry"], ["zone", "Zone"], ["hole", "Slab hole"], ["delete", "Delete"],
+  ["switch", "Switch"], ["entry", "Entry"], ["ap", "AP"], ["measure", "Reading"], ["zone", "Zone"], ["hole", "Slab hole"], ["delete", "Delete"],
 ];
 
 function App() {
@@ -32,6 +33,9 @@ function App() {
   const [tx, setTx] = useState<{ x: number; y: number; level: string } | null>(null);
   const [units, setUnits] = useState<Units>(loadUnits());
   const [error, setError] = useState("");
+  const [hints, setHints] = useState<{ level: string; x: number; y: number; material: string }[]>([]);
+  const [residuals, setResiduals] = useState<Record<string, number>>({});
+  const [calBand, setCalBand] = useState("5");
 
   const house = hist.current?.present ?? null;
   const dirty = !!house && house !== saved;
@@ -122,6 +126,14 @@ function App() {
     setTool("select");
   }
 
+  function measure(lv: string, p: P2) {
+    if (!house) return;
+    const raw = prompt(`Signal strength at this spot, ${calBand} GHz (dBm, e.g. -62)`);
+    const rssi = parseFloat(raw ?? "");
+    if (!Number.isFinite(rssi)) return;
+    commit(addMeasurements(house, [{ id: "?", position: p, level: lv, device: "tap", band: calBand as "2.4" | "5" | "6", rssi }]));
+  }
+
   const traceProv = activeUl ? { source: "blueprint" as const, ref: activeUl.blob } : undefined;
 
   async function newHouse() {
@@ -189,6 +201,9 @@ function App() {
             <p><small>Walls you draw now are recorded as coming from this blueprint.</small></p>
           </div>}
           {note && <p style="color:#345">{note}</p>}
+          {tool === "measure" && <p><label>Band <select value={calBand} onChange={(e) => setCalBand((e.target as HTMLSelectElement).value)}>{["2.4", "5", "6"].map((b) => <option>{b}</option>)}</select></label>
+            <br /><small>Click where you stood; you will be asked for the dBm.</small></p>}
+          <hr /><CalPanel house={house} level={level} band={calBand} onCommit={commit} onError={fail} onResult={(h, r) => { setHints(h); setResiduals(r); }} />
           <hr /><Panel house={house} selected={sel} onCommit={commit} onSelect={setSel} />
         </>}
         {mode === "3d" && <>
@@ -207,7 +222,7 @@ function App() {
         <div ref={host} style={`position:absolute;inset:0;${mode === "3d" ? "" : "visibility:hidden"}`} />
         {mode === "mesh" && saved && <div style="position:absolute;inset:0;background:#fff"><Mesh house={saved} dirty={dirty} /></div>}
         {mode === "plan" && house && <div style="position:absolute;inset:0">
-          <Editor house={house} level={level} tool={tool} opts={opts} selected={sel} onCommit={commit} onSelect={setSel} onTwoPoints={twoPoints} traceProv={traceProv} />
+          <Editor house={house} level={level} tool={tool} opts={opts} selected={sel} onCommit={commit} onSelect={setSel} onTwoPoints={twoPoints} traceProv={traceProv} onMeasure={measure} hints={hints} residuals={residuals} />
         </div>}
       </div>
     </div>

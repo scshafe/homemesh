@@ -216,6 +216,29 @@ class Underlay(_Base):
     prov: Prov = Field(default_factory=lambda: Prov(source="blueprint"))
 
 
+class AccessPoint(_Base):
+    """The house's existing access point: the known source for calibration walks."""
+
+    id: str
+    name: str = ""
+    position: Point2
+    level: str
+    height: float = Field(default=1.5, ge=0)
+    eirp_dbm: float = 23.0  # transmit power plus antenna gain; the fit absorbs an error in it as extra loss
+    bssids: list[str] = Field(default_factory=list)  # one per band/radio, as the device reports them
+    prov: Prov = Field(default_factory=manual)
+
+
+class Calibration(_Base):
+    """What the last accepted fit changed (design section 7)."""
+
+    at: datetime | None = None
+    n: dict[Band, float] = Field(default_factory=dict)
+    extra_loss_db: dict[Band, float] = Field(default_factory=dict)
+    rmse_cv: dict[Band, float | None] = Field(default_factory=dict)  # held-out error by area
+    n_measurements: dict[Band, int] = Field(default_factory=dict)
+
+
 class Measurement(_Base):
     id: str
     position: Point2
@@ -264,6 +287,8 @@ class House(_Base):
     outlets: list[Outlet] = Field(default_factory=list)
     zones: list[Zone] = Field(default_factory=list)
     underlays: list[Underlay] = Field(default_factory=list)
+    access_points: list[AccessPoint] = Field(default_factory=list)
+    calibration: Calibration | None = None
     measurements: list[Measurement] = Field(default_factory=list)
     arrangements: list[Arrangement] = Field(default_factory=list)
 
@@ -336,6 +361,10 @@ class House(_Base):
         for z in self.zones:
             lv(f"zone {z.id}", z.level)
         dupes("underlay", [x.id for x in self.underlays])
+        dupes("access point", [x.id for x in self.access_points])
+        dupes("measurement", [x.id for x in self.measurements])
+        for a in self.access_points:
+            lv(f"access point {a.id}", a.level)
         for u in self.underlays:
             lv(f"underlay {u.id}", u.level)
         for m in self.measurements:

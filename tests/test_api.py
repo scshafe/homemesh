@@ -103,7 +103,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class PlanApiTest(unittest.TestCase):
+class _PlanBase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self._env = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST, api.DOOR_ADDR)}
@@ -130,6 +130,8 @@ class PlanApiTest(unittest.TestCase):
             time.sleep(0.1)
         self.fail("job did not finish")
 
+
+class PlanApiTest(_PlanBase):
     def test_catalogue(self):
         r = self.c.get("/api/catalogue", headers=self.ok).json()
         self.assertTrue(r["equipment"] and r["clients"])
@@ -163,3 +165,27 @@ class PlanApiTest(unittest.TestCase):
         done = self.wait(r.json()["job"])
         self.assertEqual(done["state"], "error")
         self.assertIn("unknown equipment", done["error"])
+
+
+class CalibrationApiTest(_PlanBase):
+    def make(self):
+        from tests.test_calibration import house, synth
+        h = house()
+        h.measurements = synth(h, n=40, bands=("5",))
+        return h
+
+    def test_parse_and_calibrate(self):
+        h = self.make()
+        self.c.post("/api/houses", json={"id": "cal", "name": "cal"}, headers=self.ok)
+        csv = "x,y,band,rssi\n1,1,5,-60\n"
+        self.assertEqual(self.c.post("/api/houses/cal/measurements/parse", content=csv, headers=self.ok).json()[0]["id"], "m1")
+        self.assertEqual(self.c.post("/api/houses/cal/measurements/parse", content="junk", headers=self.ok).status_code, 422)
+        r = self.c.post("/api/houses/cal/calibrate", content=h.model_copy(update={"id": "cal"}).model_dump_json(), headers=self.ok)
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertIn("5", body["fits"])
+        self.assertEqual(body["calibrated"]["calibration"]["n_measurements"]["5"], 40)
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=b"", headers=self.ok).json()["fits"], {})
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=h.model_copy(update={"id": "other"}).model_dump_json(), headers=self.ok).status_code, 422)  # id mismatch
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=b"{}", headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post("/api/houses/cal/calibrate", content=b"").status_code, 401)
