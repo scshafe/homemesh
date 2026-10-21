@@ -4,15 +4,17 @@ import SwiftUI
 /// Deliberately small: set the server, house and sign-in once; scan one or more rooms; upload.
 /// No editing, no viewing of the house, no accounts, no analytics.
 struct ContentView: View {
-    @State private var server = Settings.server
-    @State private var house = Settings.house
-    @State private var issuer = Settings.issuer
-    @State private var clientId = Settings.clientId
+    @State private var server = Settings.server.trimmed
+    @State private var house = Settings.house.trimmed
+    @State private var issuer = Settings.issuer.trimmed
+    @State private var clientId = Settings.clientId.trimmed
     @State private var name = ""
     @State private var rooms: [CapturedRoom] = []
     @State private var scanning = false
     @State private var status = ""
     @State private var busy = false
+    @State private var houses: [String] = []
+    @State private var pending: [PendingScan] = PendingScan.all()
     private let controller = ScanController()
 
     var body: some View {
@@ -20,7 +22,15 @@ struct ContentView: View {
             Form {
                 Section("Server") {
                     TextField("https://homemesh.<tailnet>", text: $server).textInputAutocapitalization(.never).keyboardType(.URL)
-                    TextField("House id", text: $house).textInputAutocapitalization(.never)
+                    if houses.isEmpty {
+                        TextField("House id", text: $house).textInputAutocapitalization(.never)
+                    } else {
+                        Picker("House", selection: $house) {
+                            ForEach(houses, id: \.self) { Text($0).tag($0) }
+                        }
+                    }
+                    Button("List the houses on the server") { Task { await loadHouses() } }
+                        .disabled(busy || server.trimmed.isEmpty || issuer.trimmed.isEmpty || clientId.trimmed.isEmpty)
                     TextField("Pocket ID address (https://…)", text: $issuer).textInputAutocapitalization(.never).keyboardType(.URL)
                     TextField("Capture client id", text: $clientId).textInputAutocapitalization(.never)
                     Button("Sign out") { Auth.signOut(); status = "Signed out." }
@@ -32,8 +42,20 @@ struct ContentView: View {
                     if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").foregroundStyle(.red) }
                     Text("\(rooms.count) room(s) captured")
                     Button("Upload", action: { Task { await upload() } })
-                        .disabled(rooms.isEmpty || busy || server.isEmpty || house.isEmpty || issuer.isEmpty || clientId.isEmpty)
+                        .disabled(rooms.isEmpty || busy || server.trimmed.isEmpty || house.trimmed.isEmpty || issuer.trimmed.isEmpty || clientId.trimmed.isEmpty)
                     if !rooms.isEmpty { Button("Discard scan", role: .destructive) { rooms = []; status = "" } }
+                }
+                if !pending.isEmpty {
+                    Section("Waiting to upload (kept on this phone until the server confirms)") {
+                        ForEach(pending) { p in
+                            HStack {
+                                Text(p.name)
+                                Spacer()
+                                Button("Upload") { Task { await send(p) } }.disabled(busy || house.trimmed.isEmpty)
+                                Button("Delete", role: .destructive) { p.remove(); pending = PendingScan.all() }
+                            }.buttonStyle(.borderless)
+                        }
+                    }
                 }
                 if !status.isEmpty { Section { Text(status) } }
             }
@@ -44,10 +66,10 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: server) { Settings.server = server }
-        .onChange(of: house) { Settings.house = house }
-        .onChange(of: issuer) { Settings.issuer = issuer }
-        .onChange(of: clientId) { Settings.clientId = clientId }
+        .onChange(of: server) { Settings.server = server.trimmed }
+        .onChange(of: house) { Settings.house = house.trimmed }
+        .onChange(of: issuer) { Settings.issuer = issuer.trimmed }
+        .onChange(of: clientId) { Settings.clientId = clientId.trimmed }
         .onAppear {
             controller.onProcessed = { room in rooms.append(room); scanning = false; status = "Room added." }
             controller.onError = { msg in scanning = false; status = "Scan failed: \(msg)" }
@@ -76,26 +98,56 @@ struct ContentView: View {
         return (json, usdz)
     }
 
+    private func loadHouses() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
+            let list = try await Uploader(server: server, house: house, token: { try await auth.freshIdToken() }).houses()
+            houses = list
+            if !list.contains(house.trimmed) { house = list.first ?? "" }
+            status = list.isEmpty ? "The server has no houses yet: create one in homemesh first." : "\(list.count) house(s) on the server."
+        } catch {
+            status = "Could not list the houses: \(error.localizedDescription)"
+        }
+    }
+
+    /// Keep the scan on the phone first, then upload it; it is removed only after the server confirmed both parts.
     private func upload() async {
         busy = true
         defer { busy = false }
         do {
             status = "Preparing…"
             let (json, usdz) = try await payload()
-            // keep a copy in Files > homemesh capture > Scans, so a failed upload loses nothing
-            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Scans", isDirectory: true)
-            try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
-            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            try json.write(to: docs.appendingPathComponent("\(stamp).json"))
-            status = "Uploading…"
-            let auth = Auth(issuer: issuer, clientId: clientId)
-            _ = try await auth.freshIdToken()  // sign in first, before the long upload
-            let id = try await Uploader(server: server, house: house, token: { try await auth.freshIdToken() }).upload(json: json, usdz: usdz, name: name)
+            let label = name.trimmed.isEmpty ? PendingScan.defaultName() : name.trimmed
+            let saved = try PendingScan.save(name: label, json: json, usdz: usdz)
             rooms = []
-            try? FileManager.default.removeItem(at: docs.appendingPathComponent("\(stamp).json"))  // uploaded: keep nothing on the device
-            status = "Uploaded (scan \(id.prefix(8))). Import it in homemesh: Plan editor, Scans."
+            name = ""
+            pending = PendingScan.all()
+            await send(saved, alreadyBusy: true)
         } catch {
-            status = "Upload failed: \(error.localizedDescription). The scan is still here; try again."
+            status = "Could not prepare the scan: \(error.localizedDescription). The rooms are still here."
         }
     }
+
+    private func send(_ p: PendingScan, alreadyBusy: Bool = false) async {
+        if !alreadyBusy { busy = true }
+        defer { if !alreadyBusy { busy = false } }
+        status = "Uploading…"
+        do {
+            let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
+            let id = try await Uploader(server: server, house: house, token: { try await auth.freshIdToken() })
+                .upload(json: try p.json(), usdz: p.usdzURL, name: p.name)
+            p.remove()
+            pending = PendingScan.all()
+            status = "Uploaded to \"\(house.trimmed)\" (scan \(id.prefix(8))); the server confirmed the scan and its 3D model. Import it in homemesh: Plan editor, Scans."
+        } catch {
+            pending = PendingScan.all()
+            status = "NOT uploaded: \(error.localizedDescription). The scan is kept on this phone under \"Waiting to upload\"."
+        }
+    }
+}
+
+extension String {
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }

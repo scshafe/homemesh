@@ -27,3 +27,24 @@ final class AuthTests: XCTestCase {
         XCTAssertFalse(Auth.isFresh("not a jwt", now: now))
     }
 }
+
+final class PendingScanTests: XCTestCase {
+    func testTrimmedDropsTrailingSpaceAndNewlines() {
+        XCTAssertEqual("espinazo ".trimmed, "espinazo")
+        XCTAssertEqual(" \thttps://x \n".trimmed, "https://x")
+    }
+
+    func testDefaultNameHasATimestamp() {
+        let d = Date(timeIntervalSince1970: 0)
+        XCTAssertTrue(PendingScan.defaultName(d).hasPrefix("Scan 19"))
+    }
+
+    func testSavedScanIsKeptUntilRemoved() throws {
+        let p = try PendingScan.save(name: "Test scan", json: Data("{}".utf8), usdz: nil)
+        XCTAssertTrue(PendingScan.all().contains { $0.id == p.id && $0.name == "Test scan" })
+        XCTAssertEqual(try p.json(), Data("{}".utf8))
+        XCTAssertNil(p.usdzURL)
+        p.remove()
+        XCTAssertFalse(PendingScan.all().contains { $0.id == p.id })
+    }
+}
