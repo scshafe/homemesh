@@ -12,6 +12,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
+    # Swift 6 data-race checking as warnings now (CI turns warnings into errors), so the
+    # move to the Swift 6 language mode is a version bump, not a rewrite.
+    SWIFT_STRICT_CONCURRENCY: complete
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""

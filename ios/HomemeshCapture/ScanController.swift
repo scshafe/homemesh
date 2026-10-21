@@ -4,7 +4,7 @@ import SwiftUI
 /// Wraps Apple's RoomCaptureView and collects the rooms of one scanning session.
 /// Flow: Start -> walk the room -> Done (the view shows the processed room) -> Add room.
 /// More rooms: Start again. Finish combines them with StructureBuilder (iOS 17) so they share one frame.
-final class ScanController: UIViewController, RoomCaptureViewDelegate {
+final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDelegate {
     // RoomCaptureViewDelegate refines NSCoding; UIViewController already encodes itself.
     required init?(coder: NSCoder) { fatalError("not used") }
     init() { super.init(nibName: nil, bundle: nil) }

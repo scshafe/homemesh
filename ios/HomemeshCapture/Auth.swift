@@ -6,6 +6,7 @@ import UIKit
 /// Sign-in through Pocket ID: OIDC authorization code with PKCE (S256), a public client, callback
 /// `homemesh-capture://oauth`. The id token is what the door accepts as `Authorization: Bearer`
 /// (docs/deploy.md, "The capture app's sign-in"). Nothing is kept except the tokens, in the Keychain.
+@MainActor
 final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
     struct Failure: LocalizedError {
         let message: String
@@ -17,10 +18,10 @@ final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
         var refreshToken: String?
     }
 
-    static let callbackScheme = "homemesh-capture"
-    static let redirect = "homemesh-capture://oauth"
+    nonisolated static let callbackScheme = "homemesh-capture"
+    nonisolated static let redirect = "homemesh-capture://oauth"
     /// A request is not started with less than this left on the token.
-    static let margin: TimeInterval = 120
+    nonisolated static let margin: TimeInterval = 120
 
     let issuer: String
     let clientId: String
@@ -33,23 +34,23 @@ final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
 
     // MARK: pure helpers
 
-    static func base64url(_ data: Data) -> String {
+    nonisolated static func base64url(_ data: Data) -> String {
         data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
 
-    static func randomString(_ bytes: Int = 32) -> String {
+    nonisolated static func randomString(_ bytes: Int = 32) -> String {
         var b = [UInt8](repeating: 0, count: bytes)
         precondition(SecRandomCopyBytes(kSecRandomDefault, bytes, &b) == errSecSuccess)
         return base64url(Data(b))
     }
 
-    static func challenge(for verifier: String) -> String {
+    nonisolated static func challenge(for verifier: String) -> String {
         base64url(Data(SHA256.hash(data: Data(verifier.utf8))))
     }
 
     /// The `exp` claim of a JWT, without verifying it (the door verifies; this only decides when to sign in again).
-    static func expiry(of jwt: String) -> Date? {
+    nonisolated static func expiry(of jwt: String) -> Date? {
         let parts = jwt.split(separator: ".")
         guard parts.count == 3 else { return nil }
         var p = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
@@ -60,7 +61,7 @@ final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
         return Date(timeIntervalSince1970: exp)
     }
 
-    static func isFresh(_ jwt: String, now: Date = Date()) -> Bool {
+    nonisolated static func isFresh(_ jwt: String, now: Date = Date()) -> Bool {
         guard let e = expiry(of: jwt) else { return false }
         return e.timeIntervalSince(now) > margin
     }
@@ -154,7 +155,7 @@ final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
         return try await signIn().idToken
     }
 
-    static func signOut() { Settings.tokens = nil }
+    nonisolated static func signOut() { Settings.tokens = nil }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? ASPresentationAnchor()
