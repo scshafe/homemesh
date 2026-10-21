@@ -99,7 +99,7 @@ struct ContentView: View {
     }
 
     /// "Scan 2026-10-21 23:30" when the name field is empty.
-    static func defaultName(_ now: Date = Date()) -> String {
+    nonisolated static func defaultName(_ now: Date = Date()) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm"
