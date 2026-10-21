@@ -16,6 +16,9 @@ phone until the server confirms them.
 | **D-C** | The owner names every room in the app after scanning it. No auto-guessed labels in the UI. RoomPlan's section labels may still be stored as data. |
 | **D-D** | Stitching is automatic and deterministic (no LLM): rooms of one session share the frame; separate sessions are lined up by shared doorways and room names; the owner fixes placement by dragging on the phone. |
 
+| **Q1-Q9** | **Accepted as recommended (2026-10-21):** hand-written `Codable` models with raw-JSON passthrough plus the fixture decode test; whole-house `PUT` with the revision conflict; scanning and the upload queue work offline, everything else needs the server; 2D canvas first, 3D later; typed dBm or speed-test readings (the 0 to 1 `NEHotspotNetwork` figure optional, off by default); display name "homemesh" with the bundle id kept; room names as free text with suggestions; iOS 17 minimum. |
+| **Blueprints** | The owner finds the LiDAR better than expected. LiDAR scans are the primary source of the plan. No phone blueprint import and no new blueprint work; the web app's blueprint underlay stays as an optional aid, untouched. Revisit, and possibly drop blueprints entirely, after the whole house is scanned and an accuracy check (below) is done. |
+
 The first real scan worked on 2026-10-21 (one capture of two rooms), so the
 capture, sign-in and upload path of section 10.5 is proven; this amendment
 builds on it.
@@ -179,7 +182,20 @@ accepts a ready `transform` `{rotation, tx, ty}` besides point-pair `registratio
 The hull is a stand-in for an L-shaped room's true outline. Not yet: the `place`
 endpoint (P4), and the app-side fixture decode test (it needs the Swift models, P3).
 
-## 6. Open questions (recommendation first)
+### Accuracy check (before deciding about blueprints)
+
+After the whole house is scanned: choose five to eight walls of different lengths
+(a short one, a long one, across a doorway, across a room), measure each with a tape,
+and compare with the length the app shows for the same wall once P5's wall
+inspector exists (until then, the web editor shows wall lengths too). Record the
+differences; scan error below about 2 percent or 3 cm is better than a hand-traced
+blueprint. Door and window widths and ceiling height are checked the same way. If it
+passes, blueprints are dropped from the plan; if not, they stay as the underlay and
+the failing walls are corrected by hand. A "measure check" screen in P5 (pick a wall,
+type the tape reading, see the difference and the running mean) is cheap and is added
+there.
+
+## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the
    app edits, with a raw-JSON passthrough for the rest, checked by the fixture
