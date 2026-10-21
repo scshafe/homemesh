@@ -1,13 +1,13 @@
 # homemesh: the backend plus the built front end. Data is never in the image:
 # mount the data directory and set HOMEMESH_DATA to it.
-FROM node:22-slim AS web
+FROM node:22.23.4-slim AS web
 WORKDIR /w
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM python:3.13-slim
+FROM python:3.13.16-slim
 WORKDIR /app
 COPY requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock

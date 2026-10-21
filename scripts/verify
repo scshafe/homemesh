@@ -21,7 +21,7 @@ fi
 if command -v node >/dev/null 2>&1; then
   (cd web && { cmp -s package-lock.json node_modules/.lock-stamp 2>/dev/null || { npm ci --no-audit --no-fund --silent && cp package-lock.json node_modules/.lock-stamp; }; } && npm run build --silent)
 elif command -v docker >/dev/null 2>&1; then
-  docker run --rm -v "$PWD/web":/w -w /w node:22-slim sh -c 'cmp -s package-lock.json node_modules/.lock-stamp 2>/dev/null || { npm ci --no-audit --no-fund --silent && cp package-lock.json node_modules/.lock-stamp; }; npm run build --silent'
+  docker run --rm -v "$PWD/web":/w -w /w node:22.23.4-slim sh -c 'cmp -s package-lock.json node_modules/.lock-stamp 2>/dev/null || { npm ci --no-audit --no-fund --silent && cp package-lock.json node_modules/.lock-stamp; }; npm run build --silent'
 else
   echo "verify: need node or docker to build the front end" >&2
   exit 1
