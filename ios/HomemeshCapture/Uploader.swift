@@ -40,7 +40,8 @@ struct Uploader: Sendable {
     private func send(_ r: URLRequest, body: Data?) async throws -> (Data, HTTPURLResponse) {
         let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        let (data, resp) = try await body.map { try await session.upload(for: r, from: $0) } ?? session.data(for: r)
+        let data: Data, resp: URLResponse
+        if let body { (data, resp) = try await session.upload(for: r, from: body) } else { (data, resp) = try await session.data(for: r) }
         guard let http = resp as? HTTPURLResponse else { throw Failure(message: "No response from the server") }
         return (data, http)
     }
