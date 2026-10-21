@@ -629,6 +629,10 @@ walls.
 
 ### 10.2 iOS capture app scope
 
+> **Superseded 2026-10-21** by `design-ios-app.md`: the app is now a full native
+> client (scan, name, place, edit, plan, calibrate). The text below is the original
+> scope, kept for the record.
+
 Deliberately small:
 
 - Scan one room or several (`RoomCaptureSession` / structure builder), choose
