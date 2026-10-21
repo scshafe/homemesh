@@ -39,3 +39,46 @@ jobs:
       - name: Verify (dev.toml [verify] command)
         run: |
           ./scripts/verify
+
+  # The iOS capture app (ios/): built from the XcodeGen spec and its unit tests
+  # run on an iPhone simulator. The app needs a LiDAR iPhone to scan, which no
+  # runner has; this proves it compiles against the current SDK. macos-26 (Xcode 26).
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Select Xcode 26.6
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app
+          xcodebuild -version
+      - name: Install XcodeGen 2.46.0 (checksum pinned)
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/xcodegen.zip" \
+            https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          echo "4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806  $RUNNER_TEMP/xcodegen.zip" \
+            | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+      - name: Generate the Xcode project
+        run: xcodegen generate --spec ios/project.yml
+      - name: Build and test the app on an iPhone simulator
+        run: |
+          set -o pipefail
+          xcodebuild test -project ios/HomemeshCapture.xcodeproj -scheme HomemeshCapture \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' \
+            -resultBundlePath "$RUNNER_TEMP/HomemeshCapture.xcresult" \
+            2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" \
+            | grep -E --line-buffered '(error:|warning: .*HomemeshCapture|Test Suite|Test Case|\*\* )' || true
+          grep -q '\*\* TEST SUCCEEDED \*\*' "$RUNNER_TEMP/xcodebuild.log"
+      # actions/upload-artifact v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: ios-test-results
+          path: |
+            ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
