@@ -804,7 +804,7 @@ record of what was weighed.
 | D14 photos/video | Deferred. |
 | D15 storage | JSON documents + content-addressed blobs + rebuildable SQLite index. |
 | D16 latency | Not simulated in v1. |
-| **Open, needed later (not blocking M1-M5)** | D6 the owner's main client devices and zone needs; D10 iPhone model (LiDAR) and iOS version; D12 equipment shortlist, budget, WAN rate; D13 region. Until answered: the strictest common region and the designer's defaults. |
+| **Open, needed later (not blocking M1-M5)** | D6 the owner's main client devices and zone needs; D12 equipment shortlist, budget, WAN rate; D13 region. Until answered: the strictest common region and the designer's defaults. |
 
 Original text of each decision:
 
@@ -879,6 +879,7 @@ installed by the owner from Xcode on a Mac with the owner's own signing
 the iPhone model (LiDAR needed) and iOS version, and an Apple developer
 account only if the owner wants TestFlight rather than a cable install.
 *Recommended: (a), personal install, no App Store.*
+*Answered 2026-10-21: (a), built and installed from Xcode on the owner's MacBook Air with the paid team (cable install, no TestFlight). The iPhone is an iPhone 17 Pro Max, which has LiDAR, so RoomPlan scanning works. iOS version: whatever the phone runs (the app targets iOS 17 and later).*
 
 **D11. Public repository and self-hosted runner policy.** Deploy workflow
 only on push to `main`; no self-hosted jobs for pull requests; outside
