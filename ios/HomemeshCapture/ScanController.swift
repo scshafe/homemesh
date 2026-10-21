@@ -5,8 +5,7 @@ import SwiftUI
 /// Flow: Start -> walk the room -> Done (the view shows the processed room) -> Add room.
 /// More rooms: Start again. Finish combines them with StructureBuilder (iOS 17) so they share one frame.
 final class ScanController: UIViewController, RoomCaptureViewDelegate {
-    // RoomCaptureViewDelegate refines NSCoding; Apple's sample implements these two as no-ops.
-    func encode(with coder: NSCoder) {}
+    // RoomCaptureViewDelegate refines NSCoding; UIViewController already encodes itself.
     required init?(coder: NSCoder) { fatalError("not used") }
     init() { super.init(nibName: nil, bundle: nil) }
 
