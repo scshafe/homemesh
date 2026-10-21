@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 
 from .materials import default_materials
-from .model import House, Opening, Prov, Wall
+from .model import House, Opening, Prov, Room, Wall
 
 PARALLEL_SIN = math.sin(math.radians(3.0))
 CONF = {"low": 0.4, "medium": 0.7, "high": 0.95}
@@ -160,6 +160,7 @@ class Report:
     paired_walls: int = 0
     openings: int = 0
     skipped_openings: int = 0
+    rooms: int = 0
     replaced: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -207,8 +208,33 @@ def _rooms(data: dict) -> list[dict]:
     raise ImportError_("no walls in the capture")
 
 
+def room_names(data: dict) -> list[str]:
+    """The names carried by the capture itself (the app's wrapper puts `name` on each room), "" where none."""
+    return [str(r.get("name") or "").strip()[:80] for r in _rooms(data)]
+
+
+def _hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    pts = sorted(set(points))
+    if len(pts) < 3:
+        return pts
+
+    def half(seq):
+        out: list[tuple[float, float]] = []
+        for p in seq:
+            while len(out) >= 2 and (out[-1][0] - out[-2][0]) * (p[1] - out[-2][1]) - (out[-1][1] - out[-2][1]) * (p[0] - out[-2][0]) <= 0:
+                out.pop()
+            out.append(p)
+        return out[:-1]
+
+    return half(pts) + half(reversed(pts))
+
+
+def _area(poly: list[tuple[float, float]]) -> float:
+    return abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(poly, poly[1:] + poly[:1]))) / 2
+
+
 def import_capture(house: House, data: dict, level: str, blob: str, transform: Similarity2D | None = None,
-                   defaults: Defaults = Defaults()) -> tuple[House, Report]:
+                   defaults: Defaults = Defaults(), names: list[str] | None = None) -> tuple[House, Report]:
     """A copy of `house` with the scan's walls and openings on `level`.
 
     Importing the same blob again replaces what it added before (walls whose
@@ -287,5 +313,30 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
                                      prov=Prov(source="scan", ref=f"{blob}#{s.kind}/{s.ident[:8]}", confidence=s.conf)))
         rep.openings += 1
 
+    # one Room per scanned room: the outline is the convex hull of its wall ends (an L-shaped room gets
+    # its hull until a floor outline is imported), named by the owner (`names`), else by the capture, else "Room N"
+    kept_rooms = [r for r in house.rooms if not (r.prov.ref or "").startswith(f"{blob}#")]
+    taken_r = {r.id for r in kept_rooms}
+    new_rooms: list[Room] = []
+    carried = room_names(data)
+    n = 0
+    for i, r in enumerate(_rooms(data)):
+        ends = []
+        for sf in _surfaces(r):
+            if sf.kind == "wall":
+                half = sf.axis * sf.w / 2
+                ends += [sim.apply(tuple(map(float, _plan(sf.centre - half)))), sim.apply(tuple(map(float, _plan(sf.centre + half))))]
+        poly = _hull(ends)
+        if len(poly) < 3 or _area(poly) < 0.5:
+            continue
+        while f"r{n + 1}" in taken_r:
+            n += 1
+        n += 1
+        taken_r.add(f"r{n}")
+        label = (names[i] if names and i < len(names) and names[i].strip() else carried[i]) or f"Room {i + 1}"
+        new_rooms.append(Room(id=f"r{n}", level=level, name=label.strip()[:80], polygon=[(round(x, 4), round(y, 4)) for x, y in poly],
+                              prov=Prov(source="scan", ref=f"{blob}#room/{i}")))
+    rep.rooms = len(new_rooms)
+
     rep.notes.append("thickness and material are not measured by a scan: walls carry the class defaults until you set them")
-    return house.model_copy(update={"walls": kept + new, "materials": houses_mats}), rep
+    return house.model_copy(update={"walls": kept + new, "rooms": kept_rooms + new_rooms, "materials": houses_mats}), rep

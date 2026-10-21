@@ -1,7 +1,7 @@
 """Stored scans: the capture JSON (and its USDZ) as blobs, with a small index.
 
     houses/<id>/blobs/<sha256>            the JSON as uploaded, and the USDZ
-    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz}  (derived; rebuildable from the blob)
+    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms}  (derived; rebuildable from the blob)
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import json
 import time
 
 from . import store
-from .roomplan import ImportError_, _rooms, _surfaces
+from .roomplan import ImportError_, _rooms, _surfaces, room_names
 
 MAX_JSON = 30 * 1024 * 1024
 MAX_USDZ = 200 * 1024 * 1024
@@ -50,11 +50,12 @@ def save_capture(house_id: str, raw: bytes, name: str = "") -> dict:
         raise CaptureError("not a capture")
     counts = summarise(data)
     digest = store.put_blob(house_id, raw)
-    meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None}
+    meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None, "rooms": room_names(data)}
     path = _dir(house_id) / f"{digest}.json"
     if path.exists():  # the same scan uploaded twice: keep what is known (the USDZ, the name)
         old = json.loads(path.read_text())
-        meta.update({"usdz": old.get("usdz"), "name": old.get("name") or meta["name"], "at": old["at"]})
+        meta.update({"usdz": old.get("usdz"), "name": old.get("name") or meta["name"], "at": old["at"],
+                     "rooms": old.get("rooms") if any(old.get("rooms") or []) else meta["rooms"]})
     store._write_atomic(path, json.dumps(meta).encode())
     return meta
 
@@ -66,6 +67,16 @@ def attach_usdz(house_id: str, digest: str, raw: bytes) -> dict:
     if raw[:2] != b"PK":
         raise CaptureError("not a USDZ (zip) file")
     meta["usdz"] = store.put_blob(house_id, raw)
+    store._write_atomic(_dir(house_id) / f"{digest}.json", json.dumps(meta).encode())
+    return meta
+
+
+def set_room_names(house_id: str, digest: str, names: list[str]) -> dict:
+    """The owner's names for the capture's rooms, in the order of the capture (one per room)."""
+    meta = get_meta(house_id, digest)
+    if len(names) != meta["counts"]["rooms"]:
+        raise CaptureError(f"the capture has {meta['counts']['rooms']} room(s), got {len(names)} name(s)")
+    meta["rooms"] = [str(n).strip()[:80] for n in names]
     store._write_atomic(_dir(house_id) / f"{digest}.json", json.dumps(meta).encode())
     return meta
 

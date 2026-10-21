@@ -30,6 +30,24 @@ class ApiTest(unittest.TestCase):
                 os.environ[k] = v
         self._tmp.cleanup()
 
+    def test_summary_levels_and_schema(self):
+        rows = self.c.get("/api/houses/summary", headers=self.ok).json()
+        self.assertEqual({r["id"] for r in rows}, set(self.c.get("/api/houses", headers=self.ok).json()))
+        row = next(r for r in rows if r["id"] == "synthetic-box")
+        self.assertEqual(row["levels"], [{"id": "L0", "name": "Ground"}])
+        self.assertEqual(self.c.get("/api/houses/summary").status_code, 401)
+        h = self.c.post("/api/houses/synthetic-box/levels", json={"name": "First"}, headers=self.ok)
+        self.assertEqual(h.status_code, 201, h.text)
+        lv = h.json()["levels"][-1]
+        self.assertEqual((lv["id"], lv["name"]), ("L1", "First"))
+        self.assertAlmostEqual(lv["elevation"], 2.5 + 0.3, places=3)
+        self.assertIsNotNone(lv["slab"])
+        self.assertEqual(h.json()["revision"], row["revision"] + 1)
+        self.assertEqual(self.c.post("/api/houses/synthetic-box/levels", json={"name": " "}, headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post("/api/houses/nope/levels", json={"name": "x"}, headers=self.ok).status_code, 404)
+        schema = self.c.get("/api/schema/house", headers=self.ok).json()
+        self.assertIn("levels", schema["properties"])
+
     def test_only_the_door_may_call_api(self):
         os.environ[api.DOOR_ADDR] = "10.253.93.10"
         c = TestClient(api.create_app())
