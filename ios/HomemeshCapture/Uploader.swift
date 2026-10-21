@@ -10,7 +10,7 @@ struct Uploader: Sendable {
     }
 
     let server: String   // for example https://homemesh.<tailnet>  (no trailing slash needed)
-    let house: String
+    let house: String   // trimmed by the caller
     /// Returns a token with at least two minutes left; signs in again if it has to.
     let token: @Sendable () async throws -> String
 
@@ -25,6 +25,18 @@ struct Uploader: Sendable {
         return u
     }
 
+    /// The ids of the houses the server has (for the picker).
+    func houses() async throws -> [String] {
+        var r = URLRequest(url: try url("/api/houses"))
+        r.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await URLSession.shared.data(for: r)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200,
+              let ids = try? JSONSerialization.jsonObject(with: data) as? [String] else {
+            throw Failure(message: "The server did not give a house list")
+        }
+        return ids
+    }
+
     private func post(_ u: URL, body: Data, type: String) async throws -> Data {
         var r = URLRequest(url: u)
         r.httpMethod = "POST"
@@ -36,6 +48,9 @@ struct Uploader: Sendable {
         if http.statusCode == 401 || http.statusCode == 302 {
             Auth.signOut()
             throw Failure(message: "The door did not accept the sign-in; sign in again")
+        }
+        if http.statusCode == 404 {
+            throw Failure(message: "Server said 404: house \"\(house)\" not found. Create it in homemesh first.")
         }
         guard (200..<300).contains(http.statusCode) else {
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String ?? ""

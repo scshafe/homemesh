@@ -4,15 +4,16 @@ import SwiftUI
 /// Deliberately small: set the server, house and sign-in once; scan one or more rooms; upload.
 /// No editing, no viewing of the house, no accounts, no analytics.
 struct ContentView: View {
-    @State private var server = Settings.server
-    @State private var house = Settings.house
-    @State private var issuer = Settings.issuer
-    @State private var clientId = Settings.clientId
+    @State private var server = Settings.server.trimmed
+    @State private var house = Settings.house.trimmed
+    @State private var issuer = Settings.issuer.trimmed
+    @State private var clientId = Settings.clientId.trimmed
     @State private var name = ""
     @State private var rooms: [CapturedRoom] = []
     @State private var scanning = false
     @State private var status = ""
     @State private var busy = false
+    @State private var houses: [String] = []
     private let controller = ScanController()
 
     var body: some View {
@@ -20,7 +21,14 @@ struct ContentView: View {
             Form {
                 Section("Server") {
                     TextField("https://homemesh.<tailnet>", text: $server).textInputAutocapitalization(.never).keyboardType(.URL)
-                    TextField("House id", text: $house).textInputAutocapitalization(.never)
+                    if houses.isEmpty {
+                        TextField("House id", text: $house).textInputAutocapitalization(.never)
+                    } else {
+                        Picker("House", selection: $house) { ForEach(houses, id: \.self) { Text($0).tag($0) } }
+                    }
+                    Button("List the houses on the server") { Task { await loadHouses() } }
+                        .disabled(busy || server.trimmed.isEmpty || issuer.trimmed.isEmpty || clientId.trimmed.isEmpty)
+                    Text("The house must already exist in homemesh (create it there first).").font(.footnote).foregroundStyle(.secondary)
                     TextField("Pocket ID address (https://…)", text: $issuer).textInputAutocapitalization(.never).keyboardType(.URL)
                     TextField("Capture client id", text: $clientId).textInputAutocapitalization(.never)
                     Button("Sign out") { Auth.signOut(); status = "Signed out." }
@@ -32,7 +40,7 @@ struct ContentView: View {
                     if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").foregroundStyle(.red) }
                     Text("\(rooms.count) room(s) captured")
                     Button("Upload", action: { Task { await upload() } })
-                        .disabled(rooms.isEmpty || busy || server.isEmpty || house.isEmpty || issuer.isEmpty || clientId.isEmpty)
+                        .disabled(rooms.isEmpty || busy || server.trimmed.isEmpty || house.trimmed.isEmpty || issuer.trimmed.isEmpty || clientId.trimmed.isEmpty)
                     if !rooms.isEmpty { Button("Discard scan", role: .destructive) { rooms = []; status = "" } }
                 }
                 if !status.isEmpty { Section { Text(status) } }
@@ -44,10 +52,10 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: server) { Settings.server = server }
-        .onChange(of: house) { Settings.house = house }
-        .onChange(of: issuer) { Settings.issuer = issuer }
-        .onChange(of: clientId) { Settings.clientId = clientId }
+        .onChange(of: server) { Settings.server = server.trimmed }
+        .onChange(of: house) { Settings.house = house.trimmed }
+        .onChange(of: issuer) { Settings.issuer = issuer.trimmed }
+        .onChange(of: clientId) { Settings.clientId = clientId.trimmed }
         .onAppear {
             controller.onProcessed = { room in rooms.append(room); scanning = false; status = "Room added." }
             controller.onError = { msg in scanning = false; status = "Scan failed: \(msg)" }
@@ -76,6 +84,28 @@ struct ContentView: View {
         return (json, usdz)
     }
 
+    private func loadHouses() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
+            let list = try await Uploader(server: server.trimmed, house: house.trimmed, token: { try await auth.freshIdToken() }).houses()
+            houses = list
+            if !list.contains(house.trimmed) { house = list.first ?? "" }
+            status = list.isEmpty ? "The server has no houses yet: create one in homemesh first." : "\(list.count) house(s) on the server."
+        } catch {
+            status = "Could not list the houses: \(error.localizedDescription)"
+        }
+    }
+
+    /// "Scan 2026-10-21 23:30" when the name field is empty.
+    nonisolated static func defaultName(_ now: Date = Date()) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return "Scan " + f.string(from: now)
+    }
+
     private func upload() async {
         busy = true
         defer { busy = false }
@@ -88,9 +118,10 @@ struct ContentView: View {
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
             try json.write(to: docs.appendingPathComponent("\(stamp).json"))
             status = "Uploading…"
-            let auth = Auth(issuer: issuer, clientId: clientId)
+            let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
             _ = try await auth.freshIdToken()  // sign in first, before the long upload
-            let id = try await Uploader(server: server, house: house, token: { try await auth.freshIdToken() }).upload(json: json, usdz: usdz, name: name)
+            let id = try await Uploader(server: server.trimmed, house: house.trimmed, token: { try await auth.freshIdToken() })
+                .upload(json: json, usdz: usdz, name: name.trimmed.isEmpty ? Self.defaultName() : name.trimmed)
             rooms = []
             try? FileManager.default.removeItem(at: docs.appendingPathComponent("\(stamp).json"))  // uploaded: keep nothing on the device
             status = "Uploaded (scan \(id.prefix(8))). Import it in homemesh: Plan editor, Scans."
@@ -98,4 +129,8 @@ struct ContentView: View {
             status = "Upload failed: \(error.localizedDescription). The scan is still here; try again."
         }
     }
+}
+
+extension String {
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }

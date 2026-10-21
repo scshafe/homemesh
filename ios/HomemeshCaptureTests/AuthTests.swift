@@ -27,3 +27,14 @@ final class AuthTests: XCTestCase {
         XCTAssertFalse(Auth.isFresh("not a jwt", now: now))
     }
 }
+
+final class FieldTests: XCTestCase {
+    func testTrimmedDropsTrailingSpaceAndNewlines() {
+        XCTAssertEqual("espinazo ".trimmed, "espinazo")
+        XCTAssertEqual(" \thttps://x \n".trimmed, "https://x")
+    }
+
+    func testDefaultNameHasATimestamp() {
+        XCTAssertTrue(ContentView.defaultName(Date(timeIntervalSince1970: 0)).hasPrefix("Scan 19"))
+    }
+}

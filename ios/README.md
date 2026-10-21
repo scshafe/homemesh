@@ -69,6 +69,10 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
 - The backend reads `walls`, `doors`, `windows`, `openings` (or the same under
   `rooms: [...]`), each surface's `dimensions`, `transform` (4x4, column-major,
   ARKit world frame), `category`, `confidence`, `parentIdentifier`.
+- Fields: the app trims whitespace in every field (a trailing space in the house
+  id gave a 404 once), can list the server's houses (a picker instead of typing),
+  and names an unnamed scan "Scan <date time>". The house must already exist in
+  homemesh; a 404 says so.
 - Refresh tokens: Pocket ID issues them to this client, so the app asks for
   `offline_access` and renews the id token silently; if a refresh fails it
   signs in again (one tap through Pocket ID).
