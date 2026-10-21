@@ -6,6 +6,7 @@ import UIKit
 /// Sign-in through Pocket ID: OIDC authorization code with PKCE (S256), a public client, callback
 /// `homemesh-capture://oauth`. The id token is what the door accepts as `Authorization: Bearer`
 /// (docs/deploy.md, "The capture app's sign-in"). Nothing is kept except the tokens, in the Keychain.
+@MainActor
 final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
     struct Failure: LocalizedError {
         let message: String

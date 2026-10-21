@@ -3,7 +3,7 @@ import Foundation
 /// Uploads a scan to the homemesh backend: the capture JSON first, then the USDZ, both with the Pocket ID id token as the bearer token
 /// (a fresh one is fetched before each request, so a long first upload cannot outlive the second's token).
 /// The server reads the JSON (homemesh/roomplan.py); the USDZ is kept for display only.
-struct Uploader {
+struct Uploader: Sendable {
     struct Failure: LocalizedError {
         let message: String
         var errorDescription: String? { message }
@@ -12,7 +12,7 @@ struct Uploader {
     let server: String   // for example https://homemesh.<tailnet>  (no trailing slash needed)
     let house: String
     /// Returns a token with at least two minutes left; signs in again if it has to.
-    let token: () async throws -> String
+    let token: @Sendable () async throws -> String
 
     private func url(_ path: String, query: [URLQueryItem] = []) throws -> URL {
         var base = server.trimmingCharacters(in: .whitespaces)
