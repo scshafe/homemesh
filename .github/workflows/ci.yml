@@ -71,6 +71,7 @@ jobs:
           xcodebuild test -project ios/HomemeshCapture.xcodeproj -scheme HomemeshCapture \
             -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' \
             -resultBundlePath "$RUNNER_TEMP/HomemeshCapture.xcresult" \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
             2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" \
             | grep -E --line-buffered '(error:|warning: .*HomemeshCapture|Test Suite|Test Case|\*\* )' || true
           grep -q '\*\* TEST SUCCEEDED \*\*' "$RUNNER_TEMP/xcodebuild.log"
