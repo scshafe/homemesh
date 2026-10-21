@@ -60,6 +60,41 @@ class CaptureApiTest(Base):
         r = self.upload({"Authorization": "Bearer anything"})
         self.assertEqual(r.status_code, 401)
 
+    def test_rooms_are_imported_and_named(self):
+        m = self.upload().json()
+        self.assertEqual(m["rooms"], ["", ""])
+        r = self.c.put(f"{self.url}/{m['blob']}/rooms", json={"names": ["Kitchen", " Hall "]}, headers=self.ok)
+        self.assertEqual(r.json()["rooms"], ["Kitchen", "Hall"])
+        self.assertEqual(self.c.put(f"{self.url}/{m['blob']}/rooms", json={"names": ["only one"]}, headers=self.ok).status_code, 422)
+        body = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", headers=self.ok).json()
+        rooms = [x for x in body["house"]["rooms"] if (x["prov"].get("ref") or "").startswith(m["blob"])]
+        self.assertEqual(body["report"]["rooms"], 2)
+        self.assertEqual(sorted(x["name"] for x in rooms), ["Hall", "Kitchen"])
+        kitchen = next(x for x in rooms if x["name"] == "Kitchen")
+        xs = [p[0] for p in kitchen["polygon"]]
+        self.assertAlmostEqual(max(xs) - min(xs), 4.0, places=2)
+        # a second upload of the same scan keeps the names; importing again replaces rooms, never duplicates them
+        self.assertEqual(self.upload().json()["rooms"], ["Kitchen", "Hall"])
+        again = self.c.post(f"{self.url}/{m['blob']}/import?level=L0",
+                            content=json.dumps({"house": body["house"]}), headers=self.ok).json()
+        self.assertEqual(len(again["house"]["rooms"]), len(body["house"]["rooms"]))
+
+    def test_names_carried_by_the_wrapper(self):
+        data = two_rooms()
+        data["rooms"][0]["name"] = "Study"
+        m = self.upload(data=data).json()
+        self.assertEqual(m["rooms"], ["Study", ""])
+        rooms = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", headers=self.ok).json()["house"]["rooms"]
+        names = [x["name"] for x in rooms if (x["prov"].get("ref") or "").startswith(m["blob"])]
+        self.assertEqual(sorted(names), ["Room 2", "Study"])
+
+    def test_import_with_a_transform(self):
+        m = self.upload().json()
+        r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", content=json.dumps({"transform": {"rotation": 90, "tx": 10, "ty": 20}}),
+                        headers=self.ok).json()
+        walls = [w for w in r["house"]["walls"] if (w["prov"].get("ref") or "").startswith(m["blob"])]
+        self.assertTrue(all(w["a"][0] >= 10 - 4.5 and w["a"][1] >= 20 for w in walls))
+
     def test_import_preview_and_registration(self):
         m = self.upload().json()
         r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", headers=self.ok)

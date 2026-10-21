@@ -168,6 +168,17 @@ screen milestone.
 | **P8** | Calibration | Add measurements at tapped plan positions, fits and held-out error, apply. |
 | **P9** | Polish | Offline scan queue hardening, undo, an optional SceneKit 3D view, accessibility. |
 
+### As built (P2, backend half)
+
+`GET /api/houses/summary`, `POST /api/houses/<id>/levels`, `PUT .../captures/<blob>/rooms`
+(body `{"names": [...]}`, one per room of the capture, order kept; names carried in the
+wrapper's `rooms[i].name` are used when none were set), `GET /api/schema/house`, and
+`import` now creates a `Room` per scanned room (the convex hull of its wall ends, named
+from the owner's names, else the wrapper, else "Room N"; re-importing replaces them) and
+accepts a ready `transform` `{rotation, tx, ty}` besides point-pair `registration`.
+The hull is a stand-in for an L-shaped room's true outline. Not yet: the `place`
+endpoint (P4), and the app-side fixture decode test (it needs the Swift models, P3).
+
 ## 6. Open questions (recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the

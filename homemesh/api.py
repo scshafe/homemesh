@@ -30,7 +30,7 @@ from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
 from .materials import default_materials
-from .model import House, Level
+from .model import House, Level, Slab
 from .propagation import BAND_MHZ, Tx, level_grid, rssi_map
 
 DEV = "HOMEMESH_DEV"
@@ -39,6 +39,16 @@ WEB_DIST = "HOMEMESH_WEB_DIST"
 DOOR_ADDR = "HOMEMESH_DOOR_ADDR"
 DEFAULT_DOOR_ADDR = "10.253.93.10"  # the door on the stack network (deploy/stack/compose.yaml)
 MAX_BODY = 8 * 1024 * 1024
+
+
+class NewLevel(BaseModel):
+    name: str
+    elevation: float | None = None
+    height: float = 2.5
+
+
+class RoomNames(BaseModel):
+    names: list[str]
 
 
 class NewHouse(BaseModel):
@@ -72,6 +82,23 @@ def create_app() -> FastAPI:
     def houses() -> list[str]:
         return store.list_houses()
 
+    @app.get("/api/houses/summary", dependencies=[api])
+    def houses_summary() -> list[dict]:
+        out = []
+        for hid in store.list_houses():
+            try:
+                h = store.load(hid)
+            except store.StoreError:
+                continue
+            out.append({"id": h.id, "name": h.name, "revision": h.revision, "levels": [{"id": lv.id, "name": lv.name} for lv in h.levels],
+                        "walls": len(h.walls), "rooms": len(h.rooms), "access_points": len(h.access_points),
+                        "captures": len(captures.list_captures(hid))})
+        return out
+
+    @app.get("/api/schema/house", dependencies=[api])
+    def house_schema() -> dict:
+        return House.model_json_schema()
+
     def get_house(house_id: str) -> House:
         try:
             return store.load(house_id)
@@ -91,6 +118,30 @@ def create_app() -> FastAPI:
         except store.Conflict:
             raise HTTPException(409, "house exists") from None
         except store.StoreError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/houses/{house_id}/levels", dependencies=[api], status_code=201)
+    def add_level(house_id: str, req: NewLevel) -> dict:
+        """Add a level above the existing ones (elevation defaults to the top of the highest level's ceiling plus a
+        0.3 m floor slab). Returns the house at its new revision."""
+        h = get_house(house_id)
+        name = req.name.strip()
+        if not name:
+            raise HTTPException(422, "a level needs a name")
+        ids = {lv.id for lv in h.levels}
+        n = len(ids)
+        while f"L{n}" in ids:
+            n += 1
+        top = max(h.levels, key=lambda lv: lv.elevation)
+        elevation = req.elevation if req.elevation is not None else round(top.elevation + top.height + 0.3, 3)
+        slab_material = "slab-wood" if any(m.id == "slab-wood" for m in h.materials) else (h.materials[0].id if h.materials else None)
+        lv = Level(id=f"L{n}", name=name, elevation=elevation, height=req.height,
+                   slab=Slab(material=slab_material, thickness=0.3) if slab_material and elevation > top.elevation else None)
+        try:
+            return store.save(h.model_copy(update={"levels": [*h.levels, lv]}), expect_revision=h.revision).model_dump(mode="json")
+        except store.Conflict:
+            raise HTTPException(409, "changed elsewhere; reload") from None
+        except (store.StoreError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
 
     @app.put("/api/houses/{house_id}", dependencies=[api])
@@ -221,6 +272,14 @@ def create_app() -> FastAPI:
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 
+    @app.put("/api/houses/{house_id}/captures/{digest}/rooms", dependencies=[api])
+    def name_capture_rooms(house_id: str, digest: str, req: RoomNames) -> dict:
+        get_house(house_id)
+        try:
+            return captures.set_room_names(house_id, digest, req.names)
+        except captures.CaptureError as e:
+            raise HTTPException(422, str(e)) from None
+
     @app.get("/api/houses/{house_id}/captures", dependencies=[api])
     def list_captures(house_id: str) -> list[dict]:
         get_house(house_id)
@@ -249,15 +308,19 @@ def create_app() -> FastAPI:
             if reg:
                 src, dst = [tuple(map(float, p)) for p in reg["src"]], [tuple(map(float, p)) for p in reg["dst"]]
                 sim = roomplan.register(src, dst)
+            elif body.get("transform"):  # a placement the app already worked out (auto-align, then dragged)
+                t = body["transform"]
+                sim = roomplan.Similarity2D(1.0, float(t["rotation"]), float(t["tx"]), float(t["ty"]))
             data = captures.load_capture(house_id, digest)
-            new, rep = roomplan.import_capture(h, data, level, digest, sim)
+            new, rep = roomplan.import_capture(h, data, level, digest, sim, names=captures.get_meta(house_id, digest).get("rooms"))
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, KeyError, TypeError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
         out = {"house": new.model_dump(mode="json"), "report": {"walls": rep.walls, "paired_walls": rep.paired_walls, "openings": rep.openings,
-               "skipped_openings": rep.skipped_openings, "replaced": rep.replaced, "notes": rep.notes}}
+               "skipped_openings": rep.skipped_openings, "rooms": rep.rooms, "replaced": rep.replaced, "notes": rep.notes}}
         if sim:
-            out["registration"] = {"rotation": sim.rotation, "tx": sim.tx, "ty": sim.ty,
-                                   "max_error_m": roomplan.registration_error(src, dst, sim)}
+            out["registration"] = {"rotation": sim.rotation, "tx": sim.tx, "ty": sim.ty}
+            if reg:
+                out["registration"]["max_error_m"] = roomplan.registration_error(src, dst, sim)
         return out
 
     @app.get("/api/houses/{house_id}/revisions", dependencies=[api])
