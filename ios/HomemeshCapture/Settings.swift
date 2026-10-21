@@ -4,7 +4,7 @@ import Security
 /// Server address and house id live in UserDefaults; the sign-in tokens live in the Keychain.
 /// Nothing else is stored on the device after a successful upload except the copy in Documents/Scans.
 enum Settings {
-    private static let d = UserDefaults.standard
+    private static var d: UserDefaults { .standard }
 
     static var server: String {
         get { d.string(forKey: "server") ?? "" }
