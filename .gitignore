@@ -52,3 +52,6 @@ node_modules/
 
 # Front end build output
 /web/dist/
+ios/project.local.yml
+ios/HomemeshCapture.xcodeproj/
+ios/build/

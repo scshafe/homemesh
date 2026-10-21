@@ -1,10 +1,23 @@
-# XcodeGen spec: `brew install xcodegen && cd ios && xcodegen generate && open HomemeshCapture.xcodeproj`
-# (the .xcodeproj is generated, not committed). Needs a Mac with Xcode 15+, an iPhone/iPad with LiDAR on iOS 17+.
+# The Xcode project is generated from this spec by XcodeGen (version pinned in
+# .github/workflows/ci.yml); the .xcodeproj is not committed.
+#   xcodegen generate --spec ios/project.yml
+# It is unsigned (DEVELOPMENT_TEAM is empty): CI builds for the simulator. To run
+# on an iPhone, a git-ignored ios/project.local.yml includes this file and adds
+# your team and bundle id (ios/project.local.yml.example; ios/README.md).
 name: HomemeshCapture
 options:
-  bundleIdPrefix: example.homemesh   # change to your own prefix; free personal-team signing is enough for your own device
+  bundleIdPrefix: com.scshafe
   deploymentTarget:
     iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    # The app's bundle id; ios/project.local.yml can override it.
+    HOMEMESH_BUNDLE_ID: com.scshafe.homemesh-capture
 targets:
   HomemeshCapture:
     type: application
@@ -12,12 +25,30 @@ targets:
     sources: [HomemeshCapture]
     settings:
       base:
-        SWIFT_VERSION: "5.9"
+        PRODUCT_BUNDLE_IDENTIFIER: $(HOMEMESH_BUNDLE_ID)
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "homemesh capture"
         INFOPLIST_KEY_NSCameraUsageDescription: "The camera and LiDAR scan the rooms of your home."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UIRequiredDeviceCapabilities: arkit
         INFOPLIST_KEY_UIFileSharingEnabled: YES            # the saved scans show up in the Files app
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+  HomemeshCaptureTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [HomemeshCaptureTests]
+    dependencies:
+      - target: HomemeshCapture
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(HOMEMESH_BUNDLE_ID).tests
+schemes:
+  HomemeshCapture:
+    build:
+      targets:
+        HomemeshCapture: all
+    test:
+      targets: [HomemeshCaptureTests]
