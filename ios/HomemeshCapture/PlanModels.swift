@@ -111,6 +111,47 @@ struct PlanCalibration: Codable, Hashable, Sendable {
 }
 
 /// What the plan screens read from `GET /api/houses/<id>` (the rest of the house stays on the server).
+/// A thing RoomPlan saw in a room (homemesh/model.py `Furniture`); the Wi-Fi model ignores it.
+struct PlanFurniture: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let level: String
+    let room: String?
+    let category: String
+    let name: String
+    let center: Pt
+    let width: Double
+    let depth: Double
+    let height: Double
+    let base_z: Double?
+    let rotation: Double
+    let attributes: [String: String]?
+    let movable: Bool
+    let movable_default: Bool?
+
+    /// What the owner sees: the name they gave, else the category (and the type RoomPlan guessed).
+    var title: String {
+        if !name.isEmpty { return name }
+        let kind = attributes?.values.sorted().first.map { " (\($0))" } ?? ""
+        return category.prefix(1).uppercased() + category.dropFirst() + kind
+    }
+
+    /// The category's default: built-in appliances are fixed, furniture is movable.
+    static func defaultMovable(_ category: String) -> Bool {
+        !["sink", "toilet", "bathtub", "stove", "oven", "dishwasher", "fireplace"].contains(category)
+    }
+
+    /// The four corners of the item's footprint in plan metres.
+    var corners: [Pt] {
+        let c = cos(rotation * .pi / 180), s = sin(rotation * .pi / 180)
+        return [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map { sx, sy in
+            let x = sx * width / 2, y = sy * depth / 2
+            return Pt(center.x + x * c - y * s, center.y + x * s + y * c)
+        }
+    }
+
+    func contains(_ p: Pt) -> Bool { Geometry.contains(p, polygon: corners) }
+}
+
 struct PlanHouse: Codable, Sendable {
     let id: String
     let name: String
@@ -123,11 +164,12 @@ struct PlanHouse: Codable, Sendable {
     let access_points: [PlanAP]
     let stairs: [PlanStair]
     let zones: [PlanZone]
+    let furniture: [PlanFurniture]
     let entry: PlanEntry?
     let measurements: [PlanMeasurement]
     let calibration: PlanCalibration?
 
-    enum CodingKeys: String, CodingKey { case id, name, revision, levels, walls, rooms, outlets, jacks, access_points, stairs, zones, entry, measurements, calibration }
+    enum CodingKeys: String, CodingKey { case id, name, revision, levels, walls, rooms, outlets, jacks, access_points, stairs, zones, furniture, entry, measurements, calibration }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -142,6 +184,7 @@ struct PlanHouse: Codable, Sendable {
         access_points = try c.decodeIfPresent([PlanAP].self, forKey: .access_points) ?? []
         stairs = try c.decodeIfPresent([PlanStair].self, forKey: .stairs) ?? []
         zones = try c.decodeIfPresent([PlanZone].self, forKey: .zones) ?? []
+        furniture = try c.decodeIfPresent([PlanFurniture].self, forKey: .furniture) ?? []
         entry = try c.decodeIfPresent(PlanEntry.self, forKey: .entry)
         measurements = try c.decodeIfPresent([PlanMeasurement].self, forKey: .measurements) ?? []
         calibration = try c.decodeIfPresent(PlanCalibration.self, forKey: .calibration)

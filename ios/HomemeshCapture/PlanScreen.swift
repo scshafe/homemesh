@@ -18,6 +18,7 @@ struct PlanScreen: View {
     @State private var selectedMarker: PlanMarker?
     @State private var selectedStair: String?
     @State private var selectedZone: String?
+    @State private var selectedFurniture: String?
     @State private var zoneKind = "allow"
     @State private var undoCursor: Int?        // the revision the last undo restored; the next undo goes one before it
     @State private var draft: [Pt] = []
@@ -43,7 +44,7 @@ struct PlanScreen: View {
             if let plan {
                 Picker("Tool", selection: $tool) { ForEach(PlanTool.allCases) { Text($0.rawValue).tag($0) } }
                     .pickerStyle(.segmented)
-                    .onChange(of: tool) { draft = []; selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil }
+                    .onChange(of: tool) { draft = []; selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil }
                 if tool == .zone {
                     VStack(alignment: .leading, spacing: 4) {
                         Picker("Kind", selection: $zoneKind) {
@@ -66,12 +67,13 @@ struct PlanScreen: View {
                 }
                 PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
                            bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), draft: draft,
-                           selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
+                           selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone,
+                           furniture: plan.furniture.filter { $0.level == level }, selectedFurniture: selectedFurniture, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
                     .background(Color(.secondarySystemBackground))
                 if tool == .select {
                     Menu("Choose a wall from a list") {
                         ForEach(plan.walls.filter { $0.level == level }) { w in
-                            Button(String(format: "Wall %@, %.1f m", w.id, w.length)) { selectedWall = w.id; selectedMarker = nil; selectedStair = nil; selectedZone = nil }
+                            Button(String(format: "Wall %@, %.1f m", w.id, w.length)) { selectedWall = w.id; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil }
                         }
                     }.font(.footnote)
                 }
@@ -104,11 +106,14 @@ struct PlanScreen: View {
             } else if let id = selectedStair, let st = plan.stairs.first(where: { $0.id == id }) {
                 StairInspector(stair: st, doc: doc, here: level, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedStair = nil })
                     .frame(maxHeight: 240)
+            } else if let id = selectedFurniture, let f = plan.furniture.first(where: { $0.id == id }) {
+                FurnitureInspector(item: f, doc: doc, onSaved: { new in Task { await save(new) } }, onClose: { selectedFurniture = nil })
+                    .frame(maxHeight: 300)
             } else if let id = selectedZone, let z = plan.zones.first(where: { $0.id == id }) {
                 ZoneInspector(zone: z, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedZone = nil })
                     .frame(maxHeight: 420)
             } else if tool == .select {
-                Text("Tap a wall, a thing, a staircase or a zone.").font(.footnote).foregroundStyle(.secondary)
+                Text("Tap a wall, a thing, a piece of furniture, a staircase or a zone.").font(.footnote).foregroundStyle(.secondary)
             } else if tool != .stair && tool != .zone {
                 Text("Tap the plan to put the \(tool.rawValue.lowercased()) there.").font(.footnote).foregroundStyle(.secondary)
             }
@@ -119,11 +124,13 @@ struct PlanScreen: View {
         guard var d = doc else { return }
         switch tool {
         case .select:
-            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil
+            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil
             if let m = markers.min(by: { dist($0.at, p) < dist($1.at, p) }), dist(m.at, p) <= tol {
                 selectedMarker = m
             } else if let st = stairsHere.first(where: { Geometry.contains(p, polygon: $0.polygon) }) {
                 selectedStair = st.id
+            } else if nearestWall(p, tol: tol / 2, plan: plan) == nil, let f = plan.furniture.first(where: { $0.level == level && $0.contains(p) }) {
+                selectedFurniture = f.id
             } else if let w = nearestWall(p, tol: tol, plan: plan) {
                 selectedWall = w
             } else if let z = plan.zones.first(where: { $0.level == level && ($0.polygon.count >= 3 ? Geometry.contains(p, polygon: $0.polygon) : dist($0.polygon[0], p) <= max(tol, 0.3)) }) {
@@ -214,7 +221,7 @@ struct PlanScreen: View {
         do {
             try await model.client().restore(house: houseId, revision: t, expect: plan.revision)
             undoCursor = t
-            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil
+            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil
             status = "Back to the plan as it was at revision \(t)."
             await load()
         } catch {
@@ -446,5 +453,90 @@ struct WallInspector: View {
         var d = doc
         d.removeOpening(wall: wall.id, index: i)
         onSaved(d)
+    }
+}
+
+
+/// Name a piece of furniture and say whether it can be moved. The category sets the starting answer (a sink is fixed, a
+/// sofa is not); built-in shelves also come as "storage", so each item can be overridden and the override is kept when
+/// the room is scanned again.
+struct FurnitureInspector: View {
+    let item: PlanFurniture
+    let doc: HouseDoc
+    let onSaved: (HouseDoc) -> Void
+    let onClose: () -> Void
+    @State private var name = ""
+    @State private var movable = true
+
+    var body: some View {
+        Form {
+            Section(item.title) {
+                TextField("Name (for example the grey sofa)", text: $name)
+                Toggle("Can be moved", isOn: $movable)
+                Text(String(format: "%.2f × %.2f m, %.2f m high", item.width, item.depth, item.height)).font(.footnote).foregroundStyle(.secondary)
+                if movable != PlanFurniture.defaultMovable(item.category) {
+                    Text("Different from the usual for \(item.category).").font(.footnote).foregroundStyle(.secondary)
+                }
+                Button("Save") {
+                    var d = doc
+                    d.set("furniture", item.id, ["name": name.trimmed, "movable": movable, "movable_default": movable == PlanFurniture.defaultMovable(item.category)])
+                    onSaved(d)
+                }
+                Button("Close") { onClose() }
+            }
+        }
+        .onAppear { load() }
+        .onChange(of: item.id) { load() }
+    }
+
+    private func load() { name = item.name; movable = item.movable }
+}
+
+/// The furniture of one room, listed on the room's screen; a tap names it or flips movable/fixed.
+struct RoomFurnitureSection: View {
+    let houseId: String
+    let roomId: String?   // the house room's id once the scan is on the plan
+    @EnvironmentObject var model: AppModel
+    @State private var plan: PlanHouse?
+    @State private var doc: HouseDoc?
+    @State private var editing: PlanFurniture?
+
+    var body: some View {
+        Group {
+            if let roomId, let plan {
+                let here = plan.furniture.filter { $0.room == roomId }
+                Section("Furniture") {
+                    if here.isEmpty { Text("RoomPlan found no furniture in this room.").font(.footnote).foregroundStyle(.secondary) }
+                    ForEach(here) { f in
+                        Button { editing = f } label: {
+                            HStack {
+                                Text(f.title).foregroundStyle(.primary)
+                                Spacer()
+                                Text(f.movable ? "movable" : "fixed").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .task { await load() }
+        .sheet(item: $editing) { f in
+            if let doc {
+                FurnitureInspector(item: f, doc: doc, onSaved: { new in Task { await save(new) } }, onClose: { editing = nil })
+                    .presentationDetents([.medium])
+            }
+        }
+    }
+
+    private func load() async {
+        guard roomId != nil, let data = try? await model.client().call("GET", "/api/houses/\(houseId)") else { return }
+        doc = try? HouseDoc(data: data)
+        plan = try? JSONDecoder().decode(PlanHouse.self, from: data)
+    }
+
+    private func save(_ new: HouseDoc) async {
+        if let data = try? new.data() { try? await model.client().saveHouse(house: houseId, json: data, expectRevision: new.revision) }
+        editing = nil
+        await load()
     }
 }

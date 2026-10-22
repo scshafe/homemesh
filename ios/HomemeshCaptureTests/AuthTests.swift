@@ -498,3 +498,41 @@ final class WallShapeTests: XCTestCase {
         XCTAssertTrue(node.geometry is SCNShape)
     }
 }
+
+final class FurnitureTests: XCTestCase {
+    private func item(_ category: String, rotation: Double = 0, movable: Bool = true) -> PlanFurniture {
+        PlanFurniture(id: "f1", level: "L0", room: "r1", category: category, name: "", center: Pt(2, 1), width: 2, depth: 1, height: 0.9,
+                      base_z: 0, rotation: rotation, attributes: ["storageType": "shelf"], movable: movable, movable_default: true)
+    }
+
+    func testCategoryDefaultsMatchTheOwnersList() {
+        for c in ["chair", "table", "sofa", "bed", "storage", "television", "refrigerator", "washerDryer"] { XCTAssertTrue(PlanFurniture.defaultMovable(c), c) }
+        for c in ["sink", "toilet", "bathtub", "stove", "oven", "dishwasher", "fireplace"] { XCTAssertFalse(PlanFurniture.defaultMovable(c), c) }
+    }
+
+    func testTheFootprintTurnsWithTheItemAndTapsHitIt() {
+        let f = item("sofa", rotation: 90)   // 2 m long along the plan's y after the turn
+        XCTAssertTrue(f.contains(Pt(2, 1.8)))
+        XCTAssertFalse(f.contains(Pt(2.8, 1)))
+        XCTAssertTrue(item("sofa").contains(Pt(2.8, 1)))
+    }
+
+    func testTheTitleIsTheNameElseTheCategoryAndType() {
+        XCTAssertEqual(item("storage").title, "Storage (shelf)")
+    }
+
+    func testOverridesAreWrittenIntoTheDocumentAndOtherFieldsSurvive() throws {
+        var d = try HouseDoc(data: Data(#"{"id":"h","revision":3,"furniture":[{"id":"f1","category":"storage","movable":true,"movable_default":true,"prov":{"source":"scan"}}]}"#.utf8))
+        d.set("furniture", "f1", ["name": "Built-in shelf", "movable": false, "movable_default": false])
+        let f = d.item("furniture", "f1")!
+        XCTAssertEqual(f["name"] as? String, "Built-in shelf")
+        XCTAssertEqual(f["movable"] as? Bool, false)
+        XCTAssertNotNil(f["prov"])
+    }
+
+    func testFurnitureIsInTheThreeDModel() throws {
+        let json = #"{"id":"h","name":"H","revision":1,"levels":[{"id":"L0","name":"Ground","elevation":0,"height":2.5}],"furniture":[{"id":"f1","level":"L0","room":"r1","category":"sofa","name":"","center":[2,1],"width":2,"depth":1,"height":0.9,"base_z":0,"rotation":0,"movable":true}]}"#
+        let plan = try JSONDecoder().decode(PlanHouse.self, from: Data(json.utf8))
+        XCTAssertNotNil(House3D.build(plan).rootNode.childNode(withName: "furniture:f1", recursively: false))
+    }
+}

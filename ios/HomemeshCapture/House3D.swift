@@ -49,6 +49,15 @@ enum House3D {
                 scene.rootNode.addChildNode(n)
             }
         }
+        for f in plan.furniture where visible?.contains(f.level) ?? true {
+            let box = SCNBox(width: f.width, height: f.height, length: f.depth, chamferRadius: 0)
+            box.firstMaterial?.diffuse.contents = (f.movable ? UIColor.systemOrange : UIColor.brown).withAlphaComponent(0.7)
+            let n = SCNNode(geometry: box)
+            n.name = "furniture:\(f.id)"
+            n.position = SCNVector3(Float(f.center.x), Float((elevation[f.level] ?? 0) + (f.base_z ?? 0) + f.height / 2), Float(-f.center.y))
+            n.eulerAngles.y = Float(f.rotation * .pi / 180)
+            scene.rootNode.addChildNode(n)
+        }
         for st in plan.stairs where visible == nil || visible!.contains(st.from_level) || visible!.contains(st.to_level) {
             let b = Geometry.bounds(st.polygon)
             let lo = elevation[st.from_level] ?? 0, hi = elevation[st.to_level] ?? lo + 2.5
