@@ -20,6 +20,8 @@ struct PlaceView: View {
     @State private var done = false
     @State private var stairs: [StairSuggestion] = []
     @State private var stairTarget = ""
+    @State private var proposing = false
+    @State private var proposalRun = 0         // the newest proposal wins; an older answer arriving late is dropped
 
     private var shift: Pt { Pt(dragged.x + live.x, dragged.y + live.y) }
     private var ghost: [Seg] { Geometry.adjust(base, centre: centre, delta: delta, d: shift) }
@@ -27,14 +29,18 @@ struct PlaceView: View {
     var body: some View {
         VStack(spacing: 8) {
             if let house {
-                Picker("Level", selection: $level) { ForEach(house.levels, id: \.id) { Text($0.name).tag($0.id) } }
-                    .pickerStyle(.segmented)
-                    .onChange(of: level) { Task { await propose() } }
+                Picker("Level", selection: Binding(get: { level }, set: { level = $0; Task { await propose() } })) {   // only the owner's change proposes
+                    ForEach(house.levels, id: \.id) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.segmented)
                 PlanCanvas(walls: house.walls.filter { $0.level == level && !$0.isFromCapture(capture.blob) },
                            rooms: house.rooms.filter { $0.level == level },
                            ghost: ghost, bounds: bounds,
                            onDrag: { live = $0 }, onDragEnd: { dragged = shift; live = Pt(0, 0) })
                     .background(Color(.secondarySystemBackground))
+                if proposing {
+                    HStack(spacing: 8) { ProgressView(); Text("Finding where it fits…").font(.footnote) }
+                }
                 if let p = placement {
                     Text("\(p.confidence.uppercased()): \(p.reason)").font(.footnote).foregroundStyle(p.confidence == "auto" ? .green : .orange)
                 }
@@ -84,19 +90,71 @@ struct PlaceView: View {
         }
     }
 
+    /// Asks the server where the scan fits. One request at a time (the newest wins); if the server fails or takes more than
+    /// ten seconds, the scan is put in the middle of the floor's walls as a manual placement so it can always be dragged,
+    /// turned and accepted. Every outcome goes to the event log.
     private func propose() async {
         guard let house, !level.isEmpty else { return }
+        proposalRun += 1
+        let run = proposalRun
+        proposing = true
+        placement = nil
+        let started = Date()
+        let lvl = level, blob = capture.blob
+        let client = model.client()
+        let request = Task { () -> Placement in
+            try await client.send("POST", "/api/houses/\(houseId)/captures/\(blob)/place?level=\(lvl)", [String: String]())
+        }
+        let timer = Task { try? await Task.sleep(for: .seconds(10)); request.cancel() }
+        defer { timer.cancel() }
         do {
-            let p: Placement = try await model.client().send("POST", "/api/houses/\(houseId)/captures/\(capture.blob)/place?level=\(level)", [String: String]())
-            placement = p
-            base = p.preview
-            centre = Geometry.centroid(p.preview)
-            dragged = Pt(0, 0); live = Pt(0, 0); delta = 0
-            let pts = house.walls.filter { $0.level == level }.flatMap { [$0.a, $0.b] } + p.preview.flatMap { [$0.a, $0.b] }
-            bounds = Geometry.bounds(pts)
+            let p = try await request.value
+            guard run == proposalRun else { return }
+            Diagnostics.event("place", ["capture": String(blob.prefix(8)), "level": lvl, "ms": Int(Date().timeIntervalSince(started) * 1000), "outcome": p.confidence])
+            apply(p, house: house)
             status = ""
         } catch {
-            status = "Could not place the scan: \(error.localizedDescription)"
+            guard run == proposalRun else { return }
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            let slow = ms >= 9_500
+            Diagnostics.event("place", ["capture": String(blob.prefix(8)), "level": lvl, "ms": ms, "outcome": slow ? "timeout" : "error",
+                                        "error": (error as NSError).domain + " " + String((error as NSError).code)])
+            status = slow ? "Finding the place took too long, so the scan is in the middle of the floor: drag and turn it into place."
+                          : "Could not work out where it fits (\(error.localizedDescription)): the scan is in the middle of the floor; drag and turn it into place."
+            await manualPlacement(house: house, level: lvl, blob: blob)
+        }
+        if run == proposalRun { proposing = false }
+    }
+
+    private func apply(_ p: Placement, house: PlanHouse) {
+        placement = p
+        base = p.preview
+        centre = Geometry.centroid(p.preview)
+        dragged = Pt(0, 0); live = Pt(0, 0); delta = 0
+        let pts = house.walls.filter { $0.level == level }.flatMap { [$0.a, $0.b] } + p.preview.flatMap { [$0.a, $0.b] }
+        bounds = Geometry.bounds(pts)
+    }
+
+    /// The scan's own walls (imported with no movement) shifted so their centre sits at the centre of the floor's walls.
+    private func manualPlacement(house: PlanHouse, level: String, blob: String) async {
+        do {
+            let r = try await model.client().importScan(house: houseId, blob: blob, level: level, transform: Transform2D(rotation: 0, tx: 0, ty: 0))
+            let plan = try JSONDecoder().decode(PlanHouse.self, from: r.house)
+            let mine = plan.walls.filter { $0.level == level && $0.isFromCapture(blob) }.map { Seg(a: $0.a, b: $0.b) }
+            guard !mine.isEmpty else { return }
+            let floorSegs = house.walls.filter { $0.level == level && !$0.isFromCapture(blob) }.map { Seg(a: $0.a, b: $0.b) }
+            let floor = floorSegs.flatMap { [$0.a, $0.b] }
+            let target = floorSegs.isEmpty ? Geometry.centroid(mine) : Geometry.centroid(floorSegs)
+            let here = Geometry.centroid(mine)
+            let p = Placement(confidence: "manual", reason: "placed by hand: drag and turn the scan into place", transform: Transform2D(rotation: 0, tx: 0, ty: 0),
+                              alternatives: [], preview: mine)
+            apply(p, house: house)
+            dragged = Pt(target.x - here.x, target.y - here.y)   // starts at the floor's centre; Accept composes it into the transform
+            let pts = floor + mine.flatMap { [$0.a, $0.b] }.map { Pt($0.x + dragged.x, $0.y + dragged.y) }
+            bounds = Geometry.bounds(pts)
+        } catch {
+            status += " (The scan could not be shown either: \(error.localizedDescription).)"
+            Diagnostics.event("place-fallback-failed", ["error": (error as NSError).domain + " " + String((error as NSError).code)])
         }
     }
 
