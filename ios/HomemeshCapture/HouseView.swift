@@ -46,6 +46,7 @@ struct HouseView: View {
             }
             Section {
                 Button("Add a floor") { newLevel = ""; addingLevel = true }
+                NavigationLink("Plan a mesh") { PlanRunView(houseId: houseId) }
                 NavigationLink("Equipment to plan with") { CatalogueView(houseId: houseId) }
                 NavigationLink("Accuracy: scan against tape") { AccuracyView(houseId: houseId) }
             }

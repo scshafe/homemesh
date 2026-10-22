@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import HomemeshCapture
 
@@ -232,5 +233,33 @@ final class ShortlistTests: XCTestCase {
         XCTAssertEqual(d.object("entry")?["kind"] as? String, "modem")
         d.setObject("entry", nil)
         XCTAssertNil(d.object("entry"))
+    }
+}
+
+final class PlanResultTests: XCTestCase {
+    func testAResultDecodesWithNullsWhereTheServerHasNone() throws {
+        let json = #"""
+        {"state":"done","progress":["searching"],"error":null,"result":{"gateway":{"equipment":"r","level":"L0","position":[1,2],"height":1.5},
+         "config":{"k_max":2},"results":[{"equipment":"m","k":1,"score":0.8,"score_margin":null,"worst":0.5,"cost":240,"valid":true,"must_ok":true,"stable":null,
+         "nodes":[{"equipment":"m","position":[3,4],"level":"L0","height":1.8}],
+         "zones":[{"zone":"z1","utility":0.9,"utility_margin":null,"mean_rate":300,"frac_target":0.8,"must_met":true}],
+         "backhaul":[{"index":0,"kind":"wired","parent":null,"mbps":null,"hops":1,"jack":"j1","band":null,"shared":false}],
+         "problems":[],"jacks_used":[],"jacks_unverified":[],"pareto":true,
+         "explanation":{"lines":["Node 1 carries the office."],"stability":"stable","node_contribution":[[0,0.4]],"zones":[{"zone":"z1","limiter":"coverage","detail":"weak at the far wall"}]}}]}}
+        """#
+        let s = try JSONDecoder().decode(JobState.self, from: Data(json.utf8))
+        let a = try XCTUnwrap(s.result?.results.first)
+        XCTAssertEqual(a.title, "1 × m")
+        XCTAssertNil(a.stable)
+        XCTAssertNil(a.backhaul[0].mbps)
+        XCTAssertEqual(a.explanation?.zones.first?.limiter, "coverage")
+    }
+
+    func testRateColourAndHeatLayer() throws {
+        XCTAssertEqual(RateColor.color(nil), Color(white: 0.78))
+        XCTAssertNotEqual(RateColor.color(10), RateColor.color(900))
+        let h = try JSONDecoder().decode(HeatLayer.self, from: Data(#"{"level":"L0","x0":0,"y0":0,"step":1,"nx":2,"ny":1,"rate":[null,120.5]}"#.utf8))
+        XCTAssertNil(h.rate[0])
+        XCTAssertEqual(h.rate[1], 120.5)
     }
 }

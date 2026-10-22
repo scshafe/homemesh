@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// A client-rate map over the plan (`POST .../ratemap`, one level): `rate[iy * nx + ix]` in Mbit/s, null where there is no service.
+struct HeatLayer: Decodable, Hashable, Sendable {
+    let level: String
+    let x0: Double
+    let y0: Double
+    let step: Double
+    let nx: Int
+    let ny: Int
+    let rate: [Double?]
+}
+
+enum RateColor {
+    /// Log scale from 5 Mbit/s (red) to 1000 Mbit/s (green); no service is grey (same as the web app).
+    static func color(_ mbps: Double?) -> Color {
+        guard let m = mbps, m.isFinite, m > 0 else { return Color(white: 0.78) }
+        let t = min(1, max(0, log(m / 5) / log(1000.0 / 5)))
+        return Color(hue: t / 3, saturation: 0.75, brightness: 0.85)
+    }
+
+    /// Blue where B is faster, red where A is faster, white near equal.
+    static func diff(_ a: Double?, _ b: Double?) -> Color {
+        let x = (a?.isFinite == true ? a! : 0), y = (b?.isFinite == true ? b! : 0)
+        let d = (y - x) / max(x, y, 25)
+        let k = min(1, abs(d) * 2)
+        return d >= 0 ? Color(red: (255 - k * 190) / 255, green: (255 - k * 120) / 255, blue: 1) : Color(red: 1, green: (255 - k * 190) / 255, blue: (255 - k * 190) / 255)
+    }
+}
+
 /// A point thing on the plan: an outlet, a jack or an access point.
 struct PlanMarker: Hashable, Identifiable {
     enum Kind { case outlet, jack, accessPoint, entry }
@@ -22,6 +50,8 @@ struct PlanCanvas: View {
     var draft: [Pt] = []                // points of a stair or zone being drawn
     var selectedMarker: String?
     var zones: [PlanZone] = []
+    var heat: HeatLayer?
+    var heatB: HeatLayer?                // with `heat`, the map shows where B is faster (blue) or A is (red)
     var selectedZone: String?
     var onTapPlan: ((Pt, Double) -> Void)?    // a tap, in plan metres, with a tolerance of about 24 points in metres
     var onDrag: ((Pt) -> Void)?       // plan metres moved since the gesture began
@@ -37,6 +67,19 @@ struct PlanCanvas: View {
         GeometryReader { geo in
             let (scale, map) = mapping(geo.size)
             Canvas { ctx, _ in
+                if let h = heat {
+                    for iy in 0..<h.ny {
+                        for ix in 0..<h.nx {
+                            let i = iy * h.nx + ix
+                            guard i < h.rate.count else { continue }
+                            let color: Color
+                            if let hb = heatB { color = RateColor.diff(h.rate[i], i < hb.rate.count ? hb.rate[i] : nil) } else { color = RateColor.color(h.rate[i]) }
+                            let a = map(Pt(h.x0 + Double(ix) * h.step, h.y0 + Double(iy) * h.step))
+                            let b = map(Pt(h.x0 + Double(ix + 1) * h.step, h.y0 + Double(iy + 1) * h.step))
+                            ctx.fill(Path(CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(b.x - a.x) + 0.5, height: abs(b.y - a.y) + 0.5)), with: .color(color.opacity(0.7)))
+                        }
+                    }
+                }
                 for r in rooms where r.polygon.count >= 3 {
                     var path = Path()
                     path.move(to: map(r.polygon[0]))
