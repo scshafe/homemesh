@@ -1,0 +1,71 @@
+import SwiftUI
+
+/// The server settings and the house list, shared by every screen.
+@MainActor
+final class AppModel: ObservableObject {
+    @Published var server = Settings.server.trimmed
+    @Published var issuer = Settings.issuer.trimmed
+    @Published var clientId = Settings.clientId.trimmed
+    @Published var houses: [HouseSummary] = []
+    @Published var message = ""
+    @Published var busy = false
+
+    var configured: Bool { !server.trimmed.isEmpty && !issuer.trimmed.isEmpty && !clientId.trimmed.isEmpty }
+
+    func saveSettings() {
+        server = server.trimmed
+        issuer = issuer.trimmed
+        clientId = clientId.trimmed
+        Settings.server = server
+        Settings.issuer = issuer
+        Settings.clientId = clientId
+    }
+
+    func client() -> Client {
+        let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
+        return Client(server: server, token: { try await auth.freshIdToken() })
+    }
+
+    func uploader(house: String) -> Uploader {
+        let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
+        return Uploader(server: server, house: house, token: { try await auth.freshIdToken() })
+    }
+
+    func summary(_ id: String) -> HouseSummary? { houses.first { $0.id == id } }
+
+    func refresh() async {
+        guard configured else { houses = []; message = "Open Settings and fill in the server and sign-in."; return }
+        busy = true
+        defer { busy = false }
+        do {
+            houses = try await client().houses()
+            message = houses.isEmpty ? "No houses yet. Tap + to create one." : ""
+        } catch {
+            message = "Could not load the houses: \(error.localizedDescription)"
+        }
+    }
+
+    /// Creates a house from a display name; returns its id, or nil with `message` set.
+    func createHouse(named name: String) async -> String? {
+        let id = Naming.slug(name)
+        guard !name.trimmed.isEmpty, !id.isEmpty else { message = "Give the house a name."; return nil }
+        do {
+            _ = try await client().createHouse(id: id, name: name.trimmed)
+            await refresh()
+            return id
+        } catch {
+            message = "Could not create the house: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func addLevel(house: String, name: String) async {
+        guard !name.trimmed.isEmpty else { message = "Give the level a name."; return }
+        do {
+            _ = try await client().addLevel(house: house, name: name.trimmed)
+            await refresh()
+        } catch {
+            message = "Could not add the level: \(error.localizedDescription)"
+        }
+    }
+}
