@@ -59,7 +59,14 @@ struct Client: Sendable {
 
     func createHouse(id: String, name: String) async throws -> HouseLite { try await send("POST", "/api/houses", NewHouseBody(id: id, name: name)) }
 
-    func addLevel(house: String, name: String) async throws -> HouseLite { try await send("POST", "/api/houses/\(house)/levels", NewLevelBody(name: name)) }
+    func addLevel(house: String, name: String, below: Bool = false) async throws -> HouseLite {
+        try await send("POST", "/api/houses/\(house)/levels", NewLevelBody(name: name, below: below))
+    }
+
+    /// Reorders the floors (bottom to top); the server re-derives elevations from the order.
+    func orderLevels(house: String, order: [String], belowGround: [String]) async throws -> HouseLite {
+        try await send("PUT", "/api/houses/\(house)/levels/order", LevelOrderBody(order: order, below_ground: belowGround))
+    }
 
     func captures(house: String) async throws -> [CaptureMeta] { try await get("/api/houses/\(house)/captures") }
 

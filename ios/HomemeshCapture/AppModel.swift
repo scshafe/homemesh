@@ -59,10 +59,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func addLevel(house: String, name: String) async {
+    func addLevel(house: String, name: String, below: Bool = false) async {
         guard !name.trimmed.isEmpty else { message = "Give the level a name."; return }
         do {
-            _ = try await client().addLevel(house: house, name: name.trimmed)
+            _ = try await client().addLevel(house: house, name: name.trimmed, below: below)
             await refresh()
         } catch {
             message = "Could not add the level: \(error.localizedDescription)"

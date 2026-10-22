@@ -5,6 +5,8 @@ import Foundation
 struct LevelRef: Codable, Hashable, Identifiable, Sendable {
     let id: String
     let name: String
+    var below_ground: Bool? = nil
+    var elevation: Double? = nil
 }
 
 /// `GET /api/houses/summary`
@@ -91,6 +93,12 @@ struct NewHouseBody: Encodable, Sendable {
 
 struct NewLevelBody: Encodable, Sendable {
     let name: String
+    var below = false
+}
+
+struct LevelOrderBody: Encodable, Sendable {
+    let order: [String]
+    let below_ground: [String]
 }
 
 struct RoomNamesBody: Encodable, Sendable {
