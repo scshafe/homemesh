@@ -327,6 +327,13 @@ resets the chain.
 floor, a block per staircase; plan (x, y) to scene (x, -y) with Y up), `House3DView` lets the owner orbit it and hide floors. Openings,
 furniture and the scanned meshes are not drawn (a room's own USDZ opens in Quick Look from the room details).
 
+### As built (P9d)
+
+Accessibility: the shortlist and comparison tick-circles are real buttons with labels (they were tap gestures VoiceOver could not
+find); the plan canvas has a spoken summary and the Select tool a "Choose a wall from a list" menu as an alternative to tapping;
+fixed widths in the comparison table became minimum widths that scale with the text size. Not done: drawing zones or stairs without
+touching the canvas (the tap targets there have no list alternative yet).
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the

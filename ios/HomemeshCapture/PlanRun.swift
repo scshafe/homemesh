@@ -138,12 +138,15 @@ struct PlanRunView: View {
                     }
                     ForEach(Array(result.results.enumerated()), id: \.element.id) { i, a in
                         HStack {
-                            Image(systemName: picks.contains(a.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(picks.contains(a.id) ? Color.accentColor : .secondary)
-                                .onTapGesture { pick(a.id) }
-                        NavigationLink { ArrangementView(houseId: houseId, arrangement: a, rank: i + 1, plan: plan, request: request(), gateway: result.gateway) } label: {
-                            ArrangementRow(rank: i + 1, a: a)
-                        }
+                            Button { pick(a.id) } label: {
+                                Image(systemName: picks.contains(a.id) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(picks.contains(a.id) ? Color.accentColor : .secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(picks.contains(a.id) ? "Chosen for comparison: number \(i + 1)" : "Choose number \(i + 1) for comparison")
+                            NavigationLink { ArrangementView(houseId: houseId, arrangement: a, rank: i + 1, plan: plan, request: request(), gateway: result.gateway) } label: {
+                                ArrangementRow(rank: i + 1, a: a)
+                            }
                         }
                     }
                 }

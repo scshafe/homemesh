@@ -68,6 +68,13 @@ struct PlanScreen: View {
                            bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), draft: draft,
                            selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
                     .background(Color(.secondarySystemBackground))
+                if tool == .select {
+                    Menu("Choose a wall from a list") {
+                        ForEach(plan.walls.filter { $0.level == level }) { w in
+                            Button(String(format: "Wall %@, %.1f m", w.id, w.length)) { selectedWall = w.id; selectedMarker = nil; selectedStair = nil; selectedZone = nil }
+                        }
+                    }.font(.footnote)
+                }
                 inspector(plan)
             } else {
                 ProgressView()
