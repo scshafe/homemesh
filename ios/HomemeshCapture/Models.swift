@@ -44,7 +44,13 @@ struct CaptureMeta: Codable, Hashable, Identifiable, Sendable {
     let usdz: String?
     let rooms: [String]?
     let level: String?
+    var stairs_found: [StairFound]? = nil
+    var stair: StairFloors? = nil
+    var purpose: String? = nil
     var id: String { blob }
+    var isStairsScan: Bool { purpose == "stairs" }
+    /// A staircase RoomPlan found whose floors the owner has not said yet.
+    var needsStairFloors: Bool { !(stairs_found ?? []).isEmpty && stair == nil }
 
     var roomCount: Int { counts["rooms"] ?? 0 }
     /// One name per room, "" where the owner has not named it yet.
@@ -136,4 +142,22 @@ enum Naming {
 
 extension String {
     var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+/// A staircase RoomPlan found in a scan (metres).
+struct StairFound: Codable, Hashable, Sendable {
+    let rise: Double
+    let width: Double
+    let run: Double
+}
+
+/// The two floors a scan's staircase joins.
+struct StairFloors: Codable, Hashable, Sendable {
+    let from_level: String
+    let to_level: String
+}
+
+struct StairFloorsBody: Encodable, Sendable {
+    let from_level: String?
+    let to_level: String?
 }

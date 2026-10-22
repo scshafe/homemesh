@@ -68,6 +68,11 @@ struct Client: Sendable {
         try await send("PUT", "/api/houses/\(house)/levels/order", LevelOrderBody(order: order, below_ground: belowGround))
     }
 
+    /// Which two floors the staircase in a scan joins (nil clears it); applied when the scan is placed.
+    func setCaptureStair(house: String, blob: String, from: String?, to: String?) async throws -> CaptureMeta {
+        try await send("PUT", "/api/houses/\(house)/captures/\(blob)/stair", StairFloorsBody(from_level: from, to_level: to))
+    }
+
     func captures(house: String) async throws -> [CaptureMeta] { try await get("/api/houses/\(house)/captures") }
 
     /// Imports the scan at `transform` and returns the resulting house as JSON (a preview: nothing is stored yet).

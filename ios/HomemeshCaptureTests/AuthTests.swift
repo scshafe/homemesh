@@ -458,3 +458,28 @@ final class BuildInfoTests: XCTestCase {
         XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, BuildInfo.number)   // from the xcconfig
     }
 }
+
+final class StairGuessTests: XCTestCase {
+    private let levels = [LevelRef(id: "B", name: "Basement", below_ground: true, elevation: -3.1), LevelRef(id: "G", name: "Ground", elevation: 0),
+                          LevelRef(id: "F", name: "First", elevation: 2.8)]
+
+    func testTheFloorWhoseHeightFitsTheRiseIsChosen() {
+        XCTAssertEqual(StairGuess.otherFloor(levels: levels, from: "G", rise: 3.1), "B")   // 3.1 down fits the basement, not 2.8 up
+        XCTAssertEqual(StairGuess.otherFloor(levels: levels, from: "G", rise: 2.8), "F")
+        XCTAssertEqual(StairGuess.otherFloor(levels: levels, from: "B", rise: 3.2), "G")
+    }
+
+    func testWithoutARiseItIsTheFloorAboveElseBelow() {
+        XCTAssertEqual(StairGuess.otherFloor(levels: levels, from: "G", rise: nil), "F")
+        XCTAssertEqual(StairGuess.otherFloor(levels: levels, from: "F", rise: nil), "G")
+        XCTAssertNil(StairGuess.otherFloor(levels: [levels[1]], from: "G", rise: 3))
+    }
+
+    func testAnOlderQueuedUploadStillDecodes() throws {
+        let old = #"{"id":"1","house":"h","name":"n","level":"L0","replaces":"","created":"2026-10-22T10:00:00Z"}"#
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        let p = try dec.decode(PendingUpload.self, from: Data(old.utf8))
+        XCTAssertNil(p.stairFrom)
+    }
+}

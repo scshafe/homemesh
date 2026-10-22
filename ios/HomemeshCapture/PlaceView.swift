@@ -109,9 +109,9 @@ struct PlaceView: View {
             let result = try await model.client().importScan(house: houseId, blob: capture.blob, level: level, transform: t)
             try await model.client().saveHouse(house: houseId, json: result.house, expectRevision: house.revision)
             done = true
-            stairs = result.stairs
+            stairs = capture.stair == nil ? result.stairs : []   // the floors were already given with the scan
             stairTarget = house.levels.first { $0.id != level }?.id ?? ""
-            status = "Placed and saved. Walls and rooms are on the plan; set thickness and materials next."
+            status = "Placed and saved. Walls and rooms are on the plan; set thickness and materials next." + (capture.stair != nil ? " The staircase is saved too." : "")
             await model.refresh()
         } catch {
             status = "Could not save the placement: \(error.localizedDescription)"
