@@ -97,6 +97,15 @@ struct ScanScreen: View {
         levelReason = s?.reason ?? ""
     }
 
+    @ViewBuilder private var floorPicker: some View {
+        let choice = Binding(get: { level }, set: { level = $0; levelTouched = true; levelReason = "" })
+        if levels.count <= 4 {
+            Picker("Floor", selection: choice) { ForEach(levels.reversed()) { Text($0.name).tag($0.id) } }.pickerStyle(.segmented)
+        } else {
+            Picker("Floor", selection: choice) { ForEach(levels.reversed()) { Text($0.name).tag($0.id) } }.pickerStyle(.menu)
+        }
+    }
+
     private var allRooms: [CapturedRoom] { earlier.flatMap { $0 } + rooms }
 
     private var allNamed: Bool { allRooms.allSatisfy { !(names[$0.identifier.uuidString] ?? "").trimmed.isEmpty } }

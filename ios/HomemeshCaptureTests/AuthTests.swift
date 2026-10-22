@@ -416,6 +416,8 @@ final class EventLogTests: XCTestCase {
         XCTAssertLessThan(size, EventLog.cap + 8000)
         let last = try XCTUnwrap(log.lines(after: 0))
         XCTAssertTrue(String(decoding: last.data, as: UTF8.self).contains("\"i\":\(EventLog.cap / 4000 + 199)"))   // the newest survives
+    }
+}
 
 final class FloorSuggestionTests: XCTestCase {
     private let levels = [LevelRef(id: "B", name: "Basement", below_ground: true), LevelRef(id: "G", name: "Ground"), LevelRef(id: "F", name: "First")]
