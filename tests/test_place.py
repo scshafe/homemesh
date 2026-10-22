@@ -75,6 +75,7 @@ class PlaceTest(unittest.TestCase):
         p = place.propose(house, wrap(bare_b), "L0", "B" * 64)
         self.assertEqual(p["confidence"], "manual")
         self.assertEqual(p["transform"], {"rotation": 0.0, "tx": 0.0, "ty": 0.0})
+        self.assertEqual(len(p["preview"]), 4)  # the app still shows the scan so it can be dragged into place
 
     def test_same_room_scanned_again_is_found_by_name(self):
         a2 = moved(wrap(self.a), 90, 3, 3)["rooms"][0]
@@ -91,6 +92,7 @@ class PlaceTest(unittest.TestCase):
     def test_empty_plan_keeps_the_frame_and_squares_it_up(self):
         p = place.propose(empty_house(), wrap(moved(wrap(self.b), 20, 0, 0)["rooms"][0]), "L0", "B" * 64)
         self.assertEqual(p["confidence"], "auto")
+        self.assertEqual(len(p["preview"]), 4)
         self.assertAlmostEqual(p["transform"]["rotation"] % 90, (-20) % 90, delta=0.6)
 
     def test_identical_rooms_are_not_silently_chosen(self):

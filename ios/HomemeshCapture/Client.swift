@@ -63,6 +63,20 @@ struct Client: Sendable {
 
     func captures(house: String) async throws -> [CaptureMeta] { try await get("/api/houses/\(house)/captures") }
 
+    /// Imports the scan at `transform` and returns the resulting house as JSON (a preview: nothing is stored yet).
+    func importScan(house: String, blob: String, level: String, transform: Transform2D) async throws -> Data {
+        let body = try JSONEncoder().encode(["transform": transform])
+        let data = try await call("POST", "/api/houses/\(house)/captures/\(blob)/import?level=\(level)", body: body)
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any], let h = obj["house"],
+              JSONSerialization.isValidJSONObject(h) else { throw Uploader.Failure(message: "Unexpected answer from the server") }
+        return try JSONSerialization.data(withJSONObject: h)
+    }
+
+    /// Saves a whole house as the next revision (409 if someone changed it meanwhile).
+    func saveHouse(house: String, json: Data, expectRevision: Int) async throws {
+        _ = try await call("PUT", "/api/houses/\(house)?expect_revision=\(expectRevision)", body: json)
+    }
+
     func nameRooms(house: String, blob: String, names: [String]) async throws -> CaptureMeta {
         try await send("PUT", "/api/houses/\(house)/captures/\(blob)/rooms", RoomNamesBody(names: names))
     }

@@ -72,6 +72,7 @@ struct CaptureView: View {
                 }
             }
             Button("Save names") { Task { await save() } }
+            NavigationLink("Place on the plan") { PlaceView(houseId: houseId, capture: capture) }
             if !status.isEmpty { Text(status).font(.footnote) }
         }
         .navigationTitle(capture.name.isEmpty ? "Scan" : capture.name)

@@ -267,6 +267,10 @@ def _out(c: Candidate) -> dict:
             "source": c.source}
 
 
+def _preview(scan_walls: list[Wall], c: Candidate) -> list[dict]:
+    return [{"a": [round(x, 3) for x in w.a], "b": [round(x, 3) for x in w.b]} for w in _transform_walls(scan_walls, c.sim())]
+
+
 def propose(house: House, data: dict, level: str, blob: str, names: list[str] | None = None) -> dict:
     """The proposal for placing capture `blob` (`data`) on `level` of `house`."""
     try:
@@ -285,13 +289,15 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
         centre = np.mean([[*w.a] for w in scan_walls] + [[*w.b] for w in scan_walls], axis=0)
         t = centre - _rot(deg) @ centre
         c = Candidate(deg, float(t[0]), float(t[1]), "empty plan")
-        return {"confidence": "auto", "reason": "the level has no walls yet", **_out(c), "evidence": {}, "alternatives": []}
+        return {"confidence": "auto", "reason": "the level has no walls yet", **_out(c), "evidence": {}, "alternatives": [],
+                "preview": _preview(scan_walls, c)}
 
     scan_open, plan_open = _openings(scan_walls), _openings(plan_walls)
     cands = _candidates(scan_open, scan_rooms, plan_open, plan_rooms)
     if not cands:
         return {"confidence": "manual", "reason": "no shared doorway or room name to line the scan up by",
-                "transform": {"rotation": 0.0, "tx": 0.0, "ty": 0.0}, "score": 0.0, "evidence": {}, "alternatives": []}
+                "transform": {"rotation": 0.0, "tx": 0.0, "ty": 0.0}, "score": 0.0, "evidence": {}, "alternatives": [],
+                "preview": _preview(scan_walls, Candidate(0.0, 0.0, 0.0, "none"))}
     plan_samples = _samples(plan_walls)
     plan_dom = _dominant(plan_walls)
     for c in cands:
@@ -315,5 +321,4 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
     else:
         conf, reason = "auto", "a clear match"
     return {"confidence": conf, "reason": reason, **_out(best), "evidence": evidence, "alternatives": [_out(c) for c in others[:2]],
-            "preview": [{"a": [round(x, 3) for x in w.a], "b": [round(x, 3) for x in w.b]}
-                        for w in _transform_walls(scan_walls, best.sim())]}
+            "preview": _preview(scan_walls, best)}
