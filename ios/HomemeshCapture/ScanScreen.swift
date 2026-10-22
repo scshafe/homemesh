@@ -13,7 +13,8 @@ struct ScanScreen: View {
     @State private var controller = ScanController()
     @State private var generation = 0
     @State private var level = ""
-    @State private var rooms: [CapturedRoom] = []
+    @State private var rooms: [CapturedRoom] = []          // the rooms of the running session (one frame)
+    @State private var earlier: [[CapturedRoom]] = []      // sessions that ended: each is its own frame and its own scan
     @State private var names: [String: String] = [:]   // by the room's identifier
     @State private var phase = ScanController.Phase.idle
     @State private var busy = false
@@ -38,15 +39,15 @@ struct ScanScreen: View {
                         .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy)
                     if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").foregroundStyle(.red) }
                     if !hint.isEmpty { Text(hint).font(.footnote).foregroundStyle(.orange) }
-                    ForEach(rooms.indices, id: \.self) { i in
-                        let id = rooms[i].identifier.uuidString
+                    ForEach(allRooms.indices, id: \.self) { i in
+                        let id = allRooms[i].identifier.uuidString
                         TextField("Name room \(i + 1) (required)", text: Binding(get: { names[id] ?? "" }, set: { names[id] = $0 }))
                             .focused($focused, equals: id)
                             .submitLabel(.done)
                     }
                 }
                 if !status.isEmpty { Section { Text(status) } }
-                if !rooms.isEmpty {   // last in the form: out of the way of the keyboard and of the room fields
+                if !allRooms.isEmpty {   // last in the form: out of the way of the keyboard and of the room fields
                     Section { Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle || busy) }
                 }
             }
@@ -66,7 +67,7 @@ struct ScanScreen: View {
                 .background(.regularMaterial, in: Circle())
                 .accessibilityLabel("Back")
             Spacer()
-            if !rooms.isEmpty {
+            if !allRooms.isEmpty {
                 Button { Task { await upload() } } label: { Text("Save").font(.headline).padding(.horizontal, 18).padding(.vertical, 10) }
                     .background(.regularMaterial, in: Capsule())
                     .disabled(busy || phase != .idle || !allNamed)
@@ -76,11 +77,13 @@ struct ScanScreen: View {
         .padding(.horizontal, 12).padding(.top, 8)
     }
 
-    private var allNamed: Bool { rooms.allSatisfy { !(names[$0.identifier.uuidString] ?? "").trimmed.isEmpty } }
+    private var allRooms: [CapturedRoom] { earlier.flatMap { $0 } + rooms }
+
+    private var allNamed: Bool { allRooms.allSatisfy { !(names[$0.identifier.uuidString] ?? "").trimmed.isEmpty } }
 
     /// The scan's own name is the names of its rooms; there is one name field per room and no other.
-    private var scanTitle: String {
-        let joined = rooms.compactMap { names[$0.identifier.uuidString]?.trimmed }.filter { !$0.isEmpty }.joined(separator: ", ")
+    private func scanTitle(_ group: [CapturedRoom]) -> String {
+        let joined = group.compactMap { names[$0.identifier.uuidString]?.trimmed }.filter { !$0.isEmpty }.joined(separator: ", ")
         return joined.isEmpty ? Naming.defaultScanName() : String(joined.prefix(80))
     }
 
@@ -92,6 +95,16 @@ struct ScanScreen: View {
             focused = room.identifier.uuidString
         }
         controller.onError = { msg in status = "Scan failed: \(msg)" }
+        controller.onSessionLost = { message, salvaged in
+            if let salvaged {
+                rooms.append(salvaged)
+                status = message + " The room scanned so far was kept: name it below."
+                focused = salvaged.identifier.uuidString
+            } else {
+                status = message
+            }
+            newSession()
+        }
         controller.onPhase = { phase = $0 }
         controller.onHint = { hint = $0 }
         phase = controller.phase
@@ -99,17 +112,35 @@ struct ScanScreen: View {
 
     /// A fresh scan view and session for the next scan.
     private func resetScan() {
+        rooms = []
+        earlier = []
+        names = [:]
+        replaceController()
+    }
+
+    private func replaceController() {
         controller.shutdown()
         controller = ScanController()
         generation += 1
-        rooms = []
-        names = [:]
         hint = ""
         bind()
     }
 
+    /// The running session is over (it hit RoomPlan's limits, failed, or is simply long): what it scanned is kept as
+    /// its own scan, and the next room gets a brand-new session, camera view and world frame.
+    private func newSession() {
+        if !rooms.isEmpty { earlier.append(rooms); rooms = [] }
+        replaceController()
+    }
+
     private func toggle() {
-        if phase == .running { controller.stop() } else { controller.start() }
+        if phase == .running { controller.stop(); return }
+        if controller.wantsFreshSession {   // before RoomPlan's scene size limit, not after it
+            newSession()
+            status = "To stay under RoomPlan's size limit this room starts a new session: a new frame, placed by the usual placement step. Tap start again."
+            return
+        }
+        controller.start()
     }
 
     /// The scan is first saved on the phone (so nothing is lost if the upload fails or there is no signal), then sent.
@@ -118,17 +149,27 @@ struct ScanScreen: View {
         defer { busy = false }
         do {
             status = "Preparing…"
-            let (json, usdz) = try await ScanPayload.build(rooms: rooms, names: names.mapValues { $0.trimmed })
-            let item = try UploadQueue.enqueue(house: houseId, name: scanTitle, level: level, replaces: replacing?.key ?? "", json: json, usdz: usdz)
+            let groups = earlier + (rooms.isEmpty ? [] : [rooms])
+            var items: [(PendingUpload, [String])] = []
+            for g in groups {   // one scan per session: each session has its own frame
+                let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed })
+                let item = try UploadQueue.enqueue(house: houseId, name: scanTitle(g), level: level, replaces: items.isEmpty ? (replacing?.key ?? "") : "", json: json, usdz: usdz)
+                items.append((item, g.map { names[$0.identifier.uuidString]?.trimmed ?? "" }))
+            }
             let first = replacing.flatMap { $0.description.isEmpty ? nil : $0.description }
-            let roomNames = rooms.map { names[$0.identifier.uuidString]?.trimmed ?? "" }
             resetScan()
             status = "Saved on this phone. Uploading…"
-            let id = try await UploadQueue.send(item, with: model.uploader(house: houseId))
-            if let first {   // the description carries over to the new scan's room
-                _ = try? await model.client().nameRooms(house: houseId, blob: id, names: roomNames, descriptions: roomNames.indices.map { $0 == 0 ? first : "" })
+            var last = ""
+            for (n, (item, roomNames)) in items.enumerated() {
+                let id = try await UploadQueue.send(item, with: model.uploader(house: houseId))
+                last = id
+                if n == 0, let first {   // the description carries over to the new scan's room
+                    _ = try? await model.client().nameRooms(house: houseId, blob: id, names: roomNames, descriptions: roomNames.indices.map { $0 == 0 ? first : "" })
+                }
             }
-            status = "Uploaded (scan \(id.prefix(8))). Place the rooms on the plan next."
+            status = items.count > 1
+                ? "Uploaded \(items.count) scans (they are separate frames). Place each on the plan next."
+                : "Uploaded (scan \(last.prefix(8))). Place the rooms on the plan next."
             onUploaded()
         } catch {
             status = "Not uploaded yet: \(error.localizedDescription). The scan is saved on this phone; the house screen has it under \"Waiting to upload\"."
