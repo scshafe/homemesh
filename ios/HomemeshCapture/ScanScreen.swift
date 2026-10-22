@@ -136,6 +136,7 @@ struct ScanScreen: View {
     private func toggle() {
         if phase == .running { controller.stop(); return }
         if controller.wantsFreshSession {   // before RoomPlan's scene size limit, not after it
+            Diagnostics.event("renewal", ["rooms": controller.roomsDone, "seconds": Int(controller.scanSeconds)])
             newSession()
             status = "To stay under RoomPlan's size limit this room starts a new session: a new frame, placed by the usual placement step. Tap start again."
             return
@@ -170,8 +171,11 @@ struct ScanScreen: View {
             status = items.count > 1
                 ? "Uploaded \(items.count) scans (they are separate frames). Place each on the plan next."
                 : "Uploaded (scan \(last.prefix(8))). Place the rooms on the plan next."
+            Diagnostics.event("upload", ["ok": true, "scans": items.count])
+            await DiagnosticsUploader.shared.flush()
             onUploaded()
         } catch {
+            Diagnostics.event("upload", ["ok": false, "error": (error as NSError).domain + " " + String((error as NSError).code)])
             status = "Not uploaded yet: \(error.localizedDescription). The scan is saved on this phone; the house screen has it under \"Waiting to upload\"."
         }
     }

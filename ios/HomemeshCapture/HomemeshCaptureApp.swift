@@ -11,6 +11,10 @@ struct HomemeshCaptureApp: App {
                     .navigationDestination(for: HouseSummary.self) { HouseView(houseId: $0.id) }
             }
             .environmentObject(model)
+            .task {
+                Diagnostics.launched()
+                if model.configured { DiagnosticsUploader.shared.start { model.client() } }
+            }
         }
     }
 }

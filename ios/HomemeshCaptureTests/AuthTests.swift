@@ -384,3 +384,37 @@ final class FloorStackTests: XCTestCase {
         XCTAssertEqual(FloorStack.reordered(topFirst: ["F", "G", "B"], from: IndexSet(integer: 0), to: 3), ["F", "B", "G"])
     }
 }
+
+final class EventLogTests: XCTestCase {
+    private func temp() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("events-\(UUID().uuidString).jsonl") }
+
+    func testEventsAreFlushedStrictlyIncreasingAndReadBackAfterACursor() throws {
+        let url = temp()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let log = EventLog(url: url)
+        let now = Date()
+        log.append("a", ["n": 1], now: now)
+        log.append("b", ["n": 2], now: now)   // same millisecond: still strictly later
+        let all = try XCTUnwrap(log.lines(after: 0))
+        XCTAssertEqual(String(decoding: all.data, as: UTF8.self).split(separator: "\n").count, 2)
+        XCTAssertNil(log.lines(after: all.newest))   // nothing new after the cursor
+        log.append("c", now: now)
+        let rest = try XCTUnwrap(log.lines(after: all.newest))
+        XCTAssertTrue(String(decoding: rest.data, as: UTF8.self).contains("\"e\":\"c\""))
+        XCTAssertGreaterThan(rest.newest, all.newest)
+        // a fresh object over the same file (a new launch) reads the same events: it was on disk
+        XCTAssertNotNil(EventLog(url: url).lines(after: 0))
+    }
+
+    func testTheLogStaysUnderItsCap() throws {
+        let url = temp()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let log = EventLog(url: url)
+        let pad = String(repeating: "x", count: 4000)
+        for i in 0..<(EventLog.cap / 4000 + 200) { log.append("e", ["i": i, "pad": pad]) }
+        let size = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
+        XCTAssertLessThan(size, EventLog.cap + 8000)
+        let last = try XCTUnwrap(log.lines(after: 0))
+        XCTAssertTrue(String(decoding: last.data, as: UTF8.self).contains("\"i\":\(EventLog.cap / 4000 + 199)"))   // the newest survives
+    }
+}

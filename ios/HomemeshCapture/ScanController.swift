@@ -146,6 +146,7 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
     private func set(_ p: Phase) {
         MainActor.assertIsolated("scan state is changed on the main actor only")
         Self.log.notice("scan phase \(self.phase.rawValue, privacy: .public) -> \(p.rawValue, privacy: .public)")
+        Diagnostics.event("phase", ["from": phase.rawValue, "to": p.rawValue, "rooms": roomsDone, "seconds": Int(scanSeconds)])
         phase = p
         onPhase?(p)
     }
@@ -180,6 +181,7 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
             try? await Task.sleep(for: after)
             guard !Task.isCancelled, let self, self.phase == phase, stillStuck() else { return }
             Self.log.error("watchdog: \(what, privacy: .public) within \(String(describing: after), privacy: .public)")
+            Diagnostics.event("watchdog", ["what": what, "phase": phase.rawValue, "rooms": self.roomsDone])
             self.lose("The scanner stalled (\(what)). Start the next room again; it will use a new session.", data: nil)
         }
     }
@@ -261,6 +263,8 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
             let exceeded = (error as? RoomCaptureSession.CaptureError) == .exceedSceneSizeLimit
             let ns = error as NSError
             Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public) (\(ns.domain, privacy: .public) \(ns.code), size limit: \(exceeded))")
+            Diagnostics.event("session-error", ["domain": ns.domain, "code": ns.code, "size_limit": exceeded, "phase": phase.rawValue,
+                                                "rooms": roomsDone, "seconds": Int(scanSeconds), "walls": wallsSeen])
             lose(exceeded
                  ? "RoomPlan's scene size limit was reached. The next room starts a new session (a new frame) and is placed by the usual placement step."
                  : "The scan stopped: \(error.localizedDescription). The next room starts a new session.", data: data)
