@@ -104,7 +104,7 @@ struct PlanRunView: View {
     @State private var progress: [String] = []
     @State private var result: PlanResult?
     @State private var status = ""
-    @State private var picks: [Arrangement] = []
+    @State private var picks: [String] = []          // ids of the two arrangements chosen to compare
 
     private var problems: [String] {
         guard let plan else { return ["Loading…"] }
@@ -130,9 +130,20 @@ struct PlanRunView: View {
             if !status.isEmpty { Section { Text(status).font(.footnote) } }
             if let result {
                 Section("Ranked: best first") {
+                    Text("Tap the circle on two rows to compare them.").font(.footnote).foregroundStyle(.secondary)
+                    if picks.count == 2, let ia = result.results.firstIndex(where: { $0.id == picks[0] }), let ib = result.results.firstIndex(where: { $0.id == picks[1] }) {
+                        NavigationLink("Compare #\(ia + 1) and #\(ib + 1)") {
+                            CompareView(houseId: houseId, plan: plan, request: request(), a: result.results[ia], b: result.results[ib], rankA: ia + 1, rankB: ib + 1)
+                        }
+                    }
                     ForEach(Array(result.results.enumerated()), id: \.element.id) { i, a in
+                        HStack {
+                            Image(systemName: picks.contains(a.id) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(picks.contains(a.id) ? Color.accentColor : .secondary)
+                                .onTapGesture { pick(a.id) }
                         NavigationLink { ArrangementView(houseId: houseId, arrangement: a, rank: i + 1, plan: plan, request: request(), gateway: result.gateway) } label: {
                             ArrangementRow(rank: i + 1, a: a)
+                        }
                         }
                     }
                 }
@@ -140,6 +151,10 @@ struct PlanRunView: View {
         }
         .navigationTitle("Plan a mesh")
         .task { await load() }
+    }
+
+    private func pick(_ id: String) {
+        if let i = picks.firstIndex(of: id) { picks.remove(at: i) } else { picks.append(id); if picks.count > 2 { picks.removeFirst() } }
     }
 
     private var summary: String {
