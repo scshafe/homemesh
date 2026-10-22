@@ -30,7 +30,7 @@ enum RateColor {
 
 /// A point thing on the plan: an outlet, a jack or an access point.
 struct PlanMarker: Hashable, Identifiable {
-    enum Kind { case outlet, jack, accessPoint, entry }
+    enum Kind { case outlet, jack, accessPoint, entry, measurement, suggestion }
     let id: String
     let kind: Kind
     let at: Pt
@@ -150,6 +150,12 @@ struct PlanCanvas: View {
                     switch m.kind {
                     case .outlet: ctx.fill(Path(ellipseIn: rect), with: .color(.yellow)); ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
                     case .jack: ctx.fill(Path(rect), with: .color(.green)); ctx.stroke(Path(rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
+                    case .measurement, .suggestion:
+                        var d = Path()
+                        d.move(to: CGPoint(x: c.x, y: c.y - r - 2)); d.addLine(to: CGPoint(x: c.x + r + 2, y: c.y))
+                        d.addLine(to: CGPoint(x: c.x, y: c.y + r + 2)); d.addLine(to: CGPoint(x: c.x - r - 2, y: c.y)); d.closeSubpath()
+                        if m.kind == .measurement { ctx.fill(d, with: .color(.pink)); ctx.stroke(d, with: .color(sel ? .accentColor : .black), lineWidth: 1.2) }
+                        else { ctx.stroke(d, with: .color(.purple), style: StrokeStyle(lineWidth: 2, dash: [3, 2])) }
                     case .entry:
                         var d = Path()
                         d.move(to: CGPoint(x: c.x, y: c.y - r - 3)); d.addLine(to: CGPoint(x: c.x + r + 3, y: c.y))

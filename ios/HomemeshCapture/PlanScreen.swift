@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum PlanTool: String, CaseIterable, Identifiable {
-    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", entry = "Internet", stair = "Stair", zone = "Zone"
+    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", entry = "Internet", measure = "Measure", stair = "Stair", zone = "Zone"
     var id: String { rawValue }
 }
 
@@ -30,6 +30,7 @@ struct PlanScreen: View {
         for o in plan.outlets where o.level == level { out.append(PlanMarker(id: o.id, kind: .outlet, at: o.position)) }
         for j in plan.jacks where j.level == level { out.append(PlanMarker(id: j.id, kind: .jack, at: j.position)) }
         for a in plan.access_points where a.level == level { out.append(PlanMarker(id: a.id, kind: .accessPoint, at: a.position)) }
+        for m in plan.measurements where m.level == level { out.append(PlanMarker(id: m.id, kind: .measurement, at: m.position)) }
         if let e = plan.entry, e.level == level { out.append(PlanMarker(id: "entry", kind: .entry, at: e.position)) }
         return out
     }
@@ -127,6 +128,10 @@ struct PlanScreen: View {
             Task { await save(d) }
         case .zone:
             draft.append(p)
+        case .measure:
+            let id = d.add("measurements", prefix: "m", ["position": [p.x, p.y], "level": level, "device": "iPhone", "band": "5"])
+            selectedMarker = PlanMarker(id: id, kind: .measurement, at: p)
+            Task { await save(d) }
         case .entry:
             d.setObject("entry", ["position": [p.x, p.y], "level": level, "kind": "modem"])
             selectedMarker = PlanMarker(id: "entry", kind: .entry, at: p)
@@ -206,12 +211,16 @@ struct MarkerInspector: View {
     @State private var state = "unknown"
     @State private var poe = false
     @State private var eirp = ""
+    @State private var rssi = ""
+    @State private var rate = ""
+    @State private var band = "5"
+    @State private var device = "iPhone"
     @State private var entryKind = "modem"
     @State private var wanDown = ""
     @State private var wanUp = ""
 
     private var collection: String {
-        switch marker.kind { case .outlet: "outlets"; case .jack: "jacks"; case .accessPoint: "access_points"; case .entry: "entry" }
+        switch marker.kind { case .outlet: "outlets"; case .jack: "jacks"; case .accessPoint: "access_points"; case .entry: "entry"; case .measurement, .suggestion: "measurements" }
     }
 
     var body: some View {
@@ -225,6 +234,11 @@ struct MarkerInspector: View {
                     Picker("Works?", selection: $state) { ForEach(["live", "dead", "unknown"], id: \.self) { Text($0).tag($0) } }
                     Toggle("Power over Ethernet", isOn: $poe)
                     field("Height above the floor (m)", $height)
+                case .measurement, .suggestion:
+                    Picker("Band", selection: $band) { Text("2.4 GHz").tag("2.4"); Text("5 GHz").tag("5"); Text("6 GHz").tag("6") }.pickerStyle(.segmented)
+                    field("Signal you read here (dBm, for example -62)", $rssi)
+                    field("Speed here (Mbit/s, optional)", $rate)
+                    TextField("Device", text: $device)
                 case .entry:
                     Picker("Comes in as", selection: $entryKind) { Text("Modem").tag("modem"); Text("Fibre ONT").tag("ont"); Text("Coax drop").tag("coax_drop") }
                     field("Download from your provider (Mbit/s)", $wanDown)
@@ -247,17 +261,21 @@ struct MarkerInspector: View {
     }
 
     private var title: String {
-        switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)"; case .entry: "Where the internet comes in" }
+        switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)"; case .entry: "Where the internet comes in"; case .measurement, .suggestion: "Measurement \(marker.id)" }
     }
 
     private func field(_ label: String, _ text: Binding<String>) -> some View {
-        HStack { Text(label); TextField("", text: text).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
+        HStack { Text(label); TextField("", text: text).keyboardType(.numbersAndPunctuation).multilineTextAlignment(.trailing) }
     }
 
     private func num(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: ".")) }
 
     private func load() {
         let it = (marker.kind == .entry ? doc.object("entry") : doc.item(collection, marker.id)) ?? [:]
+        rssi = (it["rssi"] as? Double).map { String(format: "%g", $0) } ?? ""
+        rate = (it["throughput"] as? Double).map { String(format: "%g", $0) } ?? ""
+        band = it["band"] as? String ?? "5"
+        device = it["device"] as? String ?? "iPhone"
         entryKind = it["kind"] as? String ?? "modem"
         wanDown = (it["wan_down"] as? Double).map { String(format: "%g", $0) } ?? ""
         wanUp = (it["wan_up"] as? Double).map { String(format: "%g", $0) } ?? ""
@@ -275,6 +293,8 @@ struct MarkerInspector: View {
         case .outlet: d.set(collection, marker.id, ["z": num(height) ?? 0.3])
         case .jack: d.set(collection, marker.id, ["type": type, "state": state, "poe": poe, "z": num(height) ?? 0.3])
         case .accessPoint: d.set(collection, marker.id, ["name": name, "height": num(height) ?? 1.5, "eirp_dbm": num(eirp) ?? 23])
+        case .measurement, .suggestion:
+            d.set(collection, marker.id, ["band": band, "rssi": num(rssi), "throughput": num(rate), "device": device.trimmed.isEmpty ? "iPhone" : device.trimmed])
         case .entry:
             var e = doc.object("entry") ?? [:]
             e["kind"] = entryKind
