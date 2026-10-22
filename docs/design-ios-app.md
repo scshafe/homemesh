@@ -207,6 +207,51 @@ cannot move floors alone* (recommended: accept, rescan instead); (2) *old captur
 forever* (recommended: yes; a "delete this scan" command later); (3) *a stairs object that RoomPlan misses*: the
 owner draws it on the plan (P5/P6).
 
+## 4c. Floor picking and the floor stack (2026-10-22)
+
+Owner feedback from the phone, decided by the oversight session (the owner can override).
+
+**Evidence.** "Basement storage" went to L2 Guest (the owner has not yet confirmed which floor it is on), and the
+house's Basement level sits +2.8 m *above* Ground, because levels were always created on top of the stack.
+(Pantry and Wine Cellar were confirmed on Ground and placed correctly: ceiling height is not a floor signal here,
+so nothing below uses it to *choose* a floor.) The old rule, a Floor picker shown before the scan and defaulting to
+the first floor, asks the owner to remember and gives no help.
+
+**(a) Choose the floor when saving.** The floor is a segmented picker in the save sheet, beside the room's name and
+description, not before the scan. It starts on a suggestion and says why ("same height as Library"; "last floor you
+scanned"; "first floor").
+
+**(b) Barometer suggestion.** At scan start the app records `CMAltimeter` relative altitude and pressure together
+with a session id (the altimeter runs from the first scan screen of an app launch; relative altitude is only
+comparable inside one launch) and the time. The scan wrapper carries `"baro": {session, rel_m, kpa, at}`, the
+capture meta keeps it, and the room list returns it. Suggestion, computed in the app from the room list: among
+rooms with a `baro` and a floor from the last 12 hours, take the nearest in height: inside the same session by
+relative altitude; across sessions by pressure (1 kPa is about 84 m) only when less than an hour apart, since weather
+drifts the pressure. Nearest within 1 m wins and its floor is suggested; otherwise the last floor used in this
+house; otherwise the lowest above-ground floor. Nothing is moved automatically; the owner sees and can change it.
+
+**(c) Floors are an ordered stack.** `House.levels` order is the stack, bottom to top. `Level.below_ground`
+(default false) marks basements; the ground floor is the first level that is not below ground. Elevations are
+*derived*, not entered: ground is 0; each level above is the one below plus its height plus the slab (0.3 m); each
+basement is the one above minus the slab minus its own height. `Level.height` is taken from the scans on the level
+(median wall height, to 0.01 m) when there are any, else kept. `PUT /api/houses/<id>/levels/order`
+`{order: [ids bottom..top], below_ground: [ids]}` reorders, re-derives elevations and stores one revision; ids do
+not change, so walls, rooms and stairs stay attached. The app gets a Floors screen (drag to reorder, "below
+ground" switch, add a floor above or below). This house's Basement is fixed through that screen, by the owner's
+confirmation (its data is not touched from here).
+
+**(d) Stories inside one scan.** RoomPlan reports a `story` per room (iOS 17). When the rooms of one session carry
+different stories, the save sheet shows one floor picker per story, the lowest story taking the suggestion and the
+others the floors above it in the stack (changeable). The capture keeps `room_levels` (one level per room), the
+rooms of a session still share one frame, so the one placement transform applies to all of them, and import groups
+the rooms by level (walls are merged per level; each level's floor is its own lowest wall). `PUT
+.../captures/<blob>/level` keeps working for a single-story scan; the whole-scan-floor rule of 4b is relaxed to
+"one floor per story". The measured vertical offset between stories of a session is a better elevation than a
+guess; it is reported and not applied automatically.
+
+Pieces (PR each): this note; (a) the picker in the save sheet; (c) backend order/derivation, then the Floors
+screen; (b) the barometer; (d) stories.
+
 ## 5. Milestones
 
 Each is a PR with verify and CI; the iOS job (Xcode 26, strict concurrency,
