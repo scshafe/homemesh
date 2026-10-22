@@ -24,6 +24,7 @@
   "jacks": [],
   "levels": [
     {
+      "below_ground": false,
       "elevation": 0.0,
       "height": 2.5,
       "id": "L0",

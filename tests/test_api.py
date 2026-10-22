@@ -34,7 +34,7 @@ class ApiTest(unittest.TestCase):
         rows = self.c.get("/api/houses/summary", headers=self.ok).json()
         self.assertEqual({r["id"] for r in rows}, set(self.c.get("/api/houses", headers=self.ok).json()))
         row = next(r for r in rows if r["id"] == "synthetic-box")
-        self.assertEqual(row["levels"], [{"id": "L0", "name": "Ground"}])
+        self.assertEqual(row["levels"], [{"id": "L0", "name": "Ground", "below_ground": False, "elevation": 0.0}])
         self.assertEqual(self.c.get("/api/houses/summary").status_code, 401)
         h = self.c.post("/api/houses/synthetic-box/levels", json={"name": "First"}, headers=self.ok)
         self.assertEqual(h.status_code, 201, h.text)
@@ -47,6 +47,28 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.c.post("/api/houses/nope/levels", json={"name": "x"}, headers=self.ok).status_code, 404)
         schema = self.c.get("/api/schema/house", headers=self.ok).json()
         self.assertIn("levels", schema["properties"])
+
+    def test_floor_stack_is_derived_from_order_and_measured_heights(self):
+        a = self.c.post("/api/houses/synthetic-box/levels", json={"name": "Attic", "height": 2.4}, headers=self.ok).json()
+        b = self.c.post("/api/houses/synthetic-box/levels", json={"name": "Basement", "below": True, "height": 2.2}, headers=self.ok)
+        self.assertEqual(b.status_code, 201, b.text)
+        lv = {x["name"]: x for x in b.json()["levels"]}
+        self.assertTrue(lv["Basement"]["below_ground"])
+        self.assertEqual([x["name"] for x in b.json()["levels"]], ["Basement", "Ground", "Attic"])
+        self.assertAlmostEqual(lv["Ground"]["elevation"], 0.0)
+        self.assertAlmostEqual(lv["Basement"]["elevation"], -(0.3 + lv["Basement"]["height"]), places=2)
+        self.assertGreater(lv["Attic"]["elevation"], 0)
+        ids = {x["name"]: x["id"] for x in b.json()["levels"]}
+        # the Attic was made first, but may be moved under Ground as a (second) basement; ground must stay above ground
+        bad = self.c.put("/api/houses/synthetic-box/levels/order", json={"order": [ids["Ground"], ids["Basement"], ids["Attic"]], "below_ground": [ids["Basement"]]}, headers=self.ok)
+        self.assertEqual(bad.status_code, 422, bad.text)   # a basement above ground
+        self.assertEqual(self.c.put("/api/houses/synthetic-box/levels/order", json={"order": [ids["Ground"]]}, headers=self.ok).status_code, 422)
+        ok = self.c.put("/api/houses/synthetic-box/levels/order", json={"order": [ids["Attic"], ids["Basement"], ids["Ground"]], "below_ground": [ids["Attic"], ids["Basement"]]}, headers=self.ok)
+        self.assertEqual(ok.status_code, 200, ok.text)
+        e = {x["name"]: x["elevation"] for x in ok.json()["levels"]}
+        self.assertLess(e["Attic"], e["Basement"])
+        self.assertLess(e["Basement"], e["Ground"])
+        self.assertEqual(ok.json()["revision"], b.json()["revision"] + 1)
 
     def test_measure_checks_round_trip_and_survive_other_edits(self):
         h = self.c.get("/api/houses/synthetic-box", headers=self.ok).json()
