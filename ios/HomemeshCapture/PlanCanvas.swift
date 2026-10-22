@@ -72,10 +72,14 @@ struct PlanCanvas: View {
         return parts.joined(separator: ", ")
     }
 
+    @State private var panBase = CGSize.zero
+    @State private var userZoom: CGFloat = 1     // pinch
+    @State private var pan = CGSize.zero          // two fingers (one finger when nothing else uses it), in points
+
     private func mapping(_ size: CGSize) -> (CGFloat, (Pt) -> CGPoint) {
-        let s = min(size.width / bounds.width, size.height / bounds.height) * 0.85 * zoom
+        let s = min(size.width / bounds.width, size.height / bounds.height) * 0.85 * zoom * userZoom
         let mx = bounds.midX, my = bounds.midY
-        return (s, { CGPoint(x: size.width / 2 + CGFloat($0.x - mx) * s, y: size.height / 2 - CGFloat($0.y - my) * s) })
+        return (s, { CGPoint(x: size.width / 2 + pan.width + CGFloat($0.x - mx) * s, y: size.height / 2 + pan.height - CGFloat($0.y - my) * s) })
     }
 
     var body: some View {
@@ -221,14 +225,99 @@ struct PlanCanvas: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(summary)
             .accessibilityHint(onTapPlan == nil ? "" : "The drawing cannot be explored by touch with VoiceOver; use the lists and menus around it")
-            .onTapGesture(coordinateSpace: .local) { loc in
-                let mx = bounds.midX, my = bounds.midY
-                let p = Pt(mx + Double((loc.x - geo.size.width / 2) / scale), my - Double((loc.y - geo.size.height / 2) / scale))
-                onTapPlan?(p, Double(24 / scale))
+            .overlay {
+                PlanGestures(
+                    onTap: { loc in
+                        let mx = bounds.midX, my = bounds.midY
+                        let p = Pt(mx + Double((loc.x - geo.size.width / 2 - pan.width) / scale), my - Double((loc.y - geo.size.height / 2 - pan.height) / scale))
+                        onTapPlan?(p, Double(24 / scale))
+                    },
+                    onDrag: { t in
+                        if onDrag != nil { onDrag?(Pt(Double(t.width / scale), Double(-t.height / scale))) } else { pan = CGSize(width: panBase.width + t.width, height: panBase.height + t.height) }
+                    },
+                    onDragBegan: { panBase = pan },
+                    onDragEnd: { onDragEnd?() },
+                    onPinch: { f, loc in
+                        let centre = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+                        let z = min(12, max(0.4, userZoom * f)), k = z / userZoom
+                        pan = CGSize(width: (loc.x - centre.x) - (loc.x - centre.x - pan.width) * k, height: (loc.y - centre.y) - (loc.y - centre.y - pan.height) * k)
+                        userZoom = z
+                    },
+                    onTwoFingerPan: { d in pan = CGSize(width: pan.width + d.width, height: pan.height + d.height) })
+                    .accessibilityHidden(true)
             }
-            .gesture(DragGesture()
-                .onChanged { v in onDrag?(Pt(Double(v.translation.width / scale), Double(-v.translation.height / scale))) }
-                .onEnded { _ in onDragEnd?() })
+            .overlay(alignment: .topTrailing) {
+                if userZoom != 1 || pan != .zero {
+                    Button("Fit") { withAnimation { userZoom = 1; pan = .zero } }
+                        .font(.footnote.weight(.semibold)).buttonStyle(.bordered).padding(8)
+                }
+            }
         }
     }
 }
+
+
+/// Taps, one-finger drags, pinches and two-finger pans on the plan, read by UIKit recognizers so that a pinch and a
+/// two-finger pan never reach the one-finger drag (which moves the scan in the placement view).
+struct PlanGestures: UIViewRepresentable {
+    var onTap: (CGPoint) -> Void
+    var onDrag: (CGSize) -> Void
+    var onDragBegan: () -> Void
+    var onDragEnd: () -> Void
+    var onPinch: (CGFloat, CGPoint) -> Void
+    var onTwoFingerPan: (CGSize) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.backgroundColor = .clear
+        let c = context.coordinator
+        let tap = UITapGestureRecognizer(target: c, action: #selector(Coordinator.tap(_:)))
+        let one = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.one(_:)))
+        one.minimumNumberOfTouches = 1
+        one.maximumNumberOfTouches = 1
+        let two = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.two(_:)))
+        two.minimumNumberOfTouches = 2
+        two.maximumNumberOfTouches = 2
+        let pinch = UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.pinch(_:)))
+        for g in [tap, one, two, pinch] as [UIGestureRecognizer] { g.delegate = c; v.addGestureRecognizer(g) }
+        return v
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) { context.coordinator.parent = self }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: PlanGestures
+        init(_ p: PlanGestures) { parent = p }
+
+        @objc func tap(_ g: UITapGestureRecognizer) { parent.onTap(g.location(in: g.view)) }
+
+        @objc func one(_ g: UIPanGestureRecognizer) {
+            switch g.state {
+            case .began: parent.onDragBegan(); parent.onDrag(g.translation(in: g.view).asSize)
+            case .changed: parent.onDrag(g.translation(in: g.view).asSize)
+            case .ended, .cancelled: parent.onDrag(g.translation(in: g.view).asSize); parent.onDragEnd()
+            default: break
+            }
+        }
+
+        @objc func two(_ g: UIPanGestureRecognizer) {
+            guard g.state == .changed else { return }
+            parent.onTwoFingerPan(g.translation(in: g.view).asSize)
+            g.setTranslation(.zero, in: g.view)
+        }
+
+        @objc func pinch(_ g: UIPinchGestureRecognizer) {
+            guard g.state == .changed else { return }
+            parent.onPinch(g.scale, g.location(in: g.view))
+            g.scale = 1
+        }
+
+        func gestureRecognizer(_ a: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith b: UIGestureRecognizer) -> Bool {
+            a is UIPinchGestureRecognizer || b is UIPinchGestureRecognizer   // a pinch and a two-finger pan go together
+        }
+    }
+}
+
+private extension CGPoint { var asSize: CGSize { CGSize(width: x, height: y) } }

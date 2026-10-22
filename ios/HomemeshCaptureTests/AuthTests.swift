@@ -589,3 +589,12 @@ final class StairStepsTests: XCTestCase {
         XCTAssertEqual(scene.rootNode.childNodes.filter { $0.name?.hasPrefix("stair:s1") == true }.count, 10)
     }
 }
+
+final class PlanGestureTests: XCTestCase {
+    func testFitIsOnlyOfferedWhenTheViewMoved() {
+        // the canvas shows "Fit" once zoomed or panned; the geometry helpers it relies on keep the bounds usable
+        let b = Geometry.bounds([Pt(0, 0), Pt(10, 5)])
+        XCTAssertEqual(b.width, 10, accuracy: 1e-9)
+        XCTAssertEqual(Geometry.bounds([]).width, 2, accuracy: 1e-9)   // an empty floor still has a drawable default
+    }
+}
