@@ -19,6 +19,8 @@ phone until the server confirms them.
 | **Q1-Q9** | **Accepted as recommended (2026-10-21):** hand-written `Codable` models with raw-JSON passthrough plus the fixture decode test; whole-house `PUT` with the revision conflict; scanning and the upload queue work offline, everything else needs the server; 2D canvas first, 3D later; typed dBm or speed-test readings (the 0 to 1 `NEHotspotNetwork` figure optional, off by default); display name "homemesh" with the bundle id kept; room names as free text with suggestions; iOS 17 minimum. |
 | **Blueprints** | The owner finds the LiDAR better than expected. LiDAR scans are the primary source of the plan. No phone blueprint import and no new blueprint work; the web app's blueprint underlay stays as an optional aid, untouched. Revisit, and possibly drop blueprints entirely, after the whole house is scanned and an accuracy check (below) is done. |
 
+| **UX 2026-10-21** | (1) One name field per room: asked once, prefilled, the same control everywhere; any room can be renamed at any time. (2) A distinct "Add room scan" button, not a list row. (3) A **room** is the first-class item: name (required), description (optional), floor, scan; "Re-scan this room" replaces its geometry and keeps the earlier capture as history. (4) Tapping a scanned room shows its 3D model (the uploaded USDZ) and its details. (5) **Floors** are explicit: a scan belongs to a floor chosen when the scan starts (default: the floor being viewed), lists are grouped by floor, and the floor can be changed later. (6) **Staircases** link two floors: the house model's `Stair` (footprint on the lower floor, `void` opening on the upper floor, already an open path in the Wi-Fi model). When a scan contains a stairs object the app asks which floor it leads to and whether up or down; one can also be added by tapping the plan; the stair anchors the floors to each other in XY as doorways do within a floor. BUG B (restarting the scanner) comes first. |
+
 The first real scan worked on 2026-10-21 (one capture of two rooms), so the
 capture, sign-in and upload path of section 10.5 is proven; this amendment
 builds on it.
@@ -152,6 +154,52 @@ where it belongs. Deterministic; no randomness, no learned model.
 a random yaw and offset and small noise, and require recovery within 5 cm and
 1 degree for the unambiguous cases and the right confidence class for the
 symmetrical and no-overlap cases.
+
+## 4b. Rooms, floors and staircases (P4b)
+
+**Rooms as items.** The app's unit is a room, not a scan. Without changing the stored house, the server
+derives a room list: every room of every capture (`captures/<blob>` meta `rooms[i]`) joined with the house
+`Room` the import made for it (`prov.ref = <blob>#room/<i>`). A room that no import made yet is *unplaced*
+(shown, with its 3D model, and placeable). Attributes live where they are rebuildable: the name and the
+description in the capture's meta (`rooms` and `details`), copied onto the house `Room` on import
+(`Room` gains `description`). So the existing captures need no migration: their rooms appear as unplaced
+rooms; only the names, still empty, are typed once.
+
+`GET /api/houses/<id>/rooms` returns `[{key: "<blob>:<i>", name, description, level, scan: <capture name>,
+placed: <room id or null>, usdz: <blob or null>, walls, replaced_by: <key or null>}]`. `PUT
+.../captures/<blob>/rooms` takes `names` and optionally `descriptions`. The USDZ is already served by
+`GET .../blobs/<digest>`.
+
+**Floors.** One scan is one RoomPlan session on one floor, and a session's rooms share a frame, so the floor
+belongs to the scan and its rooms inherit it. `PUT .../captures/<blob>/level` changes it; if the scan is
+already imported, its walls, openings and rooms move to the new level in one revision (the import is
+replayed on the new level at the same placement). Moving a single room of a multi-room scan to another
+floor is not offered: rescan it on that floor.
+
+**Re-scan.** "Re-scan this room" starts a normal scan on the room's floor with `replaces=<key>` recorded in
+the new capture's meta. Placement is proposed by name and shape (P4 already treats an equal owner-given name as
+the same room, not an overlap). On accept, the old room's *own* walls (those whose source surfaces all belong
+to that room of the old capture) and its `Room` are removed, the new geometry is imported, and the old capture
+stays stored as history (`replaced_by` on its room). A wall shared with a neighbouring room's scan is kept.
+
+**Staircases.** The model already has `Stair(from_level, to_level, polygon, void)`; a void stair is a slab hole
+on the upper level, so the Wi-Fi model already treats it as an open path between floors (propagation.py).
+Needed: (a) on import, a RoomPlan `stairs` object becomes a *suggested* stair (not saved) with its footprint;
+the app asks "which floor does it lead to, up or down" and saves it through the house `PUT`; (b) a stair can
+also be drawn on the plan (P5/P6 editor); (c) **floor-to-floor alignment**: the footprint of a stair on the
+lower floor and the matching opening on the upper floor fix the XY offset between floors, as doorways do
+within one; `place.py` gains a candidate source "stair" for a scan on a level whose neighbouring level has the
+same stair. Rotation between floors is taken from the stair's long axis.
+
+Sub-milestones (small PRs): **P4b-1** server room list, descriptions, floor change, scan `level`
+(backend); **P4b-2** app: one name field, "Add room scan" button, rooms grouped by floor, room detail with the
+3D model (QuickLook) and rename/description/floor; **P4b-3** re-scan (`replaces`); **P4b-4** stairs
+(suggestion on import, app question, floor alignment candidate in `place.py`). P5 follows.
+
+Questions raised with these decisions: (1) *a floor belongs to a scan, so one room of a multi-room scan
+cannot move floors alone* (recommended: accept, rescan instead); (2) *old captures stay stored as history
+forever* (recommended: yes; a "delete this scan" command later); (3) *a stairs object that RoomPlan misses*: the
+owner draws it on the plan (P5/P6).
 
 ## 5. Milestones
 
