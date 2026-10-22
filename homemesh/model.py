@@ -74,6 +74,16 @@ class Opening(_Base):
     prov: Prov = Field(default_factory=manual)
 
 
+class WallCurve(_Base):
+    """The true arc a curved wall was approximated by chords of (plan metres, degrees)."""
+    group: str  # the chords of one curved wall share it
+    cx: float
+    cy: float
+    radius: float = Field(gt=0)
+    a0: float
+    a1: float
+
+
 class Wall(_Base):
     id: str
     level: str
@@ -85,6 +95,10 @@ class Wall(_Base):
     material: str
     thickness_defaulted: bool = False  # true when a scan gave no thickness
     material_defaulted: bool = False
+    # Non-rectangular walls (a scan under a sloped or vaulted ceiling): the outline as (offset along a to b, height above
+    # base_z) points. The RF model keeps using the rectangle `height`; the 3D view draws the profile.
+    profile: list[tuple[float, float]] | None = None
+    curve: WallCurve | None = None
     openings: list[Opening] = Field(default_factory=list)
     prov: Prov = Field(default_factory=manual)
 
@@ -288,6 +302,7 @@ class House(_Base):
     id: str
     name: str
     synthetic: bool = False  # fixtures must say true (design 2.6)
+    jog_fold: float = Field(default=0.3, ge=0.0)  # walls shorter than this between two walls are folded into them on import
     region: str = "US"  # regulatory domain; strictest common until stated
     revision: int = 0
     levels: list[Level] = Field(min_length=1)

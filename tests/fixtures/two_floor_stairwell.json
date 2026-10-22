@@ -22,6 +22,7 @@
   },
   "id": "synthetic-two-floor",
   "jacks": [],
+  "jog_fold": 0.3,
   "levels": [
     {
       "below_ground": false,
@@ -217,12 +218,14 @@
         0.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "a0",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -243,12 +246,14 @@
         6.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "a1",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -269,12 +274,14 @@
         6.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "a2",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -295,12 +302,14 @@
         0.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "a3",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -321,12 +330,14 @@
         0.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "b0",
       "level": "L1",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -347,12 +358,14 @@
         6.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "b1",
       "level": "L1",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -373,12 +386,14 @@
         6.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "b2",
       "level": "L1",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -399,12 +414,14 @@
         0.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "b3",
       "level": "L1",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,

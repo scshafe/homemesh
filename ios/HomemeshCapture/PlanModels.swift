@@ -39,6 +39,7 @@ struct PlanWall: Codable, Hashable, Identifiable, Sendable {
     let thickness: Double
     let height: Double?
     let base_z: Double?
+    let profile: [[Double]]?   // non-rectangular outline: (offset along a to b, height above base_z)
     let openings: [PlanOpening]
     let prov: PlanProv?
 

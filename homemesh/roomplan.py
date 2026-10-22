@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 
 from .materials import default_materials
-from .model import House, Opening, Prov, Room, Wall
+from .model import House, Opening, Prov, Room, Wall, WallCurve
 
 PARALLEL_SIN = math.sin(math.radians(3.0))
 CONF = {"low": 0.4, "medium": 0.7, "high": 0.95}
@@ -117,6 +117,34 @@ class _Surf:
     w: float
     h: float
     conf: float
+    corners: list[tuple[float, float]] | None = None  # polygonCorners as (x, y) in the surface's frame
+    curve: dict | None = None  # RoomPlan's curve: {radius, start, end} (radians)
+
+
+def _corners(s: dict, w: float, h: float):
+    raw = s.get("polygonCorners")
+    if not isinstance(raw, list) or len(raw) < 3:
+        return None
+    try:
+        pts = [(float(c[0]), float(c[1])) for c in raw]
+    except (TypeError, ValueError, IndexError):
+        return None
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    rect = len(pts) == 4 and abs((max(xs) - min(xs)) - w) < 0.05 and abs((max(ys) - min(ys)) - h) < 0.05 \
+        and all(min(abs(p[0] - x) for x in (min(xs), max(xs))) < 0.05 and min(abs(p[1] - y) for y in (min(ys), max(ys))) < 0.05 for p in pts)
+    return None if rect else pts
+
+
+def _curve(s: dict):
+    c = s.get("curve")
+    if not isinstance(c, dict):
+        return None
+    try:
+        r = float(c["radius"])
+        a0, a1 = float(c.get("startAngle", 0.0)), float(c.get("endAngle", 0.0))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {"radius": r, "start": a0, "end": a1} if r > 0 and abs(a1 - a0) > 1e-3 else None
 
 
 def _surfaces(room: dict) -> list[_Surf]:
@@ -134,7 +162,8 @@ def _surfaces(room: dict) -> list[_Surf]:
             if n < 1e-6 or dims[0] <= 0 or dims[1] <= 0:
                 continue
             out.append(_Surf(str(s.get("identifier", f"{key}{i}")), s.get("parentIdentifier"), kind, opts,
-                             t[3][:3].copy(), ax / n, dims[0], dims[1], _confidence(s.get("confidence"))))
+                             t[3][:3].copy(), ax / n, dims[0], dims[1], _confidence(s.get("confidence")),
+                             _corners(s, dims[0], dims[1]) if key == "walls" else None, _curve(s) if key == "walls" else None))
     return out
 
 
@@ -152,6 +181,8 @@ class _W:
     conf: float
     ids: list[str]
     thickness: float | None = None
+    profile: list[tuple[float, float]] | None = None  # (offset along a to b, height above `bottom`)
+    curve: dict | None = None  # {group, cx, cy, radius, a0, a1} in capture plan coordinates
 
 
 @dataclass
@@ -162,6 +193,9 @@ class Report:
     skipped_openings: int = 0
     rooms: int = 0
     replaced: int = 0
+    curved_walls: int = 0   # curved walls approximated by chords
+    profile_walls: int = 0  # walls kept with a non-rectangular outline
+    folded_jogs: int = 0    # tiny jogs folded into their neighbours
     stairs: list = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -196,9 +230,96 @@ def _merge(ws: list[_W], d: Defaults) -> list[_W]:
         lo, hi = min(pts), max(pts)
         out.append(_W(ws[i].a + ui * lo + n / 2, ws[i].a + ui * hi + n / 2, min(ws[i].bottom, ws[j].bottom),
                       max(ws[i].top, ws[j].top), min(ws[i].conf, ws[j].conf), ws[i].ids + ws[j].ids,
-                      abs(gap) if abs(gap) >= 0.05 else None))
+                      abs(gap) if abs(gap) >= 0.05 else None, None, ws[i].curve or ws[j].curve))
+        new = out[-1]
+        src = ws[i] if ws[i].profile else ws[j]
+        if src.profile:   # the outline of one face, re-measured along the merged wall
+            su = (src.b - src.a) / np.linalg.norm(src.b - src.a)
+            nu = (new.b - new.a) / np.linalg.norm(new.b - new.a)
+            new.profile = [(float((src.a + su * x - new.a) @ nu), y + src.bottom - new.bottom) for x, y in src.profile]
     out += [w for k, w in enumerate(ws) if k not in used]
     return out
+
+
+def _chords(s: _Surf, centroid: np.ndarray, a: np.ndarray, b: np.ndarray, bottom: float, top: float) -> list[_W] | None:
+    """A curved wall as chords of about 0.5 m (at most 12). The chord a-b is the surface's width; the arc bulges away from
+    the room's centre. None when the curve does not fit the chord."""
+    r = s.curve["radius"] if s.curve else 0.0
+    c = float(np.linalg.norm(b - a))
+    if r <= c / 2 + 1e-6 or c < 0.2:
+        return None
+    mid, u = (a + b) / 2, (b - a) / c
+    nrm = np.array([-u[1], u[0]])
+    if float((mid - centroid) @ nrm) < 0:
+        nrm = -nrm
+    half = math.asin(c / 2 / r)
+    centre = mid - nrm * math.sqrt(r * r - c * c / 4)
+    a0 = math.atan2(*(a - centre)[::-1])
+    a1 = math.atan2(*(b - centre)[::-1])
+    sweep = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi   # the short way round
+    n = max(2, min(12, math.ceil(r * abs(sweep) / 0.5)))
+    pts = [centre + r * np.array([math.cos(a0 + sweep * k / n), math.sin(a0 + sweep * k / n)]) for k in range(n + 1)]
+    group = s.ident[:8]
+    cv = {"group": group, "cx": float(centre[0]), "cy": float(centre[1]), "radius": float(r),
+          "a0": math.degrees(a0), "a1": math.degrees(a0 + sweep)}
+    return [_W(pts[k], pts[k + 1], bottom, top, s.conf, [s.ident], None, None, cv) for k in range(n)] if half > 0 else None
+
+
+def _scaled_profile(w: _W, sim: Similarity2D):
+    if not w.profile:
+        return None
+    length = float(np.linalg.norm(w.b - w.a))
+    height = w.top - w.bottom
+    pts = [(round(min(length, max(0.0, x)) * sim.scale, 3), round(min(height, max(0.0, y)) * sim.scale, 3)) for x, y in w.profile]
+    return pts if len(pts) >= 3 else None
+
+
+def _fold_jogs(ws: list[_W], thr: float) -> tuple[list[_W], int]:
+    """Fold walls shorter than `thr` that sit between two other walls into those walls: the neighbours meet at the
+    intersection of their lines when it is within twice the jog of the jog's ends, else at the jog's midpoint."""
+    ws = list(ws)
+    folded = 0
+    tol = 0.06
+    changed = True
+    while changed and thr > 0:
+        changed = False
+        for si, sw in enumerate(ws):
+            if sw.curve is not None or float(np.linalg.norm(sw.b - sw.a)) >= thr:
+                continue
+            near_a = [(k, 0) if float(np.linalg.norm(w.a - sw.a)) < tol else (k, 1) for k, w in enumerate(ws)
+                      if k != si and (float(np.linalg.norm(w.a - sw.a)) < tol or float(np.linalg.norm(w.b - sw.a)) < tol)]
+            near_b = [(k, 0) if float(np.linalg.norm(w.a - sw.b)) < tol else (k, 1) for k, w in enumerate(ws)
+                      if k != si and (float(np.linalg.norm(w.a - sw.b)) < tol or float(np.linalg.norm(w.b - sw.b)) < tol)]
+            if len(near_a) != 1 or len(near_b) != 1 or near_a[0][0] == near_b[0][0]:
+                continue
+            (ka, ea), (kb, eb) = near_a[0], near_b[0]
+            A, B = ws[ka], ws[kb]
+            if A.curve is not None or B.curve is not None:
+                continue
+            mid = (sw.a + sw.b) / 2
+            j = mid
+            da, db = A.b - A.a, B.b - B.a
+            den = da[0] * db[1] - da[1] * db[0]
+            if abs(den) > 1e-6 * float(np.linalg.norm(da) * np.linalg.norm(db)):
+                t = ((B.a[0] - A.a[0]) * db[1] - (B.a[1] - A.a[1]) * db[0]) / den
+                p = A.a + da * t
+                if float(np.linalg.norm(p - mid)) <= 2 * thr + float(np.linalg.norm(sw.b - sw.a)):
+                    j = p
+            if ea == 0:
+                A.a = j.copy()
+            else:
+                A.b = j.copy()
+            if eb == 0:
+                B.a = j.copy()
+            else:
+                B.b = j.copy()
+            A.ids = A.ids + sw.ids
+            A.profile = B.profile = None   # their ends moved: the outline no longer fits
+            ws.pop(si)
+            folded += 1
+            changed = True
+            break
+    return ws, folded
 
 
 def _rooms(data: dict) -> list[dict]:
@@ -346,13 +467,27 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
     sim = transform or Similarity2D()
 
     raw: list[_W] = []
-    for s in walls_s:
-        half = s.axis * s.w / 2
-        raw.append(_W(_plan(s.centre - half), _plan(s.centre + half), float(s.centre[1] - s.h / 2), float(s.centre[1] + s.h / 2),
-                      s.conf, [s.ident]))
+    for r in _rooms(data):   # per room: a curved wall bulges away from its own room's centre
+        rs = [s for s in _surfaces(r) if s.kind == "wall"]
+        cen = np.mean([_plan(s.centre) for s in rs], axis=0) if rs else np.zeros(2)
+        for s in rs:
+            half = s.axis * s.w / 2
+            a, b = _plan(s.centre - half), _plan(s.centre + half)
+            bottom, top = float(s.centre[1] - s.h / 2), float(s.centre[1] + s.h / 2)
+            chords = _chords(s, cen, a, b, bottom, top) if s.curve else None
+            if chords:
+                raw += chords
+                rep.curved_walls += 1
+                continue
+            w = _W(a, b, bottom, top, s.conf, [s.ident])
+            if s.corners:
+                w.profile = [(min(s.w, max(0.0, x + s.w / 2)), min(s.h, max(0.0, y + s.h / 2))) for x, y in s.corners]
+                rep.profile_walls += 1
+            raw.append(w)
     floor_y = min(w.bottom for w in raw)  # the lowest wall base is this level's floor
     merged = _merge(raw, defaults)
     rep.paired_walls = sum(1 for w in merged if len(w.ids) > 1)
+    merged, rep.folded_jogs = _fold_jogs(merged, house.jog_fold)
 
     mats = {m.id for m in house.materials}
     extra = [m for m in default_materials() if m.id not in mats and m.id in {defaults.material, "wood-door", "glass"}]
@@ -373,6 +508,10 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
                         thickness=round(w.thickness * sim.scale, 3) if w.thickness else defaults.thickness,
                         height=round((w.top - w.bottom) * sim.scale, 3), base_z=round(max(0.0, (w.bottom - floor_y) * sim.scale), 3),
                         material=defaults.material, thickness_defaulted=w.thickness is None, material_defaulted=True,
+                        profile=_scaled_profile(w, sim),
+                        curve=WallCurve(group=w.curve["group"], cx=round(sim.apply((w.curve["cx"], w.curve["cy"]))[0], 4),
+                                        cy=round(sim.apply((w.curve["cx"], w.curve["cy"]))[1], 4), radius=round(w.curve["radius"] * sim.scale, 4),
+                                        a0=round(w.curve["a0"] + sim.rotation, 3), a1=round(w.curve["a1"] + sim.rotation, 3)) if w.curve else None,
                         prov=Prov(source="scan", ref=f"{blob}#wall/{'+'.join(i[:8] for i in w.ids)}", confidence=w.conf)))
     rep.walls = len(new)
 

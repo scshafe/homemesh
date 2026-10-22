@@ -15,6 +15,21 @@ enum House3D {
             let walls = plan.walls.filter { $0.level == level.id }
             for w in walls {
                 let len = max(w.length, 0.05), h = w.height ?? levelHeight[level.id] ?? 2.5
+                if let outline = w.profile, outline.count >= 3, outline.allSatisfy({ $0.count == 2 }) {   // under a sloped or vaulted ceiling
+                    let path = UIBezierPath()
+                    for (i, p) in outline.enumerated() { i == 0 ? path.move(to: CGPoint(x: p[0], y: p[1])) : path.addLine(to: CGPoint(x: p[0], y: p[1])) }
+                    path.close()
+                    let shape = SCNShape(path: path, extrusionDepth: max(w.thickness, 0.05))
+                    shape.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.85)
+                    shape.firstMaterial?.isDoubleSided = true
+                    let n = SCNNode(geometry: shape)
+                    n.name = "wall:\(w.id)"
+                    n.pivot = SCNMatrix4MakeTranslation(0, 0, Float(max(w.thickness, 0.05) / 2))
+                    n.position = SCNVector3(Float(w.a.x), Float((elevation[level.id] ?? 0) + (w.base_z ?? 0)), Float(-w.a.y))
+                    n.eulerAngles.y = Float(atan2(w.b.y - w.a.y, w.b.x - w.a.x))
+                    scene.rootNode.addChildNode(n)
+                    continue
+                }
                 let box = SCNBox(width: len, height: h, length: max(w.thickness, 0.05), chamferRadius: 0)
                 box.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.85)
                 let n = SCNNode(geometry: box)

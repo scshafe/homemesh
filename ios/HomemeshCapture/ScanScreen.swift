@@ -100,6 +100,9 @@ struct ScanScreen: View {
                 .frame(maxHeight: 280)
                 .scrollBounceBehavior(.basedOnSize)
             }
+            if allRooms.isEmpty && phase == .idle && staircase == nil {
+                Text("Tip: go slowly at corners and keep the line where the wall meets the ceiling in view.").font(.footnote).foregroundStyle(.secondary)
+            }
             if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").font(.footnote).foregroundStyle(.red) }
             Button { toggle() } label: {
                 Text(phase == .running ? (staircase == nil ? "Done with this room" : "Done with the staircase") : phase == .stopping ? "Processing…" : (staircase == nil ? "Start scanning a room" : "Start scanning the staircase"))
