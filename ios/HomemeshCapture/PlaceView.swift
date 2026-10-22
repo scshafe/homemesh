@@ -18,6 +18,8 @@ struct PlaceView: View {
     @State private var status = ""
     @State private var busy = false
     @State private var done = false
+    @State private var stairs: [StairSuggestion] = []
+    @State private var stairTarget = ""
 
     private var shift: Pt { Pt(dragged.x + live.x, dragged.y + live.y) }
     private var ghost: [Seg] { Geometry.adjust(base, centre: centre, delta: delta, d: shift) }
@@ -51,6 +53,18 @@ struct PlaceView: View {
                 }
             } else {
                 ProgressView()
+            }
+            if let found = stairs.first, let house {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("A staircase was found in this scan (\(String(format: "%.1f", found.rise)) m tall). Which floor does it lead to?").font(.footnote)
+                    Picker("Leads to", selection: $stairTarget) {
+                        ForEach(house.levels.filter { $0.id != found.level }, id: \.id) { Text($0.name).tag($0.id) }
+                    }
+                    HStack {
+                        Button("Save the staircase") { Task { await saveStair(found, house: house) } }.buttonStyle(.borderedProminent)
+                        Button("Not a staircase") { stairs.removeFirst() }
+                    }
+                }.padding(8).background(Color(.secondarySystemBackground)).clipShape(RoundedRectangle(cornerRadius: 8))
             }
             if !status.isEmpty { Text(status).font(.footnote) }
         }
@@ -93,12 +107,27 @@ struct PlaceView: View {
         do {
             let t = Geometry.compose(p.transform, centre: centre, delta: delta, d: shift)
             let result = try await model.client().importScan(house: houseId, blob: capture.blob, level: level, transform: t)
-            try await model.client().saveHouse(house: houseId, json: result, expectRevision: house.revision)
+            try await model.client().saveHouse(house: houseId, json: result.house, expectRevision: house.revision)
             done = true
+            stairs = result.stairs
+            stairTarget = house.levels.first { $0.id != level }?.id ?? ""
             status = "Placed and saved. Walls and rooms are on the plan; set thickness and materials next."
             await model.refresh()
         } catch {
             status = "Could not save the placement: \(error.localizedDescription)"
+        }
+    }
+
+    /// The stair joins this floor to the chosen one: from the lower floor to the upper; the opening is on the upper floor.
+    private func saveStair(_ found: StairSuggestion, house: PlanHouse) async {
+        guard let here = house.levels.first(where: { $0.id == found.level }), let there = house.levels.first(where: { $0.id == stairTarget }) else { return }
+        let up = there.elevation > here.elevation
+        do {
+            try await model.client().addStair(house: houseId, from: up ? here.id : there.id, to: up ? there.id : here.id, polygon: found.polygon)
+            stairs.removeFirst()
+            status = "Staircase saved: it joins \(here.name) and \(there.name)."
+        } catch {
+            status = "Could not save the staircase: \(error.localizedDescription)"
         }
     }
 }

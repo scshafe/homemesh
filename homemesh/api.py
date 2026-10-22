@@ -30,7 +30,7 @@ from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
 from .materials import default_materials
-from .model import House, Level, Slab
+from .model import House, Level, Prov, Slab, Stair
 from .propagation import BAND_MHZ, Tx, level_grid, rssi_map
 
 DEV = "HOMEMESH_DEV"
@@ -50,6 +50,13 @@ class NewLevel(BaseModel):
 class RoomNames(BaseModel):
     names: list[str]
     descriptions: list[str] | None = None
+
+
+class NewStair(BaseModel):
+    from_level: str
+    to_level: str
+    polygon: list[tuple[float, float]]
+    void: bool = True
 
 
 class CaptureLevel(BaseModel):
@@ -144,6 +151,26 @@ def create_app() -> FastAPI:
                    slab=Slab(material=slab_material, thickness=0.3) if slab_material and elevation > top.elevation else None)
         try:
             return store.save(h.model_copy(update={"levels": [*h.levels, lv]}), expect_revision=h.revision).model_dump(mode="json")
+        except store.Conflict:
+            raise HTTPException(409, "changed elsewhere; reload") from None
+        except (store.StoreError, ValueError) as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/houses/{house_id}/stairs", dependencies=[api], status_code=201)
+    def add_stair(house_id: str, req: NewStair) -> dict:
+        """A staircase between two floors (footprint on `from_level`; the opening on `to_level` follows from `void`).
+        Returns the house at its new revision."""
+        h = get_house(house_id)
+        ids = {lv.id for lv in h.levels}
+        if req.from_level not in ids or req.to_level not in ids or req.from_level == req.to_level:
+            raise HTTPException(422, "a stair joins two different, existing levels")
+        n = len(h.stairs)
+        while f"s{n + 1}" in {s_.id for s_ in h.stairs}:
+            n += 1
+        try:
+            st = Stair(id=f"s{n + 1}", from_level=req.from_level, to_level=req.to_level, polygon=req.polygon, void=req.void,
+                       prov=Prov(source="scan"))
+            return store.save(h.model_copy(update={"stairs": [*h.stairs, st]}), expect_revision=h.revision).model_dump(mode="json")
         except store.Conflict:
             raise HTTPException(409, "changed elsewhere; reload") from None
         except (store.StoreError, ValueError) as e:
@@ -410,7 +437,7 @@ def create_app() -> FastAPI:
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, KeyError, TypeError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
         out = {"house": new.model_dump(mode="json"), "report": {"walls": rep.walls, "paired_walls": rep.paired_walls, "openings": rep.openings,
-               "skipped_openings": rep.skipped_openings, "rooms": rep.rooms, "replaced": rep.replaced, "notes": rep.notes}}
+               "skipped_openings": rep.skipped_openings, "rooms": rep.rooms, "stairs": rep.stairs, "replaced": rep.replaced, "notes": rep.notes}}
         if sim:
             out["registration"] = {"rotation": sim.rotation, "tx": sim.tx, "ty": sim.ty}
             if reg:

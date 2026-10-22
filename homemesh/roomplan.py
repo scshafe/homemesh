@@ -162,6 +162,7 @@ class Report:
     skipped_openings: int = 0
     rooms: int = 0
     replaced: int = 0
+    stairs: list = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 
@@ -206,6 +207,32 @@ def _rooms(data: dict) -> list[dict]:
     if "walls" in data:
         return [data]
     raise ImportError_("no walls in the capture")
+
+
+def stair_footprints(data: dict, sim: Similarity2D | None = None) -> list[dict]:
+    """Stairs objects RoomPlan found, as plan rectangles: [{"room": index, "polygon": [[x, y] x4], "rise": height m}].
+    The footprint is the object's width by depth; `rise` is its height (what RoomPlan measured of the flight)."""
+    sim = sim or Similarity2D()
+    out = []
+    for i, room in enumerate(_rooms(data)):
+        for obj in room.get("objects", []) or []:
+            try:
+                kind, _ = _kind(obj.get("category"))
+                if kind != "stairs":
+                    continue
+                t = _transform(obj["transform"])
+                w, h, d = (float(x) for x in obj["dimensions"])
+            except (KeyError, TypeError, ValueError, ImportError_):
+                continue
+            a0, a2 = t[0][:3], t[2][:3]
+            n0, n2 = float(np.linalg.norm(a0)), float(np.linalg.norm(a2))
+            if n0 < 1e-6 or n2 < 1e-6 or w <= 0 or d <= 0:
+                continue
+            a0, a2, c = a0 / n0, a2 / n2, t[3][:3]
+            corners = [c + a0 * sx * w / 2 + a2 * sz * d / 2 for sx, sz in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+            poly = [sim.apply(tuple(map(float, _plan(p)))) for p in corners]
+            out.append({"room": i, "polygon": [[round(x, 4), round(y, 4)] for x, y in poly], "rise": round(h, 3)})
+    return out
 
 
 def retire_room(house: House, data: dict, blob: str, index: int) -> tuple[House, int]:
@@ -359,6 +386,7 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
         new_rooms.append(Room(id=f"r{n}", level=level, name=label.strip()[:80], description=about, polygon=[(round(x, 4), round(y, 4)) for x, y in poly],
                               prov=Prov(source="scan", ref=f"{blob}#room/{i}")))
     rep.rooms = len(new_rooms)
+    rep.stairs = [{**st, "level": level} for st in stair_footprints(data, sim)]
 
     rep.notes.append("thickness and material are not measured by a scan: walls carry the class defaults until you set them")
     return house.model_copy(update={"walls": kept + new, "rooms": kept_rooms + new_rooms, "materials": houses_mats}), rep
