@@ -57,7 +57,12 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    server has accepted it. Messages appear under the camera view if tracking is limited or no walls are
    detected after 15 seconds. Tap a room in the house to rename it, describe it, change its floor (this moves
    every room of that scan), see its 3D model (Quick Look) or place it on the plan.
-4. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
+4. Walls: open a floor's "Plan of <floor>: walls and materials" in the house, tap a wall, and set its thickness and
+   material (or use them for every wall on the floor still on the defaults), change or delete its openings. The same
+   inspector has the **measure check**: type what a tape says for the wall; the house keeps the difference, and
+   "Accuracy" (in the house list) shows the mean error against the 2 % / 3 cm bar from docs/design-ios-app.md.
+   Still later: placing scans is in the room details; planning and calibration follow in later milestones
+   (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.
    A scan gives no wall thickness or material: set them in the editor.
 

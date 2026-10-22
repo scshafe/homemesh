@@ -255,6 +255,15 @@ the failing walls are corrected by hand. A "measure check" screen in P5 (pick a 
 type the tape reading, see the difference and the running mean) is cheap and is added
 there.
 
+### As built (P5)
+
+`PlanScreen` (tap a wall; `PlanCanvas` hit-tests the nearest wall) and `WallInspector`: thickness, material, openings (kind,
+width, delete), "use for every wall on this floor still on the defaults". The app edits the server's house JSON in
+place (`HouseDoc`, Q1's passthrough: only the edited fields change, unknown fields go back untouched, provenance gets
+`edited`), then `PUT` with the revision. `House.measure_checks` holds tape readings; the **measure check** in the
+inspector and the **Accuracy** screen (mean error, bias, worst, and the bar: at least five readings and a mean within
+2 % or 3 cm) implement the accuracy check above. Staircase drawing and zones are P6.
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the

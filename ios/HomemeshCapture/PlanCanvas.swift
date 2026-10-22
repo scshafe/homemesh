@@ -8,6 +8,8 @@ struct PlanCanvas: View {
     var ghost: [Seg] = []
     let bounds: CGRect
     var zoom: CGFloat = 1
+    var selected: String?
+    var onTapPlan: ((Pt, Double) -> Void)?    // a tap, in plan metres, with a tolerance of about 24 points in metres
     var onDrag: ((Pt) -> Void)?       // plan metres moved since the gesture began
     var onDragEnd: (() -> Void)?
 
@@ -34,7 +36,7 @@ struct PlanCanvas: View {
                     var path = Path()
                     path.move(to: map(w.a))
                     path.addLine(to: map(w.b))
-                    ctx.stroke(path, with: .color(.primary), lineWidth: max(1.5, CGFloat(w.thickness) * scale))
+                    ctx.stroke(path, with: .color(w.id == selected ? .accentColor : .primary), lineWidth: max(w.id == selected ? 4 : 1.5, CGFloat(w.thickness) * scale))
                     let ln = hypot(w.b.x - w.a.x, w.b.y - w.a.y)
                     if ln > 0 {
                         for o in w.openings {   // openings drawn as gaps in the wall's colour of the background
@@ -54,6 +56,11 @@ struct PlanCanvas: View {
                 }
             }
             .contentShape(Rectangle())
+            .onTapGesture(coordinateSpace: .local) { loc in
+                let mx = bounds.midX, my = bounds.midY
+                let p = Pt(mx + Double((loc.x - geo.size.width / 2) / scale), my - Double((loc.y - geo.size.height / 2) / scale))
+                onTapPlan?(p, Double(24 / scale))
+            }
             .gesture(DragGesture()
                 .onChanged { v in onDrag?(Pt(Double(v.translation.width / scale), Double(-v.translation.height / scale))) }
                 .onEnded { _ in onDragEnd?() })
