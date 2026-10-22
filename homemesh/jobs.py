@@ -150,6 +150,7 @@ def rate_map(house: House, req: dict) -> dict:
     for gi, g in enumerate(ctx.grids):
         sel = ctx.cell_level == gi
         grids.append({"level": g.level, "x0": g.x0, "y0": g.y0, "step": g.step, "nx": g.nx, "ny": g.ny,
-                      "rate": np.where(ctx.cell_ok[sel], ev.rate[sel], np.nan).astype("float32").tolist(),
+                      # cells with no service are null (JSON has no NaN)
+                      "rate": [None if v != v else v for v in np.where(ctx.cell_ok[sel], ev.rate[sel], np.nan).astype("float32").tolist()],
                       "serving": ev.serving[sel].tolist()})
     return {"grids": grids, "problems": ev.problems}
