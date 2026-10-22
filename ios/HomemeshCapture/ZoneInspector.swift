@@ -79,12 +79,12 @@ struct ZoneInspector: View {
             f["weight"] = max(num(weight) ?? 1, 0)
             f["requires"] = "none"; f["mounts"] = [String](); f["heights"] = [Double]()
         case "allow":
-            f["need"] = nil
+            f.updateValue(nil, forKey: "need")
             f["requires"] = requires
             f["mounts"] = ["floor", "shelf", "ceiling", "wall"].filter { mounts.contains($0) }
             f["heights"] = heights.split(separator: ",").compactMap { num(String($0)) }.filter { $0 >= 0 }
         default:
-            f["need"] = nil; f["requires"] = "none"; f["mounts"] = [String](); f["heights"] = [Double]()
+            f.updateValue(nil, forKey: "need"); f["requires"] = "none"; f["mounts"] = [String](); f["heights"] = [Double]()
         }
         d.set("zones", zone.id, f)
         onSaved(d)

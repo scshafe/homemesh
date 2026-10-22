@@ -272,6 +272,14 @@ EIRP; an outlet's height; a staircase's other floor) or deletes. A stair is draw
 as a 1 m wide flight; the floor it leads to decides `from_level`/`to_level` by elevation. Zones and the catalogue
 shortlist are P6b and P6c.
 
+### As built (P6b)
+
+Zone tool: pick the kind (where it may go / where it must not / needs signal), tap the corners (one tap is a single spot),
+Finish. The zone inspector edits the name; for a demand zone the weight, minimum signal (dBm), optional minimum speed,
+receiver height and "must be met"; for an allow zone what it needs (nothing, an outlet, PoE), the mount types and the
+allowed heights. Changing the kind clears the fields of the old kind (a demand's `need` is removed, as the model
+requires). The catalogue shortlist is P6c.
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the
