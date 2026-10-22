@@ -266,6 +266,34 @@ def _chords(s: _Surf, centroid: np.ndarray, a: np.ndarray, b: np.ndarray, bottom
     return [_W(pts[k], pts[k + 1], bottom, top, s.conf, [s.ident], None, None, cv) for k in range(n)] if half > 0 else None
 
 
+MIN_OPENING = 0.3   # an opening narrower than this after clamping is dropped
+
+
+def clamp_openings(walls: list[Wall]) -> tuple[list[Wall], int, int]:
+    """Every opening inside its wall (offset >= 0, offset + width <= length, in millimetres): rounding the endpoints and the
+    opening to 3-4 decimals can leave an opening a hair past the wall end. Narrower than MIN_OPENING afterwards: dropped.
+    Returns the walls, how many openings were trimmed and how many dropped."""
+    out, trimmed, dropped = [], 0, 0
+    for w in walls:
+        ln = math.floor(w.length * 1000 + 1e-6) / 1000
+        keep = []
+        for o in w.openings:
+            width, offset = o.width, max(0.0, o.offset)
+            if offset + width > ln:
+                width = min(width, ln)
+                offset = max(0.0, math.floor((ln - width) * 1000 + 1e-6) / 1000)
+                width = min(width, math.floor((ln - offset) * 1000 + 1e-6) / 1000)
+            if width < MIN_OPENING and width < o.width:
+                dropped += 1
+                continue
+            if (width, offset) != (o.width, o.offset):
+                trimmed += 1
+                o = o.model_copy(update={"width": round(width, 3), "offset": round(offset, 3)})
+            keep.append(o)
+        out.append(w.model_copy(update={"openings": keep}) if keep != w.openings else w)
+    return out, trimmed, dropped
+
+
 def _scaled_profile(w: _W, sim: Similarity2D):
     if not w.profile:
         return None
@@ -675,6 +703,11 @@ def _import_one(house: House, data: dict, level: str, blob: str, transform: Simi
                                      material=mat, state="open" if s.opts.get("isOpen") else "closed",
                                      prov=Prov(source="scan", ref=f"{blob}#{s.kind}/{s.ident[:8]}", confidence=s.conf)))
         rep.openings += 1
+
+    new, trimmed, dropped = clamp_openings(new)
+    if trimmed or dropped:
+        rep.notes.append(f"{trimmed} opening(s) trimmed to fit their wall" + (f", {dropped} too narrow after trimming and left out" if dropped else ""))
+        rep.openings -= dropped
 
     # one Room per scanned room: the outline is the convex hull of its wall ends (an L-shaped room gets
     # its hull until a floor outline is imported), named by the owner (`names`), else by the capture, else "Room N"

@@ -394,7 +394,7 @@ class House(_Base):
                 errs.append(f"wall {w.id}: zero length")
             for o in w.openings:
                 mat(f"wall {w.id} opening", o.material)
-                if o.offset + o.width > w.length + 1e-9:
+                if o.offset + o.width > w.length + 1e-3:
                     errs.append(f"wall {w.id}: opening runs past the wall end")
         for r in self.rooms:
             lv(f"room {r.id}", r.level)

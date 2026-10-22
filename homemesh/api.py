@@ -553,6 +553,9 @@ def create_app() -> FastAPI:
             new, rep = roomplan.import_capture(h, data, level, digest, sim, names=meta.get("rooms"), descriptions=meta.get("descriptions"),
                                                make_rooms=meta.get("purpose") != "stairs", room_levels=meta.get("room_levels"))
             new = roomplan.apply_stair(new, data, digest, meta, sim, rep.stairs, rep.notes)
+            problems = new.validate_refs()
+            if problems:   # a bad import never reaches the save: say what is wrong here
+                raise HTTPException(422, "the import would make an invalid house: " + "; ".join(problems[:5]))
             if (args := retire_args(house_id, meta)):
                 new, gone = roomplan.retire_room(new, *args)
                 rep.replaced += gone
