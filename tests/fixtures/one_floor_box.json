@@ -20,6 +20,7 @@
     "wan_down": 1000.0,
     "wan_up": 1000.0
   },
+  "furniture": [],
   "id": "synthetic-box",
   "jacks": [],
   "jog_fold": 0.3,

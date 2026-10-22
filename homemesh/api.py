@@ -519,7 +519,7 @@ def create_app() -> FastAPI:
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, KeyError, TypeError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
         out = {"house": new.model_dump(mode="json"), "report": {"walls": rep.walls, "paired_walls": rep.paired_walls, "openings": rep.openings,
-               "skipped_openings": rep.skipped_openings, "rooms": rep.rooms, "stairs": rep.stairs, "replaced": rep.replaced, "notes": rep.notes}}
+               "skipped_openings": rep.skipped_openings, "rooms": rep.rooms, "furniture": rep.furniture, "curved_walls": rep.curved_walls, "profile_walls": rep.profile_walls, "folded_jogs": rep.folded_jogs, "stairs": rep.stairs, "replaced": rep.replaced, "notes": rep.notes}}
         if sim:
             out["registration"] = {"rotation": sim.rotation, "tx": sim.tx, "ty": sim.ty}
             if reg:

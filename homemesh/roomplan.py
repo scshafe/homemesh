@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 
 from .materials import default_materials
-from .model import House, Opening, Prov, Room, Wall, WallCurve
+from .model import Furniture, House, Opening, Prov, Room, Wall, WallCurve
 
 PARALLEL_SIN = math.sin(math.radians(3.0))
 CONF = {"low": 0.4, "medium": 0.7, "high": 0.95}
@@ -196,6 +196,7 @@ class Report:
     curved_walls: int = 0   # curved walls approximated by chords
     profile_walls: int = 0  # walls kept with a non-rectangular outline
     folded_jogs: int = 0    # tiny jogs folded into their neighbours
+    furniture: int = 0
     stairs: list = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -404,6 +405,50 @@ def apply_stair(house: House, data: dict, blob: str, meta: dict, sim: Similarity
     return stack.with_rise(house, a, b, rise) if rise else house
 
 
+FIXED = {"sink", "toilet", "bathtub", "stove", "oven", "dishwasher", "fireplace"}   # everything else RoomPlan names is movable
+
+
+def _in_poly(p: tuple[float, float], poly: list) -> bool:
+    inside = False
+    for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]):
+        if (y1 > p[1]) != (y2 > p[1]) and p[0] < (x2 - x1) * (p[1] - y1) / (y2 - y1) + x1:
+            inside = not inside
+    return inside
+
+
+def furniture_items(data: dict, sim: Similarity2D, floor_y: float) -> list[dict]:
+    """RoomPlan objects other than stairs as furniture fields (plan coordinates, `ref` for matching on re-import)."""
+    out = []
+    for room in _rooms(data):
+        for k, obj in enumerate(room.get("objects", []) or []):
+            try:
+                kind, opts = _kind(obj.get("category"))
+                if kind == "stairs":
+                    continue
+                t = _transform(obj["transform"])
+                w, h, d = (float(x) for x in obj["dimensions"])
+            except (KeyError, TypeError, ValueError, ImportError_):
+                continue
+            ax = t[0][:3]
+            if w <= 0 or h <= 0 or d <= 0 or float(np.linalg.norm(ax)) < 1e-6:
+                continue
+            c = t[3][:3]
+            cx, cy = sim.apply(tuple(map(float, _plan(c))))
+            rot = math.degrees(math.atan2(-ax[2], ax[0])) + sim.rotation
+            attrs = {}
+            for src in (opts, obj.get("attributes") if isinstance(obj.get("attributes"), dict) else {}):
+                for key, v in src.items():
+                    if isinstance(v, (str, int, float, bool)):
+                        attrs[str(key)] = str(v)
+                    elif isinstance(v, dict) and v:
+                        attrs[str(key)] = str(next(iter(v)))
+            out.append({"ref": str(obj.get("identifier", f"{kind}{k}"))[:8], "category": kind,
+                        "center": (round(cx, 4), round(cy, 4)), "width": round(w * sim.scale, 3), "depth": round(d * sim.scale, 3),
+                        "height": round(h * sim.scale, 3), "base_z": round(max(0.0, (float(c[1]) - h / 2 - floor_y) * sim.scale), 3),
+                        "rotation": round(rot, 2), "attributes": attrs})
+    return out
+
+
 def retire_room(house: House, data: dict, blob: str, index: int) -> tuple[House, int]:
     """`house` without room `index` of the earlier import of capture `blob` (`data`): its room, and the walls (with
     their openings) whose source surfaces all belong to that room. A wall paired with a face of another room of the
@@ -421,7 +466,9 @@ def retire_room(house: House, data: dict, blob: str, index: int) -> tuple[House,
         else:
             keep.append(w)
     rest = [r for r in house.rooms if (r.prov.ref or "") != f"{blob}#room/{index}"]
-    return house.model_copy(update={"walls": keep, "rooms": rest}), gone
+    objs = {f"{blob}#obj/{str(o.get('identifier', ''))[:8]}" for o in rooms[index].get("objects", []) or [] if isinstance(o, dict)}
+    stuff = [f for f in house.furniture if (f.prov.ref or "") not in objs]
+    return house.model_copy(update={"walls": keep, "rooms": rest, "furniture": stuff}), gone
 
 
 def room_names(data: dict) -> list[str]:
@@ -574,6 +621,32 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
                               prov=Prov(source="scan", ref=f"{blob}#room/{i}")))
     rep.rooms = len(new_rooms)
     rep.stairs = [{**st, "level": level} for st in stair_footprints(data, sim)]
+
+    # furniture: this scan's earlier items are replaced, keeping what the owner named or overrode (matched by object id)
+    if make_rooms:
+        before = {f.prov.ref: f for f in house.furniture if (f.prov.ref or "").startswith(f"{blob}#")}
+        kept_f = [f for f in house.furniture if not (f.prov.ref or "").startswith(f"{blob}#")]
+        taken_f = {f.id for f in kept_f}
+        level_rooms = [r for r in (*kept_rooms, *new_rooms) if r.level == level]
+        n = 0
+        new_f: list[Furniture] = []
+        for it in furniture_items(data, sim, floor_y):
+            while f"f{n + 1}" in taken_f:
+                n += 1
+            n += 1
+            taken_f.add(f"f{n}")
+            ref = f"{blob}#obj/{it['ref']}"
+            old = before.get(ref)
+            default = it["category"] not in FIXED
+            keep = old is not None and not old.movable_default
+            room_id = next((r.id for r in level_rooms if _in_poly(it["center"], [tuple(p) for p in r.polygon])), None)
+            new_f.append(Furniture(id=f"f{n}", level=level, room=room_id, category=it["category"], name=old.name if old else "",
+                                   center=it["center"], width=it["width"], depth=it["depth"], height=it["height"], base_z=it["base_z"],
+                                   rotation=it["rotation"], attributes=it["attributes"], movable=old.movable if keep else default,
+                                   movable_default=not keep, obstacle=old.obstacle if old else False,
+                                   prov=Prov(source="scan", ref=ref)))
+        rep.furniture = len(new_f)
+        house = house.model_copy(update={"furniture": kept_f + new_f})
 
     rep.notes.append("thickness and material are not measured by a scan: walls carry the class defaults until you set them")
     return house.model_copy(update={"walls": kept + new, "rooms": kept_rooms + new_rooms, "materials": houses_mats}), rep
