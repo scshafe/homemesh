@@ -60,9 +60,9 @@ struct Uploader: Sendable {
     }
 
     /// Returns the capture id the server assigned.
-    func upload(json: Data, usdz: URL?, name: String) async throws -> String {
+    func upload(json: Data, usdz: URL?, name: String, level: String = "") async throws -> String {
         let path = "/api/houses/\(house.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? house)/captures"
-        let created = try await post(try url(path, query: [URLQueryItem(name: "name", value: name)]), body: json, type: "application/json")
+        let created = try await post(try url(path, query: [URLQueryItem(name: "name", value: name)] + (level.isEmpty ? [] : [URLQueryItem(name: "level", value: level)])), body: json, type: "application/json")
         guard let blob = (try JSONSerialization.jsonObject(with: created) as? [String: Any])?["blob"] as? String else {
             throw Failure(message: "Unexpected answer from the server")
         }

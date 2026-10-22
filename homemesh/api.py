@@ -256,11 +256,14 @@ def create_app() -> FastAPI:
                 "access_points": len(h.access_points), "measurements": len(h.measurements)}
 
     @app.post("/api/houses/{house_id}/captures", dependencies=[api])
-    async def upload_capture(house_id: str, request: Request, name: str = "") -> dict:
-        """The capture JSON (CapturedRoom / CapturedStructure, or the app's {"rooms": [...]} wrapper)."""
-        get_house(house_id)
+    async def upload_capture(house_id: str, request: Request, name: str = "", level: str = "") -> dict:
+        """The capture JSON (CapturedRoom / CapturedStructure, or the app's {"rooms": [...]} wrapper).
+        `level` is the level the owner said it was scanned on (kept with the capture, preselected when placing)."""
+        h = get_house(house_id)
+        if level and level not in {lv.id for lv in h.levels}:
+            raise HTTPException(422, "unknown level")
         try:
-            return captures.save_capture(house_id, await request.body(), name)
+            return captures.save_capture(house_id, await request.body(), name, level)
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 

@@ -53,6 +53,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(HOMEMESH_BUNDLE_ID).tests
 schemes:
   HomemeshCapture:
+    run:
+      # Xcode Run turns Metal API validation and GPU frame capture on by default; RoomPlan's renderer can trip an
+      # assertion under them that a normal launch never hits (a freeze at the start of the second room).
+      enableGPUValidationMode: false
+      enableGPUFrameCaptureMode: disabled
     build:
       targets:
         HomemeshCapture: all

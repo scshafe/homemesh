@@ -50,12 +50,27 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
 1. Settings (the gear): server (`https://homemesh.<tailnet>`), Pocket ID's address and the client id (`homemesh-capture`).
    Sign-in happens on first use (passkey in a system browser sheet); Sign out clears it.
 2. Houses: pull to refresh; **+** creates a house. Open one to add levels and see its scans.
-3. Scan rooms: scan a room, Done, then name it in the prompt that appears (suggestions shown; you can
-   rename later under the scan). Scan more rooms, then Upload. Rooms of one scan share a frame; a scan
+3. Scan rooms: pick the level, scan a room, Done, then name it in the prompt that appears (tap a room in the
+   list to rename it; names can also be changed later under the scan). Messages appear under the camera view if
+   tracking is limited or no walls are detected after 15 seconds. Scan more rooms, then Upload. Rooms of one scan share a frame; a scan
    keeps a copy in Files (homemesh, Scans) until the server has accepted it.
 4. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.
    A scan gives no wall thickness or material: set them in the editor.
+
+## Debugging a scan
+
+- Xcode's Run turns on Metal API validation and GPU frame capture by default. The scheme in `project.yml`
+  switches both off (`enableGPUValidationMode: false`, `enableGPUFrameCaptureMode: disabled`) so a Run behaves
+  like a launch from the home screen; an earlier freeze at the start of the second room was a pause on the
+  renderer thread (`Render`, `__pthread_kill`, console line about `tonemapLUT`) under validation. If it still
+  freezes, launch the app from the home screen after installing, and send the console text.
+- One scan view and one AR session live for the whole multi-room scan; between rooms the session stops with
+  `pauseARSession: false`, so rooms share one frame. Building the upload (combine, encode, USDZ) runs off the
+  main thread.
+- Console.app (iPhone selected), filter `subsystem:homemesh.capture`: every phase change (idle, running,
+  stopping), session start and end, processing results and errors are logged, and `run`, `stop and process` and
+  `build payload` are signposts (Instruments, os_signpost) so a stall shows which step it was in.
 
 ## Contract with the backend
 
