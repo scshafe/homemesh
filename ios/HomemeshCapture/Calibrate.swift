@@ -150,8 +150,8 @@ struct CalibrateView: View {
         return out
     }
 
-    /// The held-out errors already applied to the house, if it was calibrated before (not exposed by the plan decode: unknown here).
-    private func calibratedCV() -> [Double?] { [] }
+    /// The held-out errors already applied to the house, if it was calibrated before.
+    private func calibratedCV() -> [Double?] { plan?.calibration.map { Array($0.rmse_cv.values) } ?? [] }
 
     private func load() async {
         do {
