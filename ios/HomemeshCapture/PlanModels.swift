@@ -41,6 +41,8 @@ struct PlanWall: Codable, Hashable, Identifiable, Sendable {
     let prov: PlanProv?
 
     /// Walls an import of this scan added earlier (the next import replaces them).
+    var length: Double { hypot(b.x - a.x, b.y - a.y) }
+
     func isFromCapture(_ blob: String) -> Bool { (prov?.ref ?? "").hasPrefix(blob + "#") }
 }
 
@@ -112,6 +114,13 @@ enum Geometry {
     static func compose(_ t: Transform2D, centre c: Pt, delta: Double, d: Pt) -> Transform2D {
         let r = rotate(Pt(t.tx - c.x, t.ty - c.y), degrees: delta)
         return Transform2D(rotation: t.rotation + delta, tx: r.x + c.x + d.x, ty: r.y + c.y + d.y)
+    }
+
+    static func distance(from p: Pt, toSegment a: Pt, _ b: Pt) -> Double {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len2 = dx * dx + dy * dy
+        let t = len2 == 0 ? 0 : max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
+        return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
     }
 
     static func bounds(_ pts: [Pt]) -> CGRect {

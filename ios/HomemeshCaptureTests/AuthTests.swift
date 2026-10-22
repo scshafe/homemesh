@@ -88,3 +88,70 @@ final class FieldTests: XCTestCase {
         XCTAssertEqual(nudged.y, r.y + t.ty, accuracy: 1e-9)
     }
 }
+
+final class HouseDocTests: XCTestCase {
+    private func doc() throws -> HouseDoc {
+        let json = #"""
+        {"id":"h","revision":4,"future_field":{"keep":[1,2]},"materials":[{"id":"gypsum","name":"Drywall"},{"id":"brick","name":"Brick"}],
+         "walls":[{"id":"w1","level":"L0","a":[0,0],"b":[4,0],"thickness":0.1,"thickness_defaulted":true,"material":"gypsum","material_defaulted":true,
+                   "openings":[{"kind":"door","offset":1,"width":0.9,"height":2,"sill":0}],"prov":{"source":"scan","ref":"x#wall/a"}},
+                  {"id":"w2","level":"L0","a":[4,0],"b":[4,3],"thickness":0.1,"thickness_defaulted":true,"material":"gypsum","material_defaulted":true,"openings":[]},
+                  {"id":"w3","level":"L1","a":[0,0],"b":[2,0],"thickness":0.1,"thickness_defaulted":true,"material":"gypsum","material_defaulted":true,"openings":[]}]}
+        """#
+        return try HouseDoc(data: Data(json.utf8))
+    }
+
+    private func wall(_ d: HouseDoc, _ id: String) throws -> [String: Any] {
+        let o = try JSONSerialization.jsonObject(with: try d.data()) as! [String: Any]
+        return (o["walls"] as! [[String: Any]]).first { $0["id"] as? String == id }!
+    }
+
+    func testUpdateTouchesOnlyWhatWasEdited() throws {
+        var d = try doc()
+        d.update(wall: "w1", thickness: 0.2, material: "brick")
+        let w = try wall(d, "w1")
+        XCTAssertEqual(w["thickness"] as? Double, 0.2)
+        XCTAssertEqual(w["material"] as? String, "brick")
+        XCTAssertEqual(w["thickness_defaulted"] as? Bool, false)
+        XCTAssertEqual((w["prov"] as? [String: Any])?["edited"] as? Bool, true)
+        XCTAssertEqual((w["prov"] as? [String: Any])?["ref"] as? String, "x#wall/a")      // provenance kept
+        XCTAssertEqual(try wall(d, "w2")["thickness"] as? Double, 0.1)                       // other walls untouched
+        let o = try JSONSerialization.jsonObject(with: try d.data()) as! [String: Any]
+        XCTAssertNotNil(o["future_field"])                                                    // unknown fields go back
+        XCTAssertEqual(d.revision, 4)
+    }
+
+    func testApplyToDefaultsStaysOnTheFloorAndSkipsEditedWalls() throws {
+        var d = try doc()
+        d.update(wall: "w1", thickness: 0.3)
+        let n = d.applyToDefaults(level: "L0", thickness: 0.15, material: "brick")
+        XCTAssertEqual(n, 2)                                                                   // w1 (material still default) and w2
+        XCTAssertEqual(try wall(d, "w1")["thickness"] as? Double, 0.3)                        // hand-set thickness kept
+        XCTAssertEqual(try wall(d, "w1")["material"] as? String, "brick")
+        XCTAssertEqual(try wall(d, "w2")["thickness"] as? Double, 0.15)
+        XCTAssertEqual(try wall(d, "w3")["material"] as? String, "gypsum")                    // another floor
+    }
+
+    func testOpeningsAreEditedByIndex() throws {
+        var d = try doc()
+        d.setOpening(wall: "w1", index: 0, kind: "arch", width: 1.2)
+        XCTAssertEqual(d.openings(of: "w1"), [HouseDoc.Opening(kind: "arch", width: 1.2)])
+        d.removeOpening(wall: "w1", index: 0)
+        XCTAssertTrue(d.openings(of: "w1").isEmpty)
+    }
+
+    func testMeasureChecksAndAccuracy() throws {
+        var d = try doc()
+        XCTAssertNil(d.addCheck(what: " ", level: "L0", wall: "w1", scanned: 4, measured: 4))
+        d.addCheck(what: "Kitchen north", level: "L0", wall: "w1", scanned: 4.04, measured: 4.0)
+        d.addCheck(what: "Hall", level: "L0", wall: "w2", scanned: 2.97, measured: 3.0)
+        XCTAssertEqual(d.checks.map(\.id), ["m1", "m2"])
+        let a = Accuracy(d.checks)
+        XCTAssertEqual(a.count, 2)
+        XCTAssertEqual(a.meanAbsPercent, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(a.meanSignedPercent, 0.0, accuracy: 1e-9)
+        XCTAssertFalse(a.passes)                                                               // fewer than five readings
+        let many = (0..<5).map { HouseDoc.Check(id: "m\($0)", what: "x", scanned: 4.02, measured: 4.0) }
+        XCTAssertTrue(Accuracy(many).passes)
+    }
+}

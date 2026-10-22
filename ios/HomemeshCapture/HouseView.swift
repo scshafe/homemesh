@@ -29,6 +29,7 @@ struct HouseView: View {
             ForEach(levels) { lv in
                 Section {
                     let here = rooms.filter { $0.level == lv.id }
+                    NavigationLink("Plan of \(lv.name): walls and materials") { PlanScreen(houseId: houseId, level: lv.id) }
                     ForEach(here) { r in row(r) }
                     if here.isEmpty { Text("No rooms on this floor yet.").font(.footnote).foregroundStyle(.secondary) }
                 } header: {
@@ -43,7 +44,10 @@ struct HouseView: View {
             if !loose.isEmpty {
                 Section("No floor") { ForEach(loose) { r in row(r) } }
             }
-            Section { Button("Add a floor") { newLevel = ""; addingLevel = true } }
+            Section {
+                Button("Add a floor") { newLevel = ""; addingLevel = true }
+                NavigationLink("Accuracy: scan against tape") { AccuracyView(houseId: houseId) }
+            }
         }
         .navigationTitle(model.summary(houseId)?.name ?? houseId)
         .navigationDestination(isPresented: $scanning) {
