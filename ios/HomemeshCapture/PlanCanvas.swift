@@ -21,6 +21,8 @@ struct PlanCanvas: View {
     var stairs: [[Pt]] = []
     var draft: [Pt] = []                // points of a stair or zone being drawn
     var selectedMarker: String?
+    var zones: [PlanZone] = []
+    var selectedZone: String?
     var onTapPlan: ((Pt, Double) -> Void)?    // a tap, in plan metres, with a tolerance of about 24 points in metres
     var onDrag: ((Pt) -> Void)?       // plan metres moved since the gesture began
     var onDragEnd: (() -> Void)?
@@ -58,6 +60,29 @@ struct PlanCanvas: View {
                             gap.addLine(to: map(Pt(w.a.x + (w.b.x - w.a.x) * t1, w.a.y + (w.b.y - w.a.y) * t1)))
                             ctx.stroke(gap, with: .color(o.kind == "window" ? .cyan : .orange), lineWidth: max(2, CGFloat(w.thickness) * scale))
                         }
+                    }
+                }
+                for z in zones {
+                    let color: Color = z.kind == "allow" ? .green : z.kind == "forbid" ? .red : .orange
+                    let sel = z.id == selectedZone
+                    if z.polygon.count >= 3 {
+                        var path = Path()
+                        path.move(to: map(z.polygon[0]))
+                        for p in z.polygon.dropFirst() { path.addLine(to: map(p)) }
+                        path.closeSubpath()
+                        ctx.fill(path, with: .color(color.opacity(sel ? 0.35 : 0.18)))
+                        ctx.stroke(path, with: .color(sel ? .accentColor : color), style: StrokeStyle(lineWidth: sel ? 3 : 1.5, dash: [5, 3]))
+                    } else if let p = z.polygon.first {
+                        let c = map(p), r: CGFloat = sel ? 9 : 7
+                        let rect = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+                        ctx.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.5)))
+                        ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? .accentColor : color), lineWidth: 2)
+                    }
+                    if !z.name.isEmpty, let c = z.polygon.first {
+                        let n = Double(z.polygon.count)
+                        let mid = Pt(z.polygon.map(\.x).reduce(0, +) / n, z.polygon.map(\.y).reduce(0, +) / n)
+                        _ = c
+                        ctx.draw(Text(z.name).font(.caption2).foregroundStyle(color), at: map(mid))
                     }
                 }
                 for poly in stairs where poly.count >= 3 {

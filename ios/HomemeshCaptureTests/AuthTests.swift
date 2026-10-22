@@ -182,3 +182,21 @@ final class PlanItemTests: XCTestCase {
         XCTAssertTrue(h.outlets.isEmpty && h.stairs.isEmpty && h.walls.isEmpty)
     }
 }
+
+final class ZoneDecodeTests: XCTestCase {
+    func testZonesDecodeAndASpotHasOnePoint() throws {
+        let json = #"{"id":"h","name":"H","revision":0,"levels":[],"zones":[{"id":"z1","level":"L0","polygon":[[1,2]],"kind":"forbid","name":"Nursery"},{"id":"z2","level":"L0","polygon":[[0,0],[1,0],[1,1]],"kind":"demand","name":""}]}"#
+        let h = try JSONDecoder().decode(PlanHouse.self, from: Data(json.utf8))
+        XCTAssertEqual(h.zones.map(\.kind), ["forbid", "demand"])
+        XCTAssertEqual(h.zones[0].polygon.count, 1)
+    }
+
+    func testClearingANeedWhenAZoneStopsBeingADemand() throws {
+        var d = try HouseDoc(data: Data(#"{"id":"h","revision":0,"zones":[{"id":"z1","kind":"demand","need":{"min_rssi":-65},"weight":2}]}"#.utf8))
+        d.set("zones", "z1", ["kind": "allow", "need": nil, "requires": "outlet"])
+        let z = d.item("zones", "z1")!
+        XCTAssertNil(z["need"])
+        XCTAssertEqual(z["requires"] as? String, "outlet")
+        XCTAssertEqual(z["weight"] as? Double, 2)       // untouched fields stay
+    }
+}
