@@ -418,3 +418,35 @@ final class EventLogTests: XCTestCase {
         XCTAssertTrue(String(decoding: last.data, as: UTF8.self).contains("\"i\":\(EventLog.cap / 4000 + 199)"))   // the newest survives
     }
 }
+
+final class FloorSuggestionTests: XCTestCase {
+    private let levels = [LevelRef(id: "B", name: "Basement", below_ground: true), LevelRef(id: "G", name: "Ground"), LevelRef(id: "F", name: "First")]
+    private func baro(_ s: String, _ rel: Double, _ kpa: Double = 101, at: Double = 1000) -> BaroReading { BaroReading(session: s, rel_m: rel, kpa: kpa, at: at) }
+
+    func testTheSameHeightAsAnEarlierRoomWins() {
+        let others = [(room: "Library", level: "B", baro: baro("s", -3.0)), (room: "Pantry", level: "G", baro: baro("s", 0.2))]
+        let s = FloorSuggestion.suggest(levels: levels, current: baro("s", -2.6, at: 1500), others: others, preferred: nil, lastUsed: "F")
+        XCTAssertEqual(s, FloorSuggestion(level: "B", reason: "same height as Library"))
+    }
+
+    func testTooFarFallsBackToTheLastFloorThenTheGroundFloor() {
+        let others = [(room: "Library", level: "B", baro: baro("s", -3.0))]
+        let now = baro("s", 2.5, at: 1500)
+        XCTAssertEqual(FloorSuggestion.suggest(levels: levels, current: now, others: others, preferred: nil, lastUsed: "F")?.level, "F")
+        XCTAssertEqual(FloorSuggestion.suggest(levels: levels, current: now, others: others, preferred: nil, lastUsed: nil)?.level, "G")
+    }
+
+    func testAskedForFloorBeatsTheBarometer() {
+        let others = [(room: "Library", level: "B", baro: baro("s", -3.0))]
+        let s = FloorSuggestion.suggest(levels: levels, current: baro("s", -3.1), others: others, preferred: "F", lastUsed: nil)
+        XCTAssertEqual(s?.level, "F")
+    }
+
+    func testAcrossSessionsOnlyPressureWithinAnHourCounts() {
+        let others = [(room: "Library", level: "B", baro: baro("a", 0, 101.30, at: 0))]
+        // 0.005 kPa is about 0.4 m; 40 minutes later, a different session
+        XCTAssertEqual(FloorSuggestion.suggest(levels: levels, current: baro("b", 0, 101.305, at: 2400), others: others, preferred: nil, lastUsed: nil)?.level, "B")
+        // two hours later the weather could have moved the pressure by that much
+        XCTAssertEqual(FloorSuggestion.suggest(levels: levels, current: baro("b", 0, 101.305, at: 7200), others: others, preferred: nil, lastUsed: nil)?.level, "G")
+    }
+}

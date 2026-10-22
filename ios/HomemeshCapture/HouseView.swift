@@ -21,7 +21,7 @@ struct HouseView: View {
         List {
             if !note.isEmpty { Section { Text(note).font(.footnote) } }
             Section {
-                Button { scanLevel = levels.last?.id ?? ""; scanning = true } label: {
+                Button { scanLevel = ""; scanning = true } label: {
                     Label("Add room scan", systemImage: "camera.viewfinder").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
