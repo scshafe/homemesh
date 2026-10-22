@@ -12,6 +12,8 @@ struct HouseView: View {
     @State private var scanLevel = ""
     @State private var scanning = false
     @State private var note = ""
+    @State private var waiting: [PendingUpload] = []
+    @State private var sending = false
 
     private var levels: [LevelRef] { model.summary(houseId)?.levels ?? [] }
 
@@ -25,6 +27,18 @@ struct HouseView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .listRowBackground(Color.clear)
+            }
+            if !waiting.isEmpty {
+                Section("Waiting to upload (saved on this phone)") {
+                    ForEach(waiting) { p in
+                        HStack {
+                            VStack(alignment: .leading) { Text(p.name); Text(p.created, style: .relative).font(.caption).foregroundStyle(.secondary) }
+                            Spacer()
+                            Button("Upload") { Task { await sendWaiting() } }.buttonStyle(.borderless).disabled(sending)
+                            Button("Delete", role: .destructive) { UploadQueue.remove(p); waiting = UploadQueue.all(house: houseId) }.buttonStyle(.borderless)
+                        }
+                    }
+                }
             }
             ForEach(levels) { lv in
                 Section {
@@ -61,8 +75,20 @@ struct HouseView: View {
             Button("Add") { Task { await model.addLevel(house: houseId, name: newLevel) } }
             Button("Cancel", role: .cancel) {}
         }
-        .task { await load() }
-        .refreshable { await model.refresh(); await load() }
+        .task { waiting = UploadQueue.all(house: houseId); await sendWaiting(); await load() }
+        .refreshable { await model.refresh(); await sendWaiting(); await load() }
+    }
+
+    /// Tries the queued scans of this house in order; stops at the first failure and keeps the rest.
+    private func sendWaiting() async {
+        waiting = UploadQueue.all(house: houseId)
+        guard !waiting.isEmpty, !sending else { return }
+        sending = true
+        defer { sending = false }
+        for p in waiting {
+            do { _ = try await UploadQueue.send(p, with: model.uploader(house: houseId)) } catch { note = "A saved scan is not uploaded yet: \(error.localizedDescription)"; break }
+        }
+        waiting = UploadQueue.all(house: houseId)
     }
 
     private func row(_ r: RoomItem) -> some View {

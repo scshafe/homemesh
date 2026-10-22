@@ -309,6 +309,12 @@ dashed on the plan) and the planning margin before and after (3 to 10 dB from th
 Apply saves the returned house as a new revision. A regression test pins that `ratemap` stays valid JSON where a thick wall puts cells
 out of service (it was already null on the wire; the explicit conversion is kept). CSV import of measurements stays a web feature.
 
+### As built (P9a)
+
+Offline scan queue: `UploadQueue` writes the scan (JSON, USDZ, house, floor, name, `replaces`) to `Documents/Uploads/<id>/` before any
+network call and removes it only after 2xx for both parts; `HouseView` lists and retries the house's queued scans (in order, stopping at the
+first failure) on open and on refresh. Everything else still needs the server (Q3).
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the

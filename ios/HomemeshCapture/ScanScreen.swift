@@ -91,31 +91,26 @@ struct ScanScreen: View {
         if phase == .running { controller.stop() } else { controller.start() }
     }
 
+    /// The scan is first saved on the phone (so nothing is lost if the upload fails or there is no signal), then sent.
     private func upload() async {
         busy = true
         defer { busy = false }
         do {
             status = "Preparing…"
             let (json, usdz) = try await ScanPayload.build(rooms: rooms, names: names.mapValues { $0.trimmed })
-            // keep a copy in Files > homemesh > Scans, so a failed upload loses nothing
-            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Scans", isDirectory: true)
-            try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
-            let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            try json.write(to: docs.appendingPathComponent("\(stamp).json"))
-            status = "Uploading…"
-            let id = try await model.uploader(house: houseId)
-                .upload(json: json, usdz: usdz, name: scanTitle, level: level, replaces: replacing?.key ?? "")
-            if let old = replacing, !old.description.isEmpty {   // the description carries over to the new scan's room
-                let n = rooms.count
-                _ = try? await model.client().nameRooms(house: houseId, blob: id, names: rooms.map { names[$0.identifier.uuidString]?.trimmed ?? "" },
-                                                        descriptions: (0..<n).map { $0 == 0 ? old.description : "" })
-            }
+            let item = try UploadQueue.enqueue(house: houseId, name: scanTitle, level: level, replaces: replacing?.key ?? "", json: json, usdz: usdz)
+            let first = replacing.flatMap { $0.description.isEmpty ? nil : $0.description }
+            let roomNames = rooms.map { names[$0.identifier.uuidString]?.trimmed ?? "" }
             resetScan()
-            try? FileManager.default.removeItem(at: docs.appendingPathComponent("\(stamp).json"))  // uploaded: keep nothing on the device
-            status = "Uploaded (scan \(id.prefix(8))). The rooms are named; place them on the plan next."
+            status = "Saved on this phone. Uploading…"
+            let id = try await UploadQueue.send(item, with: model.uploader(house: houseId))
+            if let first {   // the description carries over to the new scan's room
+                _ = try? await model.client().nameRooms(house: houseId, blob: id, names: roomNames, descriptions: roomNames.indices.map { $0 == 0 ? first : "" })
+            }
+            status = "Uploaded (scan \(id.prefix(8))). Place the rooms on the plan next."
             onUploaded()
         } catch {
-            status = "Upload failed: \(error.localizedDescription). The scan is still here; try again."
+            status = "Not uploaded yet: \(error.localizedDescription). The scan is saved on this phone; the house screen has it under \"Waiting to upload\"."
         }
     }
 }
