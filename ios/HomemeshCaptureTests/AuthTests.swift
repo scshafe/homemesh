@@ -1,3 +1,4 @@
+import SceneKit
 import SwiftUI
 import XCTest
 @testable import HomemeshCapture
@@ -313,5 +314,29 @@ final class UploadQueueTests: XCTestCase {
     func testAFolderWithoutMetaIsNotAQueuedUpload() throws {
         try FileManager.default.createDirectory(at: UploadQueue.root.appendingPathComponent("half"), withIntermediateDirectories: true)
         XCTAssertTrue(UploadQueue.all().isEmpty)
+    }
+}
+
+final class House3DTests: XCTestCase {
+    func testWallsFloorsAndStairsBecomeNodesAtTheRightHeight() throws {
+        let json = #"""
+        {"id":"h","name":"H","revision":1,
+         "levels":[{"id":"L0","name":"G","elevation":0,"height":2.5},{"id":"L1","name":"F","elevation":2.8,"height":2.5}],
+         "walls":[{"id":"w1","level":"L0","a":[0,0],"b":[4,0],"thickness":0.1,"height":2.5,"base_z":0,"openings":[]},
+                  {"id":"w2","level":"L1","a":[0,0],"b":[0,3],"thickness":0.1,"height":2.4,"base_z":0.1,"openings":[]}],
+         "stairs":[{"id":"s1","from_level":"L0","to_level":"L1","polygon":[[1,1],[2,1],[2,4],[1,4]]}]}
+        """#
+        let plan = try JSONDecoder().decode(PlanHouse.self, from: Data(json.utf8))
+        let scene = House3D.build(plan)
+        let w2 = try XCTUnwrap(scene.rootNode.childNode(withName: "wall:w2", recursively: false))
+        XCTAssertEqual(w2.position.y, 2.8 + 0.1 + 1.2, accuracy: 1e-4)           // floor elevation + base + half the height
+        let w1 = try XCTUnwrap(scene.rootNode.childNode(withName: "wall:w1", recursively: false))
+        XCTAssertEqual(w1.position.x, 2, accuracy: 1e-4)
+        XCTAssertNotNil(scene.rootNode.childNode(withName: "floor:L1", recursively: false))
+        XCTAssertNotNil(scene.rootNode.childNode(withName: "stair:s1", recursively: false))
+        // a hidden floor leaves its walls out; the plan's +Y becomes the scene's -Z
+        let onlyGround = House3D.build(plan, visible: ["L0"])
+        XCTAssertNil(onlyGround.rootNode.childNode(withName: "wall:w2", recursively: false))
+        XCTAssertEqual(try XCTUnwrap(scene.rootNode.childNode(withName: "wall:w2", recursively: false)).position.z, -1.5, accuracy: 1e-4)
     }
 }
