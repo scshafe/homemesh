@@ -253,6 +253,39 @@ guess; it is reported and not applied automatically.
 Pieces (PR each): this note; (a) the picker in the save sheet; (c) backend order/derivation, then the Floors
 screen; (b) the barometer; (d) stories.
 
+
+## Non-cubic walls and furniture (owner decisions, 2026-10-22)
+
+**(A) Wall shapes: import fixes and a scanning tip.** RoomPlan reports more than a rectangle for a wall: `polygonCorners`
+(a wall under a sloped or vaulted ceiling; the Great room scan has three) and `curve` (a curved wall). Import keeps them:
+- *Polygon walls.* The wall keeps its rectangle for the RF model (width by the tallest point, conservative) and gains
+  `Wall.profile`, the outline in the wall's own frame (offset along a to b, height above the wall's base), for the
+  3D view. A polygon that is only a rectangle is dropped.
+- *Curved walls.* The plan gets the curve as chords (about 0.5 m of arc each, at most 12), each a straight wall of the
+  same height; every chord carries `Wall.curve` = `{group, cx, cy, radius, a0, a1}` (the true arc in plan coordinates),
+  so a viewer can draw the arc instead of its chords. The 3D view in the app draws the chords.
+- *Jogs.* After pairing faces into walls, a wall shorter than `House.jog_fold` (default 0.3 m, a house-level setting) between
+  two walls is folded into them: the neighbours meet at the intersection of their lines when it lies within twice the
+  jog of its ends, else at its midpoint. The folded wall's source surfaces go to a neighbour, so re-scan retirement
+  still sees the same room's surfaces. Openings are placed after folding, so none are lost.
+- Everything is computed at import from the stored scan, so existing captures get it by importing (placing) again; no
+  migration. No reconstruction from the raw mesh.
+- *Tip.* The scan screen says, before the first room: "Go slowly at corners and keep the line where the wall meets the
+  ceiling in view."
+
+**(B) Furniture: a layer and labels, no Wi-Fi effect yet.** RoomPlan objects (category, dimensions, transform, attributes
+such as the storage or chair type) become `House.furniture`: `{id, level, room, category, name, center, width, depth,
+height, base_z, rotation, attributes, movable, movable_default, obstacle, prov}`. Not walls; the RF model ignores
+them. `obstacle` (false) is the reserved flag for a later "counts as an obstacle"; the schema stays open to more
+fields. Stairs objects stay stairs. `movable` defaults by category: chair, table, sofa, bed, storage, television,
+refrigerator, washerDryer movable; sink, toilet, bathtub, stove, oven, dishwasher, fireplace fixed (the owner overrides
+each, since built-in shelves also come as storage; the override sets `movable_default = false` and survives a
+re-import, matched by the object's source id). Import replaces the scan's earlier furniture, keeping names and
+overrides. The app draws furniture on the plan (below walls, above rooms), in the 3D view as boxes, lists it per room,
+and a tap names it and flips movable/fixed. `Furniture.room` is the room whose outline holds its centre.
+
+Pieces (PR each): this note; (A) wall import + tip; (B) furniture model and import; (B) furniture in the app.
+
 ## 5. Milestones
 
 Each is a PR with verify and CI; the iOS job (Xcode 26, strict concurrency,
