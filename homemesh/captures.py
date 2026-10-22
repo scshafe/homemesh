@@ -103,7 +103,8 @@ def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", rep
     digest = store.put_blob(house_id, raw)
     meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None, "rooms": room_names(data), "level": level or None, "replaces": replaces or None, "baro": baro_of(data),
             "stairs_found": stairs_found(data), "stair": stair or None, "purpose": purpose or None,
-            "stories": stories_of(data), "room_levels": room_levels_of(data), "door_labels": door_labels_of(data)}
+            "stories": stories_of(data), "room_levels": room_levels_of(data), "door_labels": door_labels_of(data),
+            "doors": [{k: d[k] for k in ("id", "kind", "room")} | {"number": i + 1} for i, d in enumerate(scan_doors(data))]}
     path = _dir(house_id) / f"{digest}.json"
     if path.exists():  # the same scan uploaded twice: keep what is known (the USDZ, the name)
         old = json.loads(path.read_text())
@@ -169,12 +170,16 @@ def get_meta(house_id: str, digest: str) -> dict:
 
 
 def _with_stairs(house_id: str, meta: dict) -> dict:
-    """Captures stored before staircases were summarised get theirs from the stored JSON, once."""
-    if "stairs_found" not in meta:
+    """Captures stored before staircases and doors were summarised get theirs from the stored JSON, once."""
+    if "stairs_found" not in meta or "doors" not in meta:
         try:
-            meta["stairs_found"] = stairs_found(json.loads(store.get_blob(house_id, meta["blob"])))
+            data = json.loads(store.get_blob(house_id, meta["blob"]))
+            meta["stairs_found"] = stairs_found(data)
+            meta["doors"] = [{k: d[k] for k in ("id", "kind", "room")} | {"number": i + 1} for i, d in enumerate(scan_doors(data))]
+            meta["rooms"] = meta.get("rooms") or room_names(data)
         except (ValueError, KeyError, OSError, ImportError_, store.StoreError):
-            meta["stairs_found"] = []
+            meta.setdefault("stairs_found", [])
+            meta.setdefault("doors", [])
         store._write_atomic(_dir(house_id) / f"{meta['blob']}.json", json.dumps(meta).encode())
     return meta
 

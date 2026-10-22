@@ -53,7 +53,7 @@ class StairsTest(unittest.TestCase):
         house = house.model_copy(update={"stairs": [Stair(id="s1", from_level="L0", to_level="L1", polygon=poly)]})
         # the upper floor, scanned in another session: its own room, the stairs at its own place and turn
         upper = moved(wrap(with_stairs(room(10, 10, 15, 14, "U"), 11.5, 12.0)), 53, 4, -2)
-        p = place.propose(house, upper, "L1", "U" * 64)
+        p = place.propose(house, upper, "L1", "U" * 64, guess=True)
         self.assertEqual(p["confidence"], "confirm")
         self.assertEqual(p["evidence"]["stairs"], 1)
         t = p["transform"]
@@ -66,7 +66,7 @@ class StairsTest(unittest.TestCase):
 
     def test_no_stairs_no_stair_candidates(self):
         house = two_level_house()
-        p = place.propose(house, wrap(room(0, 0, 4, 3, "B")), "L1", "B" * 64)
+        p = place.propose(house, wrap(room(0, 0, 4, 3, "B")), "L1", "B" * 64, guess=True)
         self.assertEqual(p["confidence"], "auto")   # an empty floor with no staircase to go by keeps its frame
 
 

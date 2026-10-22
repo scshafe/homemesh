@@ -30,7 +30,7 @@ class PlaceSpeedTest(unittest.TestCase):
         new = room(x0, z0, x0 + 4, z0 + 3, "NEW", doors=[(x0, z0 + 1.5, 0, 1), (x0 + 2, z0 + 3, 1, 0)], windows=[(x0 + 2, z0, 1, 0)])
         scan = moved(wrap(new), 37, 5, -3)
         t0 = time.perf_counter()
-        p = place.propose(house, scan, "L0", "N" * 64)
+        p = place.propose(house, scan, "L0", "N" * 64, guess=True)
         took = time.perf_counter() - t0
         self.assertLess(took, 1.0, f"propose took {took:.2f} s")
         # every door of this synthetic floor is alike, so which neighbour it belongs to is genuinely ambiguous: what must hold

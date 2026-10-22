@@ -162,6 +162,23 @@ class CaptureApiTest(Base):
         put = self.c.put(f"{self.url}/{m['blob']}/doors", json={"labels": {"B-door0": "Outside", "nope": "x", "A-door0": ""}}, headers=self.ok).json()
         self.assertEqual(put["door_labels"], {"B-door0": "Outside"})   # unknown doors dropped, empty clears
 
+    def test_the_doors_checklist_names_what_has_no_partner(self):
+        a, b = two_rooms()["rooms"]
+        one = {"format": "homemesh-capture-1", "rooms": [{**a, "name": "Kitchen"}], "door_labels": {"A-door0": "Pantry"}}
+        two = {"format": "homemesh-capture-1", "rooms": [{**b, "name": "Pantry"}]}
+        ma = self.upload(data=one).json()
+        mb = self.upload(data=two).json()
+        rows = {r["capture"]: r for r in self.c.get("/api/houses/synthetic-box/doors", headers=self.ok).json()}
+        self.assertEqual(rows[ma["blob"]]["doors"][0]["status"], "missing")
+        self.assertTrue(any("Pantry has no door labelled Kitchen" in i for i in rows[ma["blob"]]["issues"]))
+        self.assertTrue(any("not labelled yet" in i for i in rows[mb["blob"]]["issues"]))
+        # label the Pantry's door back: both sides are ok and the scan is complete once its other doors are said too
+        self.c.put(f"{self.url}/{mb['blob']}/doors", json={"labels": {"B-door0": "Kitchen"}}, headers=self.ok)
+        rows = {r["capture"]: r for r in self.c.get("/api/houses/synthetic-box/doors", headers=self.ok).json()}
+        self.assertEqual(rows[ma["blob"]]["doors"][0]["status"], "ok")
+        self.assertEqual(rows[mb["blob"]]["doors"][0]["status"], "ok")
+        self.assertTrue(rows[ma["blob"]]["complete"] or rows[ma["blob"]]["issues"] == [])
+
     def test_import_with_a_transform(self):
         m = self.upload().json()
         r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", content=json.dumps({"transform": {"rotation": 90, "tx": 10, "ty": 20}}),
@@ -215,7 +232,7 @@ class CaptureApiTest(Base):
         self.assertEqual(self.c.post(url + "?replaces=nope", content=json.dumps(y_data), headers=self.ok).status_code, 422)
         y = self.c.post(url + f"?level=L0&replaces={x['blob']}:0", content=json.dumps(y_data), headers=self.ok).json()
         self.c.put(f"{url}/{y['blob']}/rooms", json={"names": ["Great room"]}, headers=self.ok)
-        p = self.c.post(f"{url}/{y['blob']}/place?level=L0", headers=self.ok).json()
+        p = self.c.post(f"{url}/{y['blob']}/place?level=L0&guess=true", headers=self.ok).json()
         self.assertEqual(p["confidence"], "auto", p)  # matched against Corby's room through the shared doorway
         r = self.c.post(f"{url}/{y['blob']}/import?level=L0", content=json.dumps({"transform": p["transform"]}), headers=self.ok).json()
         after = r["house"]
@@ -234,12 +251,12 @@ class CaptureApiTest(Base):
         self.c.post("/api/houses", json={"id": "fresh", "name": "Fresh"}, headers=self.ok)
         url = "/api/houses/fresh/captures"
         m = self.c.post(url, content=json.dumps(two_rooms()), headers=self.ok).json()
-        p = self.c.post(f"{url}/{m['blob']}/place?level=L0", headers=self.ok)
+        p = self.c.post(f"{url}/{m['blob']}/place?level=L0&guess=true", headers=self.ok)
         self.assertEqual(p.status_code, 200, p.text)
         self.assertEqual(p.json()["confidence"], "auto")  # an empty level: nothing to line up with
-        self.assertEqual(self.c.post(f"{url}/{m['blob']}/place?level=nope", headers=self.ok).status_code, 422)
-        self.assertEqual(self.c.post(f"{url}/{'0' * 64}/place?level=L0", headers=self.ok).status_code, 422)
-        self.assertEqual(self.c.post(f"{url}/{m['blob']}/place?level=L0").status_code, 401)
+        self.assertEqual(self.c.post(f"{url}/{m['blob']}/place?level=nope&guess=true", headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post(f"{url}/{'0' * 64}/place?level=L0&guess=true", headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post(f"{url}/{m['blob']}/place?level=L0&guess=true").status_code, 401)
 
     def test_import_preview_and_registration(self):
         m = self.upload().json()

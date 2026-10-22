@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .model import House, Room, Wall
-from .roomplan import ImportError_, Similarity2D, import_capture, retire_room, scan_doors, stair_footprints
+from .roomplan import ImportError_, Similarity2D, import_capture, register, retire_room, room_names, scan_doors, stair_footprints
 
 # Weights of the score; tests pin their effect, not their values.
 W_WALL = 1.0       # per metre of scan wall lying on a parallel plan wall
@@ -44,6 +44,8 @@ class Opening2:
     angle: float
     width: float
     kind: str  # "door" (door, arch, opening) or "window"
+    ref: str = ""  # "<capture>#door/<id8>" of the surface it was scanned from
+    thickness: float = 0.1  # of the wall it is in
 
 
 @dataclass
@@ -79,7 +81,8 @@ def _openings(walls: list[Wall]) -> list[Opening2]:
         for o in w.openings:
             if o.kind == "hole":
                 continue
-            out.append(Opening2(a + d * (o.offset + o.width / 2), math.atan2(d[1], d[0]), o.width, "window" if o.kind == "window" else "door"))
+            out.append(Opening2(a + d * (o.offset + o.width / 2), math.atan2(d[1], d[0]), o.width, "window" if o.kind == "window" else "door",
+                                o.prov.ref or "", w.thickness))
     return out
 
 
@@ -367,32 +370,97 @@ def _candidates(scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs=(), pl
     return list(out.values())
 
 
-def _label_candidates(data: dict, labels: dict[str, str], plan_rooms, plan_open: list[Opening2]) -> list[Candidate]:
-    """Placements from doors the owner labelled: a scan door that leads to a room already on the plan lies on that room's
-    boundary, so it pairs with each plan door within 0.6 m of that room's outline, in both orientations."""
-    out: list[Candidate] = []
-    if not labels:
-        return out
-    doors = {d["id"]: d for d in scan_doors(data)}
-    for did, to in labels.items():
-        d = doors.get(did)
-        if d is None or _fold(to) in ("", "outside"):
+def _side(v: float) -> int:
+    return 1 if v > 1e-6 else -1 if v < -1e-6 else 0
+
+
+def _by_labels(house, data, level, blob, scanned, scan_walls, plan_walls, plan_open, plan_rooms, scan_rooms, scan_open, scan_stairs, plan_stairs,
+               names, labels, plan_labels) -> dict:
+    """Placement by connections: a door of this scan labelled "leads to B" and a door already on the plan labelled "leads to
+    <this room>", in room B. The scan's door is laid on the plan's: centres coincide (apart from the wall's thickness), walls
+    parallel, the two rooms on opposite sides. Several connections are fitted together (least squares)."""
+    doors = scan_doors(data)
+    carried = room_names(data)
+    def room_name(i: int) -> str:
+        return (names[i] if names and i < len(names) and (names[i] or "").strip() else carried[i] if i < len(carried) else "") or ""
+    scan_poly = {int(r.prov.ref.rsplit("/", 1)[1]): np.array(r.polygon, float) for r in scanned.rooms
+                 if r.level == level and (r.prov.ref or "").startswith(f"{blob}#room/")}
+    plan_by_ref = {o.ref: o for o in plan_open if o.ref}
+    pairs = []   # (scan door, plan door, the placed room it opens into)
+    missing: list[str] = []
+    for d in doors:
+        to = (labels.get(d["id"]) or "").strip()
+        if not to or _fold(to) == "outside":
             continue
-        targets = [poly for n, poly in plan_rooms if _fold(n) == _fold(to)]
+        mine_name = room_name(d["room"])
+        targets = [(n, poly) for n, poly in plan_rooms if _fold(n) == _fold(to)]
         if not targets:
+            missing.append(f"{to} is not on the plan yet")
             continue
-        so = Opening2(np.array([d["x"], d["y"]]), math.radians(d["angle"]), d["width"], "door")
-        for p in plan_open:
-            if p.kind != "door" or abs(p.width - so.width) > WIDTH_TOL + 0.1:
-                continue
-            if not any(_edge_dist(p.mid, poly) <= 0.6 for poly in targets):
-                continue
-            for flip in (0.0, math.pi):
-                th = p.angle - so.angle + flip
-                deg = (math.degrees(th) + 180) % 360 - 180
-                t = p.mid - _rot(deg) @ so.mid
-                out.append(Candidate(deg, float(t[0]), float(t[1]), f"label:{to}"))
-    return out
+        found = [(o, ref) for ref, o in plan_by_ref.items() if _fold(plan_labels.get(ref.replace("#door/", "#"), "")) == _fold(mine_name) and _fold(mine_name)
+                 and any(_edge_dist(o.mid, poly) <= 0.8 for _, poly in targets)]
+        if not found:
+            missing.append(f"{to} has no door labelled {mine_name or 'this room'}")
+            continue
+        for o, _ in found:
+            poly = min((poly for _, poly in targets), key=lambda p: _edge_dist(o.mid, p))
+            pairs.append((d, o, poly))
+    if not pairs:
+        ident = {"rotation": 0.0, "tx": 0.0, "ty": 0.0}
+        why = "Label a door that connects to a placed room (and the matching door of that room back)."
+        return {"confidence": "unlabelled", "reason": why, "transform": ident, "score": 0.0,
+                "evidence": {"missing": missing or ["no door of this scan is labelled"]}, "alternatives": [],
+                "preview": _preview(scan_walls, Candidate(0.0, 0.0, 0.0, "none"))}
+
+    def pose(d, o, poly, flip_pick=None):
+        """(rotation deg, translation, landing point) laying door d on door o with the rooms on opposite sides."""
+        s = np.array([d["x"], d["y"]])
+        n = np.array([-math.sin(o.angle), math.cos(o.angle)])
+        side_plan = _side(float((poly.mean(axis=0) - o.mid) @ n))
+        cs = scan_poly.get(d["room"])
+        best = None
+        for flip in (0.0, math.pi):
+            th = o.angle - math.radians(d["angle"]) + flip
+            deg = (math.degrees(th) + 180) % 360 - 180
+            side_scan = _side(float((_rot(deg) @ ((cs.mean(axis=0) if cs is not None else s) - s)) @ n))
+            if cs is not None and side_plan and side_scan and side_scan == side_plan:
+                continue   # both rooms on one side of the wall: not this orientation
+            land = o.mid - side_plan * n * o.thickness   # on the far side of the plan wall
+            best = best or (deg, land - _rot(deg) @ s, land)
+        deg0 = (math.degrees(o.angle - math.radians(d["angle"])) + 180) % 360 - 180
+        return best or (deg0, o.mid - _rot(deg0) @ np.array([d["x"], d["y"]]), o.mid)
+
+    # every pair proposes a pose; the pose that the most other pairs agree with wins, and those pairs are fitted together
+    best_fit = None
+    for d, o, poly in pairs:
+        deg, t, _ = pose(d, o, poly)
+        R = _rot(deg)
+        agree = []
+        used = set()
+        for d2, o2, poly2 in pairs:
+            _, _, land2 = pose(d2, o2, poly2)
+            gap = float(np.linalg.norm(R @ np.array([d2["x"], d2["y"]]) + t - land2))
+            key = d2["id"]
+            if gap <= 0.5 and key not in used:
+                used.add(key)
+                agree.append((d2, land2, gap))
+        key = (len(agree), -sum(g for *_, g in agree))
+        if best_fit is None or key > best_fit[0]:
+            best_fit = (key, deg, t, agree)
+    _, deg, t, agree = best_fit
+    if len(agree) >= 2:
+        sim = register([(d["x"], d["y"]) for d, *_ in agree], [(float(l[0]), float(l[1])) for _, l, _ in agree])
+        deg, t = sim.rotation, np.array([sim.tx, sim.ty])
+    R = _rot(deg)
+    resid = max(float(np.linalg.norm(R @ np.array([d["x"], d["y"]]) + t - land)) for d, land, _ in agree)
+    c = Candidate(deg, float(t[0]), float(t[1]), "labelled doors")
+    ctx = _Ctx.build(scan_walls, plan_walls)
+    _score(c, ctx, scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
+    conf = "labelled" if resid <= 0.15 and c.area_m2 <= 0.5 else "confirm"
+    reason = f"{len(agree)} labelled connection(s); fits to {resid * 100:.0f} cm" + ("" if conf == "labelled" else " (rooms would overlap: check it)" if c.area_m2 > 0.5 else " (the connections disagree: check it)")
+    return {"confidence": conf, "reason": reason, **_out(c), "evidence": {"connections": len(agree), "residual_cm": round(resid * 100, 1),
+            "room_overlap_m2": round(c.area_m2, 2), "wall_overlap_m": round(c.wall_m, 2), "source": "labelled doors", "missing": missing},
+            "alternatives": [], "preview": _preview(scan_walls, c)}
 
 
 def _snap(c: Candidate, scan_walls: list[Wall], plan_dom: float | None) -> None:
@@ -427,7 +495,7 @@ def _preview(scan_walls: list[Wall], c: Candidate) -> list[dict]:
 
 def propose(house: House, data: dict, level: str, blob: str, names: list[str] | None = None,
             retire: tuple[dict, str, int] | None = None, room_levels: list[str | None] | None = None,
-            door_labels: dict[str, str] | None = None) -> dict:
+            door_labels: dict[str, str] | None = None, plan_labels: dict[str, str] | None = None, guess: bool = False) -> dict:
     """The proposal for placing capture `blob` (`data`) on `level` of `house`.
 
     `retire` = (earlier capture's data, its blob, room index) when this scan re-scans a room: that room's own walls
@@ -472,18 +540,9 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
                 "preview": _preview(scan_walls, c)}
 
     scan_open, plan_open = _openings(scan_walls), _openings(plan_walls)
-    labelled = _label_candidates(data, door_labels or {}, plan_rooms, plan_open)
-    if labelled:   # the owner said where a door leads: that pairing is the candidate, no global search
-        ctx = _Ctx.build(scan_walls, plan_walls)
-        for c in labelled:
-            _score(c, ctx, scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
-        labelled.sort(key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
-        best = labelled[0]
-        if best.openings >= 1 and best.area_m2 <= 0.5:
-            others = [c for c in labelled[1:] if _distinct(best, c)]
-            return {"confidence": "labelled", "reason": "lined up by the door you said leads to " + best.source.removeprefix("label:"),
-                    **_out(best), "evidence": {"openings": best.openings, "wall_overlap_m": round(best.wall_m, 2), "room_overlap_m2": round(best.area_m2, 2),
-                                               "source": best.source}, "alternatives": [_out(c) for c in others[:2]], "preview": _preview(scan_walls, best)}
+    if not guess:   # the placement is the labelled connections; the search below is only for "Guess for me"
+        return _by_labels(house, data, level, blob, scanned, scan_walls, plan_walls, plan_open, plan_rooms, scan_rooms, scan_open, scan_stairs, plan_stairs,
+                          names, door_labels or {}, plan_labels or {})
     cands = _candidates(scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
     if not cands:
         return {"confidence": "manual", "reason": "no shared doorway or room name to line the scan up by",
