@@ -340,3 +340,18 @@ final class House3DTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(scene.rootNode.childNode(withName: "wall:w2", recursively: false)).position.z, -1.5, accuracy: 1e-4)
     }
 }
+
+
+@MainActor
+final class ScreenAwakeTests: XCTestCase {
+    func testHoldAndReleaseAreIdempotentAndBalanced() {
+        var calls: [Bool] = []
+        let awake = ScreenAwake { calls.append($0) }
+        awake.release()                      // nothing held: no call
+        awake.hold(); awake.hold()           // one call however often it is asked
+        XCTAssertEqual(calls, [true])
+        awake.release(); awake.release()
+        XCTAssertEqual(calls, [true, false])
+        XCTAssertFalse(awake.held)
+    }
+}

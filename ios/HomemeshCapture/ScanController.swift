@@ -3,6 +3,18 @@ import os
 import RoomPlan
 import SwiftUI
 
+/// Keeps the screen from dimming and locking while a room is being scanned. `hold` is idempotent and every exit
+/// of the scan calls `release`; `apply` is injectable so the lifecycle can be unit-tested.
+@MainActor
+final class ScreenAwake {
+    static let shared = ScreenAwake { UIApplication.shared.isIdleTimerDisabled = $0 }
+    private let apply: (Bool) -> Void
+    private(set) var held = false
+    init(apply: @escaping (Bool) -> Void) { self.apply = apply }
+    func hold() { guard !held else { return }; held = true; apply(true) }
+    func release() { guard held else { return }; held = false; apply(false) }
+}
+
 /// Wraps Apple's RoomCaptureView and collects the rooms of one scanning session.
 ///
 /// One controller, one RoomCaptureView and one ARSession live for the whole multi-room scan (the screen keeps
@@ -42,7 +54,16 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         captureView.delegate = self
         captureView.captureSession.delegate = self
         view.addSubview(captureView)
+        let nc = NotificationCenter.default
+        nc.addObserver(self, selector: #selector(appLeft), name: UIApplication.willResignActiveNotification, object: nil)
+        nc.addObserver(self, selector: #selector(appBack), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    /// The app is leaving the foreground (home, lock, call): the system takes over the timer, we stop holding it.
+    @objc private func appLeft() { ScreenAwake.shared.release() }
+    @objc private func appBack() { if phase == .running { ScreenAwake.shared.hold() } }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
@@ -57,6 +78,7 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         Self.log.notice("shutdown from phase \(self.phase.rawValue, privacy: .public): pausing the AR session")
         captureView.captureSession.stop(pauseARSession: true)
         phase = .idle
+        ScreenAwake.shared.release()
     }
 
     private func startMonitor() {
@@ -113,6 +135,7 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         wallsSeen = 0
         runStarted = Date()
         set(.running)
+        ScreenAwake.shared.hold()
         startMonitor()
         captureView.captureSession.run(configuration: RoomCaptureSession.Configuration())
     }
@@ -122,6 +145,7 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         guard phase == .running else { return }
         stopSignpost = Self.signposter.beginInterval("stop and process")
         set(.stopping)
+        ScreenAwake.shared.release()
         monitor?.cancel()
         onHint?("")
         captureView.captureSession.stop(pauseARSession: false)
@@ -143,6 +167,7 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         if let error {
             Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public)")
             monitor?.cancel()
+            ScreenAwake.shared.release()
             set(.idle)
             onError?("The scan stopped: \(error.localizedDescription)")
         } else {
