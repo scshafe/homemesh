@@ -10,13 +10,18 @@ struct PendingUpload: Codable, Identifiable, Hashable, Sendable {
     let level: String
     let replaces: String
     let created: Date
+    var stairFrom: String? = nil     // the floors of the staircase the scan holds
+    var stairTo: String? = nil
+    var purpose: String? = nil       // "stairs" for a scan made for a staircase
 }
 
 enum UploadQueue {
     nonisolated(unsafe) static var root: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Uploads", isDirectory: true)
 
-    static func enqueue(house: String, name: String, level: String, replaces: String, json: Data, usdz: URL?) throws -> PendingUpload {
-        let item = PendingUpload(id: UUID().uuidString, house: house, name: name, level: level, replaces: replaces, created: Date())
+    static func enqueue(house: String, name: String, level: String, replaces: String, json: Data, usdz: URL?,
+                        stair: (from: String, to: String)? = nil, purpose: String? = nil) throws -> PendingUpload {
+        let item = PendingUpload(id: UUID().uuidString, house: house, name: name, level: level, replaces: replaces, created: Date(),
+                                 stairFrom: stair?.from, stairTo: stair?.to, purpose: purpose)
         let dir = root.appendingPathComponent(item.id, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try json.write(to: dir.appendingPathComponent("scan.json"))
@@ -49,7 +54,7 @@ enum UploadQueue {
 
     /// Uploads one queued scan; it leaves the queue only when the server confirmed it.
     static func send(_ p: PendingUpload, with uploader: Uploader) async throws -> String {
-        let id = try await uploader.upload(json: try json(p), usdz: usdz(p), name: p.name, level: p.level, replaces: p.replaces)
+        let id = try await uploader.upload(json: try json(p), usdz: usdz(p), name: p.name, level: p.level, replaces: p.replaces, purpose: p.purpose ?? "", stairFrom: p.stairFrom ?? "", stairTo: p.stairTo ?? "")
         remove(p)
         return id
     }

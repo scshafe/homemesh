@@ -114,6 +114,11 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
   Start/Done float over it on glass (Liquid Glass on iOS 26, a thin material before). The AR session starts as soon as
   the screen (or a renewed session) is up so the camera is never dark; if frames do not arrive, or camera access is
   off, the screen says why with a Retry, and the event log records it (`preview`, `camera`).
+- Staircases: the save sheet says what RoomPlan found ("8 walls, 2 doors… Staircase found: rises 3.3 m") and asks which
+  floor the staircase leads to (default: the floor whose height fits the rise); it is stored on the scan and saved with
+  the placement. A scan already uploaded whose staircase has no floors yet shows under "Staircases" on the house screen.
+  "Scan a staircase" (next to Add room scan) picks the two floors first and uploads a staircase scan, listed under
+  Staircases to place on the plan.
 - Every `xcodegen generate` first runs `ios/stamp-build`, which bakes the git commit (`+dirty` when the tree has changes) and the build number (commits so far; it is the CFBundleVersion) into the app; the launch event in the diagnostics carries both, so builds can be told apart.
 - Diagnostics (Settings switch, on by default): the app keeps a rolling event log (JSON lines, about 2 MB, flushed per
   event so it survives a crash: scan phases, session errors with domain and code, renewals, hang-guard trips, upload

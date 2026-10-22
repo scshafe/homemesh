@@ -11,6 +11,9 @@ struct HouseView: View {
     @State private var addingLevel = false
     @State private var scanLevel = ""
     @State private var scanning = false
+    @State private var choosingStaircase = false
+    @State private var staircase: StairPair?
+    @State private var askStairs: CaptureMeta?
     @State private var note = ""
     @State private var waiting: [PendingUpload] = []
     @State private var sending = false
@@ -27,6 +30,37 @@ struct HouseView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .listRowBackground(Color.clear)
+                Button { choosingStaircase = true } label: {
+                    Label("Scan a staircase", systemImage: "figure.stairs").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .listRowBackground(Color.clear)
+                .disabled(levels.count < 2)
+            }
+            let stairScans = captures.filter(\.isStairsScan)
+            let unasked = captures.filter { $0.needsStairFloors && !$0.isStairsScan }
+            if !stairScans.isEmpty || !unasked.isEmpty {
+                Section("Staircases") {
+                    ForEach(unasked) { c in
+                        Button { askStairs = c } label: {
+                            VStack(alignment: .leading) {
+                                Text("Staircase found in \(c.name)").foregroundStyle(.primary)
+                                Text("Rises \(String(format: "%.1f", c.stairs_found?.first?.rise ?? 0)) m. Tap to say which floors it joins.").font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    ForEach(stairScans) { c in
+                        NavigationLink {
+                            PlaceView(houseId: houseId, capture: c)
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(c.name)
+                                Text("\(levels.first { $0.id == c.stair?.from_level }?.name ?? "?") to \(levels.first { $0.id == c.stair?.to_level }?.name ?? "?"): place on the plan").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             }
             if !waiting.isEmpty {
                 Section("Waiting to upload (saved on this phone)") {
@@ -69,6 +103,15 @@ struct HouseView: View {
             }
         }
         .navigationTitle(model.summary(houseId)?.name ?? houseId)
+        .sheet(isPresented: $choosingStaircase) {
+            ScanStaircaseSheet(levels: levels) { from, to in staircase = StairPair(from: from, to: to) }
+        }
+        .navigationDestination(item: $staircase) { pair in
+            ScanScreen(houseId: houseId, initialLevel: pair.from, replacing: nil, onUploaded: { Task { await load() } }, staircase: pair)
+        }
+        .sheet(item: $askStairs) { c in
+            StairFloorsSheet(houseId: houseId, capture: c, levels: levels) { Task { await load() } }.environmentObject(model)
+        }
         .navigationDestination(isPresented: $scanning) {
             ScanScreen(houseId: houseId, initialLevel: scanLevel, replacing: nil, onUploaded: { Task { await load() } })
         }

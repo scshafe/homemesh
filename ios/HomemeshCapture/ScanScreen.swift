@@ -9,6 +9,7 @@ struct ScanScreen: View {
     let initialLevel: String
     let replacing: RoomItem?   // set when this re-scans a room: it replaces that room's geometry
     let onUploaded: () -> Void
+    var staircase: StairPair? = nil   // set when this scan is of a staircase between those floors, not of a room
     @EnvironmentObject var model: AppModel
     @State private var controller = ScanController()
     @State private var generation = 0
@@ -26,6 +27,8 @@ struct ScanScreen: View {
     @State private var status = ""
     @State private var hint = ""
     @State private var cameraProblem = ""
+    @State private var stairTo = ""                   // where the staircase found in this scan leads ("" = not a staircase)
+    @State private var stairTouched = false
     @FocusState private var focused: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -69,7 +72,7 @@ struct ScanScreen: View {
             if !allRooms.isEmpty || !status.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
-                        ForEach(allRooms.indices, id: \.self) { i in
+                        ForEach(staircase == nil ? Array(allRooms.indices) : [], id: \.self) { i in
                             let id = allRooms[i].identifier.uuidString
                             TextField("Name room \(i + 1) (required)", text: Binding(get: { names[id] ?? "" }, set: { names[id] = $0 }))
                                 .focused($focused, equals: id)
@@ -77,9 +80,15 @@ struct ScanScreen: View {
                                 .textFieldStyle(.roundedBorder)
                         }
                         if !allRooms.isEmpty {
-                            Text("Floor").font(.footnote.weight(.semibold))
-                            floorPicker
-                            if !levelReason.isEmpty { Text("Suggested: \(levelReason).").font(.footnote).foregroundStyle(.secondary) }
+                            Text(ScanFindings.summary(allRooms) + (rises.isEmpty ? "" : " Staircase found: rises \(String(format: "%.1f", rises[0])) m.")).font(.footnote)
+                            if staircase == nil {
+                                Text("Floor").font(.footnote.weight(.semibold))
+                                floorPicker
+                                if !levelReason.isEmpty { Text("Suggested: \(levelReason).").font(.footnote).foregroundStyle(.secondary) }
+                                if !rises.isEmpty {
+                                    StairFloorPickers(levels: levels, from: level, to: Binding(get: { effectiveStairTo }, set: { stairTo = $0; stairTouched = true }))
+                                }
+                            }
                         }
                         if !status.isEmpty { Text(status).font(.footnote) }
                         if !allRooms.isEmpty {
@@ -93,7 +102,7 @@ struct ScanScreen: View {
             }
             if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").font(.footnote).foregroundStyle(.red) }
             Button { toggle() } label: {
-                Text(phase == .running ? "Done with this room" : phase == .stopping ? "Processing the room…" : "Start scanning a room")
+                Text(phase == .running ? (staircase == nil ? "Done with this room" : "Done with the staircase") : phase == .stopping ? "Processing…" : (staircase == nil ? "Start scanning a room" : "Start scanning the staircase"))
                     .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
             }
             .buttonStyle(.borderedProminent)
@@ -123,6 +132,7 @@ struct ScanScreen: View {
 
     /// The floor to start the picker on, from the floor asked for, the rooms scanned at the same height, or the last used.
     private func suggestFloor() {
+        if let staircase { level = staircase.from; levelReason = ""; return }
         guard !levelTouched else { return }
         let others = earlierRooms.compactMap { r in r.level.flatMap { l in r.baro.map { (room: r.name, level: l, baro: $0) } } }
         let asked = replacing?.level ?? (initialLevel.isEmpty ? nil : initialLevel)
@@ -144,10 +154,18 @@ struct ScanScreen: View {
 
     private var allRooms: [CapturedRoom] { earlier.flatMap { $0 } + rooms }
 
-    private var allNamed: Bool { allRooms.allSatisfy { !(names[$0.identifier.uuidString] ?? "").trimmed.isEmpty } }
+    private var rises: [Double] { ScanFindings.stairRises(allRooms) }
+
+    /// The floor the staircase leads to: what the owner picked, else the floor whose height fits the rise.
+    private var effectiveStairTo: String {
+        stairTouched ? stairTo : (StairGuess.otherFloor(levels: levels, from: level, rise: rises.first) ?? "")
+    }
+
+    private var allNamed: Bool { staircase != nil || allRooms.allSatisfy { !(names[$0.identifier.uuidString] ?? "").trimmed.isEmpty } }
 
     /// The scan's own name is the names of its rooms; there is one name field per room and no other.
     private func scanTitle(_ group: [CapturedRoom]) -> String {
+        if staircase != nil { return "Staircase" }
         let joined = group.compactMap { names[$0.identifier.uuidString]?.trimmed }.filter { !$0.isEmpty }.joined(separator: ", ")
         return joined.isEmpty ? Naming.defaultScanName() : String(joined.prefix(80))
     }
@@ -184,6 +202,8 @@ struct ScanScreen: View {
         earlierBaro = []
         baro = nil
         levelTouched = false
+        stairTouched = false
+        stairTo = ""
         names = [:]
         replaceController()
     }
@@ -228,7 +248,11 @@ struct ScanScreen: View {
             FloorSuggestion.remember(level, house: houseId)
             for (gi, g) in groups.enumerated() {   // one scan per session: each session has its own frame
                 let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed }, baro: gi < baros.count ? baros[gi] : nil)
-                let item = try UploadQueue.enqueue(house: houseId, name: scanTitle(g), level: level, replaces: items.isEmpty ? (replacing?.key ?? "") : "", json: json, usdz: usdz)
+                var stair: (from: String, to: String)?
+                if let staircase { stair = (staircase.from, staircase.to) }
+                else if !ScanFindings.stairRises(g).isEmpty, !effectiveStairTo.isEmpty, !items.contains(where: { $0.0.stairFrom != nil }) { stair = (level, effectiveStairTo) }
+                let item = try UploadQueue.enqueue(house: houseId, name: scanTitle(g), level: level, replaces: items.isEmpty ? (replacing?.key ?? "") : "", json: json, usdz: usdz,
+                                                   stair: stair, purpose: staircase == nil ? nil : "stairs")
                 items.append((item, g.map { names[$0.identifier.uuidString]?.trimmed ?? "" }))
             }
             let first = replacing.flatMap { $0.description.isEmpty ? nil : $0.description }
