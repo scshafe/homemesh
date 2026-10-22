@@ -483,3 +483,18 @@ final class StairGuessTests: XCTestCase {
         XCTAssertNil(p.stairFrom)
     }
 }
+
+final class WallShapeTests: XCTestCase {
+    func testAWallWithAnOutlineIsDrawnAsThatShape() throws {
+        let json = #"""
+        {"id":"h","name":"h","revision":1,"levels":[{"id":"L0","name":"Ground","elevation":0,"height":2.5}],
+         "walls":[{"id":"w1","level":"L0","a":[0,0],"b":[6,0],"thickness":0.1,"height":2.5,"base_z":0,
+                   "profile":[[0,0],[6,0],[6,1.2],[3,2.5],[0,1.2]],"openings":[]}],"stairs":[]}
+        """#
+        let plan = try JSONDecoder().decode(PlanHouse.self, from: Data(json.utf8))
+        XCTAssertEqual(plan.walls[0].profile?.count, 5)
+        let scene = House3D.build(plan)
+        let node = try XCTUnwrap(scene.rootNode.childNode(withName: "wall:w1", recursively: false))
+        XCTAssertTrue(node.geometry is SCNShape)
+    }
+}

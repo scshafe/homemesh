@@ -119,6 +119,7 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
   the placement. A scan already uploaded whose staircase has no floors yet shows under "Staircases" on the house screen.
   "Scan a staircase" (next to Add room scan) picks the two floors first and uploads a staircase scan, listed under
   Staircases to place on the plan.
+- The scan screen shows a one-line tip before the first room (slow at corners, keep the wall-ceiling line in view). Walls with a non-rectangular outline (sloped or vaulted ceilings) are drawn with that outline in the 3D view; curved walls arrive as chords.
 - Every `xcodegen generate` first runs `ios/stamp-build`, which bakes the git commit (`+dirty` when the tree has changes) and the build number (commits so far; it is the CFBundleVersion) into the app; the launch event in the diagnostics carries both, so builds can be told apart.
 - Diagnostics (Settings switch, on by default): the app keeps a rolling event log (JSON lines, about 2 MB, flushed per
   event so it survives a crash: scan phases, session errors with domain and code, renewals, hang-guard trips, upload

@@ -22,6 +22,7 @@
   },
   "id": "synthetic-box",
   "jacks": [],
+  "jog_fold": 0.3,
   "levels": [
     {
       "below_ground": false,
@@ -243,12 +244,14 @@
         0.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "e0",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -269,12 +272,14 @@
         8.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "e1",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -295,12 +300,14 @@
         8.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "e2",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -321,12 +328,14 @@
         0.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "e3",
       "level": "L0",
       "material": "brick",
       "material_defaulted": false,
       "openings": [],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
@@ -347,6 +356,7 @@
         8.0
       ],
       "base_z": 0.0,
+      "curve": null,
       "height": 2.5,
       "id": "p0",
       "level": "L0",
@@ -370,6 +380,7 @@
           "width": 0.9
         }
       ],
+      "profile": null,
       "prov": {
         "at": null,
         "confidence": 1.0,
