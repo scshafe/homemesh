@@ -48,6 +48,16 @@ class ApiTest(unittest.TestCase):
         schema = self.c.get("/api/schema/house", headers=self.ok).json()
         self.assertIn("levels", schema["properties"])
 
+    def test_add_a_stair(self):
+        body = {"from_level": "L0", "to_level": "L1", "polygon": [[1, 1], [2, 1], [2, 4], [1, 4]]}
+        self.c.post("/api/houses/synthetic-box/levels", json={"name": "First"}, headers=self.ok)
+        r = self.c.post("/api/houses/synthetic-box/stairs", json=body, headers=self.ok)
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual([(s["id"], s["from_level"], s["to_level"], s["void"]) for s in r.json()["stairs"]], [("s1", "L0", "L1", True)])
+        self.assertEqual(self.c.post("/api/houses/synthetic-box/stairs", json={**body, "to_level": "L0"}, headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post("/api/houses/synthetic-box/stairs", json={**body, "to_level": "nope"}, headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post("/api/houses/synthetic-box/stairs", json=body).status_code, 401)
+
     def test_only_the_door_may_call_api(self):
         os.environ[api.DOOR_ADDR] = "10.253.93.10"
         c = TestClient(api.create_app())

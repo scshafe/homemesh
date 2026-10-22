@@ -19,11 +19,12 @@ from dataclasses import dataclass
 import numpy as np
 
 from .model import House, Room, Wall
-from .roomplan import ImportError_, Similarity2D, import_capture, retire_room
+from .roomplan import ImportError_, Similarity2D, import_capture, retire_room, stair_footprints
 
 # Weights of the score; tests pin their effect, not their values.
 W_WALL = 1.0       # per metre of scan wall lying on a parallel plan wall
 W_OPENING = 3.0    # per scan opening coinciding with a plan opening
+W_STAIR = 5.0      # per scan staircase on a staircase already joining this floor
 W_NAME = 4.0       # per equal-named room pair whose centres coincide
 W_AREA = 6.0       # per square metre of scan room inside a plan room
 W_CROSS = 2.0      # per metre of scan wall crossing the inside of a plan room
@@ -54,6 +55,7 @@ class Candidate:
     score: float = 0.0
     openings: int = 0
     names: int = 0
+    stairs: int = 0
     wall_m: float = 0.0
     area_m2: float = 0.0
 
@@ -158,7 +160,8 @@ def _transform_walls(walls: list[Wall], sim: Similarity2D) -> list[Wall]:
     return [w.model_copy(update={"a": sim.apply(w.a), "b": sim.apply(w.b)}) for w in walls]
 
 
-def _score(c: Candidate, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples) -> None:
+def _score(c: Candidate, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples,
+           scan_stairs=(), plan_stairs=()) -> None:
     sim = c.sim()
     R = _rot(c.rotation)
     t = np.array([c.tx, c.ty])
@@ -210,10 +213,12 @@ def _score(c: Candidate, scan_walls, scan_open, scan_rooms, plan_walls, plan_ope
                 p = np.array([x, y])
                 if _deep_inside(p, tp, INSET) and any(_deep_inside(p, pp, INSET) for pn, pp in plan_rooms if _fold(pn) != _fold(name) or not _fold(name)):
                     c.area_m2 += 0.04
-    c.score = (W_WALL * c.wall_m + W_OPENING * c.openings + W_NAME * c.names - W_AREA * c.area_m2 - W_CROSS * crossing * SAMPLE)
+    c.stairs = sum(1 for sp in scan_stairs
+                   if any(float(np.linalg.norm((R @ sp.mean(axis=0)) + t - pp.mean(axis=0))) <= 0.6 for pp in plan_stairs))
+    c.score = (W_WALL * c.wall_m + W_OPENING * c.openings + W_STAIR * c.stairs + W_NAME * c.names - W_AREA * c.area_m2 - W_CROSS * crossing * SAMPLE)
 
 
-def _candidates(scan_open, scan_rooms, plan_open, plan_rooms) -> list[Candidate]:
+def _candidates(scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs=(), plan_stairs=()) -> list[Candidate]:
     out: dict[tuple, Candidate] = {}
 
     def add(rot_rad: float, t: np.ndarray, source: str) -> None:
@@ -228,6 +233,12 @@ def _candidates(scan_open, scan_rooms, plan_open, plan_rooms) -> list[Candidate]
             for flip in (0.0, math.pi):
                 th = p.angle - o.angle + flip
                 add(th, p.mid - _rot(math.degrees(th)) @ o.mid, "doorway")
+    for sp in scan_stairs:  # the same staircase seen from the two floors it joins fixes the floors to each other
+        for pp in plan_stairs:
+            base = _longest_angle(pp) - _longest_angle(sp)
+            for k in range(2):
+                th = base + k * math.pi
+                add(th, pp.mean(axis=0) - _rot(math.degrees(th)) @ sp.mean(axis=0), "stair")
     for name, poly in scan_rooms:
         if not _fold(name):
             continue
@@ -293,6 +304,19 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
     scan_rooms = [(r.name, np.array(r.polygon, float)) for r in scanned.rooms if r.level == level and mine(r.prov.ref)]
     plan_rooms = [(r.name, np.array(r.polygon, float)) for r in house.rooms if r.level == level and not mine(r.prov.ref)]
 
+    scan_stairs = [np.array(st["polygon"], float) for st in stair_footprints(data)]
+    plan_stairs = [np.array(st.polygon, float) for st in house.stairs if level in (st.from_level, st.to_level)]
+
+    if not plan_walls and scan_stairs and plan_stairs:  # the first scan of a floor: line it up by the staircase from the floor below/above
+        cands = _candidates([], [], [], [], scan_stairs, plan_stairs)
+        for c in cands:
+            _score(c, scan_walls, [], scan_rooms, [], [], [], [], scan_stairs, plan_stairs)
+        cands.sort(key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
+        best = cands[0]
+        return {"confidence": "confirm", "reason": "lined up by the staircase to the floor below or above: check the rotation", **_out(best),
+                "evidence": {"stairs": best.stairs, "source": "stair"}, "alternatives": [_out(c) for c in cands[1:3]],
+                "preview": _preview(scan_walls, best)}
+
     if not plan_walls:  # nothing to line up with: keep the scan's frame, turned so its walls run along the axes
         dom = _dominant(scan_walls) or 0.0
         deg = -math.degrees(dom if dom <= math.pi / 4 else dom - math.pi / 2)
@@ -303,7 +327,7 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
                 "preview": _preview(scan_walls, c)}
 
     scan_open, plan_open = _openings(scan_walls), _openings(plan_walls)
-    cands = _candidates(scan_open, scan_rooms, plan_open, plan_rooms)
+    cands = _candidates(scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
     if not cands:
         return {"confidence": "manual", "reason": "no shared doorway or room name to line the scan up by",
                 "transform": {"rotation": 0.0, "tx": 0.0, "ty": 0.0}, "score": 0.0, "evidence": {}, "alternatives": [],
@@ -311,19 +335,19 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
     plan_samples = _samples(plan_walls)
     plan_dom = _dominant(plan_walls)
     for c in cands:
-        _score(c, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples)
+        _score(c, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples, scan_stairs, plan_stairs)
     cands.sort(key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
     for c in cands[:5]:
         _snap(c, scan_walls, plan_dom)
-        _score(c, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples)
+        _score(c, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples, scan_stairs, plan_stairs)
     top = sorted(cands[:5], key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
     best = top[0]
     others = [c for c in top[1:] if _distinct(best, c)]
     runner = others[0].score if others else None
 
-    evidence = {"openings": best.openings, "named_rooms": best.names, "wall_overlap_m": round(best.wall_m, 2),
+    evidence = {"openings": best.openings, "named_rooms": best.names, "stairs": best.stairs, "wall_overlap_m": round(best.wall_m, 2),
                 "room_overlap_m2": round(best.area_m2, 2), "source": best.source}
-    if best.openings == 0 and best.names == 0 and best.wall_m < 1.0:
+    if best.openings == 0 and best.names == 0 and best.stairs == 0 and best.wall_m < 1.0:
         conf, reason = "manual", "nothing in the scan lines up with the plan"
     elif best.area_m2 > 0.5 or (runner is not None and best.score - runner < max(2.0, 0.25 * best.score)):
         conf = "confirm"

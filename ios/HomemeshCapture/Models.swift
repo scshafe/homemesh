@@ -70,6 +70,20 @@ struct RoomItem: Codable, Hashable, Identifiable, Sendable {
     var title: String { name.isEmpty ? "Unnamed room" : name }
 }
 
+/// A staircase RoomPlan found in a scan (the import report's `stairs`): a footprint on the scan's floor.
+struct StairSuggestion: Codable, Hashable, Sendable {
+    let room: Int
+    let polygon: [Pt]
+    let rise: Double
+    let level: String
+}
+
+struct NewStairBody: Encodable, Sendable {
+    let from_level: String
+    let to_level: String
+    let polygon: [Pt]
+}
+
 struct NewHouseBody: Encodable, Sendable {
     let id: String
     let name: String

@@ -64,12 +64,21 @@ struct Client: Sendable {
     func captures(house: String) async throws -> [CaptureMeta] { try await get("/api/houses/\(house)/captures") }
 
     /// Imports the scan at `transform` and returns the resulting house as JSON (a preview: nothing is stored yet).
-    func importScan(house: String, blob: String, level: String, transform: Transform2D) async throws -> Data {
+    func importScan(house: String, blob: String, level: String, transform: Transform2D) async throws -> (house: Data, stairs: [StairSuggestion]) {
         let body = try JSONEncoder().encode(["transform": transform])
         let data = try await call("POST", "/api/houses/\(house)/captures/\(blob)/import?level=\(level)", body: body)
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any], let h = obj["house"],
               JSONSerialization.isValidJSONObject(h) else { throw Uploader.Failure(message: "Unexpected answer from the server") }
-        return try JSONSerialization.data(withJSONObject: h)
+        var stairs: [StairSuggestion] = []
+        if let rep = obj["report"] as? [String: Any], let raw = rep["stairs"], JSONSerialization.isValidJSONObject(raw) {
+            stairs = (try? JSONDecoder().decode([StairSuggestion].self, from: JSONSerialization.data(withJSONObject: raw))) ?? []
+        }
+        return (try JSONSerialization.data(withJSONObject: h), stairs)
+    }
+
+    /// Saves a staircase between two floors (a new revision of the house).
+    func addStair(house: String, from: String, to: String, polygon: [Pt]) async throws {
+        let _: HouseLite = try await send("POST", "/api/houses/\(house)/stairs", NewStairBody(from_level: from, to_level: to, polygon: polygon))
     }
 
     /// Saves a whole house as the next revision (409 if someone changed it meanwhile).
