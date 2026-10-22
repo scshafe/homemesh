@@ -110,6 +110,12 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
   finish (8 s / 45 s), the session is shut down, the room scanned so far is kept when RoomPlan can still build it,
   and the next room gets a new camera view, session and frame. Each session uploads as its own scan, so the rooms of
   different sessions are placed one by one by the usual placement step.
+- Diagnostics (Settings switch, on by default): the app keeps a rolling event log (JSON lines, about 2 MB, flushed per
+  event so it survives a crash: scan phases, session errors with domain and code, renewals, hang-guard trips, upload
+  results, launch with version/device/OS, thermal state, memory warnings; no names or scan content) and subscribes to
+  MetricKit. The log is uploaded on launch and after each scan upload, MetricKit crash and hang payloads when they
+  arrive (waiting on the phone until the server has them). On the server: `./scripts/diagnostics latest-crash`,
+  `events -n 100`, `list`.
 - Console.app (iPhone selected), filter `subsystem:homemesh.capture`: every phase change (idle, running,
   stopping), session start and end, processing results and errors are logged, and `run`, `stop and process` and
   `build payload` are signposts (Instruments, os_signpost) so a stall shows which step it was in.
