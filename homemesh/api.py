@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
+import time
 from pathlib import Path
 
 import numpy as np
@@ -486,7 +488,11 @@ def create_app() -> FastAPI:
         try:
             data = captures.load_capture(house_id, digest)
             meta = captures.get_meta(house_id, digest)
-            return place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta), room_levels=meta.get("room_levels"))
+            t0 = time.perf_counter()
+            out = place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta), room_levels=meta.get("room_levels"))
+            logging.getLogger("homemesh.place").info("place %s on %s: %s in %.0f ms (%d walls on the level)", digest[:8], level, out["confidence"],
+                                                     (time.perf_counter() - t0) * 1000, sum(1 for w in h.walls if w.level == level))
+            return out
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
 
