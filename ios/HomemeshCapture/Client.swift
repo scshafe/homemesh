@@ -15,7 +15,7 @@ struct Client: Sendable {
         return u
     }
 
-    func call(_ method: String, _ path: String, body: Data? = nil) async throws -> Data {
+    func call(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval = 60) async throws -> Data {
         var r = URLRequest(url: try url(path))
         r.httpMethod = method
         if let body {
@@ -23,7 +23,7 @@ struct Client: Sendable {
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         r.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
-        r.timeoutInterval = 60
+        r.timeoutInterval = timeout
         let (data, resp) = try await URLSession.shared.data(for: r)
         guard let http = resp as? HTTPURLResponse else { throw Uploader.Failure(message: "No response") }
         switch http.statusCode {
@@ -77,7 +77,22 @@ struct Client: Sendable {
         _ = try await call("PUT", "/api/houses/\(house)?expect_revision=\(expectRevision)", body: json)
     }
 
-    func nameRooms(house: String, blob: String, names: [String]) async throws -> CaptureMeta {
-        try await send("PUT", "/api/houses/\(house)/captures/\(blob)/rooms", RoomNamesBody(names: names))
+    func rooms(house: String) async throws -> [RoomItem] { try await get("/api/houses/\(house)/rooms") }
+
+    func nameRooms(house: String, blob: String, names: [String], descriptions: [String]? = nil) async throws -> CaptureMeta {
+        try await send("PUT", "/api/houses/\(house)/captures/\(blob)/rooms", RoomNamesBody(names: names, descriptions: descriptions))
+    }
+
+    /// Moves a scan (all its rooms; and its walls if it is on the plan) to another floor.
+    func moveScan(house: String, blob: String, level: String) async throws -> CaptureMeta {
+        try await send("PUT", "/api/houses/\(house)/captures/\(blob)/level", LevelBody(level: level))
+    }
+
+    /// A stored file (the scan's USDZ) as a local temporary file.
+    func download(house: String, blob: String, suffix: String) async throws -> URL {
+        let data = try await call("GET", "/api/houses/\(house)/blobs/\(blob)", timeout: 600)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(blob.prefix(12)).\(suffix)")
+        try data.write(to: url)
+        return url
     }
 }

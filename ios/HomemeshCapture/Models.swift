@@ -52,6 +52,23 @@ struct CaptureMeta: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+/// One room of one scan (`GET /api/houses/<id>/rooms`): the unit the app shows. `placed` is the house room's id once
+/// the scan is on the plan.
+struct RoomItem: Codable, Hashable, Identifiable, Sendable {
+    let key: String
+    let capture: String
+    let index: Int
+    let scan: String
+    let name: String
+    let description: String
+    let level: String?
+    let placed: String?
+    let usdz: String?
+    let at: Double
+    var id: String { key }
+    var title: String { name.isEmpty ? "Unnamed room" : name }
+}
+
 struct NewHouseBody: Encodable, Sendable {
     let id: String
     let name: String
@@ -63,6 +80,11 @@ struct NewLevelBody: Encodable, Sendable {
 
 struct RoomNamesBody: Encodable, Sendable {
     let names: [String]
+    let descriptions: [String]?
+}
+
+struct LevelBody: Encodable, Sendable {
+    let level: String
 }
 
 enum Naming {

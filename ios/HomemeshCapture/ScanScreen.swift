@@ -6,11 +6,11 @@ import SwiftUI
 /// the scan view is replaced by a fresh one, so the next scan starts a new session and never a paused one.
 struct ScanScreen: View {
     let houseId: String
+    let initialLevel: String
     let onUploaded: () -> Void
     @EnvironmentObject var model: AppModel
     @State private var controller = ScanController()
     @State private var generation = 0
-    @State private var scanName = ""
     @State private var level = ""
     @State private var rooms: [CapturedRoom] = []
     @State private var names: [String: String] = [:]   // by the room's identifier
@@ -18,9 +18,7 @@ struct ScanScreen: View {
     @State private var busy = false
     @State private var status = ""
     @State private var hint = ""
-    @State private var nameTarget: String?              // the identifier being named; not cleared when the alert closes
-    @State private var showNaming = false
-    @State private var roomName = ""
+    @FocusState private var focused: String?
 
     private var levels: [LevelRef] { model.summary(houseId)?.levels ?? [] }
 
@@ -29,55 +27,46 @@ struct ScanScreen: View {
             ScanView(controller: controller).id(generation).frame(height: 360).clipped()
             Form {
                 Section("Scan") {
-                    TextField("Name of this scan (for example Ground floor)", text: $scanName)
-                    if levels.count > 1 {
-                        Picker("Level", selection: $level) { ForEach(levels) { Text($0.name).tag($0.id) } }
-                    }
+                    Picker("Floor", selection: $level) { ForEach(levels) { Text($0.name).tag($0.id) } }
+                        .disabled(phase != .idle)
                     Button(phase == .running ? "Done with this room" : phase == .stopping ? "Processing the room…" : "Start scanning a room") { toggle() }
                         .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy)
                     if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").foregroundStyle(.red) }
                     if !hint.isEmpty { Text(hint).font(.footnote).foregroundStyle(.orange) }
                     ForEach(rooms.indices, id: \.self) { i in
-                        Button(label(i)) { rename(rooms[i]) }
+                        let id = rooms[i].identifier.uuidString
+                        TextField("Name room \(i + 1) (required)", text: Binding(get: { names[id] ?? "" }, set: { names[id] = $0 }))
+                            .focused($focused, equals: id)
+                            .submitLabel(.done)
                     }
                     Button("Upload to \(model.summary(houseId)?.name ?? houseId)") { Task { await upload() } }
-                        .disabled(rooms.isEmpty || busy || phase != .idle)
+                        .disabled(rooms.isEmpty || busy || phase != .idle || !allNamed)
                     if !rooms.isEmpty { Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle) }
                 }
                 if !status.isEmpty { Section { Text(status) } }
             }
         }
         .navigationTitle("Scan")
-        .alert("Name this room", isPresented: $showNaming) {
-            TextField("For example Kitchen", text: $roomName)
-            Button("Save") { if let id = nameTarget { names[id] = roomName.trimmed } }
-            Button("Skip", role: .cancel) {}
-        } message: {
-            Text(Naming.suggestions.prefix(6).joined(separator: ", "))
-        }
         .onAppear {
             bind()
-            if level.isEmpty { level = levels.first?.id ?? "" }
+            if level.isEmpty { level = levels.contains { $0.id == initialLevel } ? initialLevel : (levels.first?.id ?? "") }
         }
         .onDisappear { controller.shutdown() }
     }
 
-    private func label(_ i: Int) -> String {
-        let n = names[rooms[i].identifier.uuidString] ?? ""
-        return n.isEmpty ? "Room \(i + 1): tap to name" : "Room \(i + 1): \(n)"
-    }
+    private var allNamed: Bool { rooms.allSatisfy { !(names[$0.identifier.uuidString] ?? "").trimmed.isEmpty } }
 
-    private func rename(_ room: CapturedRoom) {
-        nameTarget = room.identifier.uuidString
-        roomName = names[room.identifier.uuidString] ?? ""
-        showNaming = true
+    /// The scan's own name is the names of its rooms; there is one name field per room and no other.
+    private var scanTitle: String {
+        let joined = rooms.compactMap { names[$0.identifier.uuidString]?.trimmed }.filter { !$0.isEmpty }.joined(separator: ", ")
+        return joined.isEmpty ? Naming.defaultScanName() : String(joined.prefix(80))
     }
 
     private func bind() {
         controller.onProcessed = { room in
             rooms.append(room)
-            status = "Room added."
-            rename(room)
+            status = "Room added: name it below."
+            focused = room.identifier.uuidString
         }
         controller.onError = { msg in status = "Scan failed: \(msg)" }
         controller.onPhase = { phase = $0 }
@@ -105,7 +94,7 @@ struct ScanScreen: View {
         defer { busy = false }
         do {
             status = "Preparing…"
-            let (json, usdz) = try await ScanPayload.build(rooms: rooms, names: names)
+            let (json, usdz) = try await ScanPayload.build(rooms: rooms, names: names.mapValues { $0.trimmed })
             // keep a copy in Files > homemesh > Scans, so a failed upload loses nothing
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Scans", isDirectory: true)
             try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
@@ -113,8 +102,7 @@ struct ScanScreen: View {
             try json.write(to: docs.appendingPathComponent("\(stamp).json"))
             status = "Uploading…"
             let id = try await model.uploader(house: houseId)
-                .upload(json: json, usdz: usdz, name: scanName.trimmed.isEmpty ? Naming.defaultScanName() : scanName.trimmed, level: level)
-            scanName = ""
+                .upload(json: json, usdz: usdz, name: scanTitle, level: level)
             resetScan()
             try? FileManager.default.removeItem(at: docs.appendingPathComponent("\(stamp).json"))  // uploaded: keep nothing on the device
             status = "Uploaded (scan \(id.prefix(8))). The rooms are named; place them on the plan next."

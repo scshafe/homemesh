@@ -49,11 +49,14 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
 
 1. Settings (the gear): server (`https://homemesh.<tailnet>`), Pocket ID's address and the client id (`homemesh-capture`).
    Sign-in happens on first use (passkey in a system browser sheet); Sign out clears it.
-2. Houses: pull to refresh; **+** creates a house. Open one to add levels and see its scans.
-3. Scan rooms: pick the level, scan a room, Done, then name it in the prompt that appears (tap a room in the
-   list to rename it; names can also be changed later under the scan). Messages appear under the camera view if
-   tracking is limited or no walls are detected after 15 seconds. Scan more rooms, then Upload. Rooms of one scan share a frame; a scan
-   keeps a copy in Files (homemesh, Scans) until the server has accepted it.
+2. Houses: pull to refresh; **+** creates a house. Opening a house shows its floors, each with its rooms
+   (name, description, on the plan or not), and **Add room scan** at the top.
+3. Add room scan: pick the floor, scan a room, Done, and give the room its name in the field that appears
+   (one field per room, required before Upload; suggestions are in a room's details). Scan more rooms of the
+   same floor, then Upload. Rooms of one scan share a frame; a copy stays in Files (homemesh, Scans) until the
+   server has accepted it. Messages appear under the camera view if tracking is limited or no walls are
+   detected after 15 seconds. Tap a room in the house to rename it, describe it, change its floor (this moves
+   every room of that scan), see its 3D model (Quick Look) or place it on the plan.
 4. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.
    A scan gives no wall thickness or material: set them in the editor.
