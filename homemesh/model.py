@@ -151,6 +151,8 @@ class Stair(_Base):
     to_level: str
     polygon: list[Point2] = Field(min_length=3)
     void: bool = True  # an open stairwell: also a SlabHole on to_level
+    steps: int | None = Field(default=None, ge=2, le=60)  # the owner's count; drawn as round(rise / 0.18 m) when None
+    low: Point2 | None = None  # a point at the bottom end of the flight (the end nearer from_level's side), when known
     prov: Prov = Field(default_factory=manual)
 
 

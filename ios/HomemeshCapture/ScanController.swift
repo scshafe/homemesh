@@ -50,6 +50,10 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
     /// The session cannot go on (an error such as the scene size limit, or a start or stop that hung). The
     /// controller has already shut its AR session down and must not be used again: the owner of the controller
     /// replaces it. `salvaged` is the room scanned so far, when RoomPlan could still build it.
+    /// The rise (metres) of the staircase RoomPlan sees in the room being scanned, nil when it sees none: shown live so the
+    /// owner knows the stairs were picked up (RoomPlan draws them as one block, not as steps).
+    var onStairsFound: ((Double?) -> Void)?
+    private(set) var stairRise: Double?
     var onSessionLost: ((String, CapturedRoom?) -> Void)?
 
     /// RoomPlan stops a session whose scene grows too large ("Capture scene exceeded limit"), and a very long one
@@ -298,7 +302,11 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
 
     nonisolated func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
         let walls = room.walls.count
-        Task { @MainActor in self.wallsSeen = walls }
+        let rise = ScanFindings.stairRises([room]).max()
+        Task { @MainActor in
+            self.wallsSeen = walls
+            if rise != self.stairRise { self.stairRise = rise; self.onStairsFound?(rise) }
+        }
     }
 
     nonisolated func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: Error?) {

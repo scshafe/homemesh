@@ -27,6 +27,7 @@ struct ScanScreen: View {
     @State private var status = ""
     @State private var hint = ""
     @State private var cameraProblem = ""
+    @State private var liveStairRise: Double?        // a staircase RoomPlan sees right now
     @State private var stairTo = ""                   // where the staircase found in this scan leads ("" = not a staircase)
     @State private var stairTouched = false
     @State private var storyPicks: [Int: String] = [:]   // a floor the owner chose for a story of this scan
@@ -46,6 +47,8 @@ struct ScanScreen: View {
                         Button("Retry") { cameraProblem = ""; replaceController() }.buttonStyle(.borderedProminent)
                     }
                     .padding(12).glass()
+                } else if let r = liveStairRise, phase == .running {
+                    Text("Staircase found: rises \(String(format: "%.1f", r)) m").font(.subheadline.weight(.semibold)).padding(10).glass()
                 } else if !hint.isEmpty {
                     Text(hint).font(.footnote).multilineTextAlignment(.center).padding(10).glass()
                 }
@@ -109,8 +112,10 @@ struct ScanScreen: View {
                 .frame(maxHeight: 280)
                 .scrollBounceBehavior(.basedOnSize)
             }
-            if allRooms.isEmpty && phase == .idle && staircase == nil {
-                Text("Tip: go slowly at corners and keep the line where the wall meets the ceiling in view.").font(.footnote).foregroundStyle(.secondary)
+            if allRooms.isEmpty && phase == .idle {
+                Text(staircase == nil ? "Tip: go slowly at corners and keep the line where the wall meets the ceiling in view."
+                     : "Tip: walk the flight slowly, bottom to top, with the walls beside it in view. RoomPlan shows stairs as one block, not as steps; a banner tells you when it has found them.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").font(.footnote).foregroundStyle(.red) }
             Button { toggle() } label: {
@@ -211,6 +216,7 @@ struct ScanScreen: View {
         controller.onPhase = { phase = $0 }
         controller.onHint = { hint = $0 }
         controller.onCameraProblem = { cameraProblem = $0 }
+        controller.onStairsFound = { liveStairRise = $0 }
         phase = controller.phase
     }
 
@@ -234,6 +240,7 @@ struct ScanScreen: View {
         generation += 1
         hint = ""
         cameraProblem = ""
+        liveStairRise = nil
         bind()
     }
 
