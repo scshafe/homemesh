@@ -37,6 +37,8 @@ struct PlanWall: Codable, Hashable, Identifiable, Sendable {
     let a: Pt
     let b: Pt
     let thickness: Double
+    let height: Double?
+    let base_z: Double?
     let openings: [PlanOpening]
     let prov: PlanProv?
 

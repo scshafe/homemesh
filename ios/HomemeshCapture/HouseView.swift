@@ -60,6 +60,7 @@ struct HouseView: View {
             }
             Section {
                 Button("Add a floor") { newLevel = ""; addingLevel = true }
+                NavigationLink("3D view of the house") { House3DView(houseId: houseId) }
                 NavigationLink("Calibrate to my measurements") { CalibrateView(houseId: houseId) }
                 NavigationLink("Plan a mesh") { PlanRunView(houseId: houseId) }
                 NavigationLink("Equipment to plan with") { CatalogueView(houseId: houseId) }
