@@ -490,3 +490,9 @@ becomes rise minus the slab (`Level.height_source = "stair"`, kept when the stac
 "Scan a staircase" uploads with `purpose=stairs`: the scan is listed as a staircase, not a room, makes no `Room` on
 import (its walls are imported), and if RoomPlan found no stairs object its footprint stands in for the staircase, with
 a note in the import report. Drawing a stair on the plan remains the last resort.
+
+**As built (4c d, stories):** the capture wrapper may carry `room_levels` (one floor per room, from the app's per-story
+pickers; validated on upload) and the meta keeps `stories` (RoomPlan's `story` per room) and `room_levels`. `import` and
+`place` split the scan's rooms by floor (walls merge per floor, one placement for all, furniture and room refs keep their
+index in the whole scan); the room list shows each room's own floor; `PUT .../level` puts the whole scan on one floor
+and clears the split.

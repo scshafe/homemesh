@@ -355,6 +355,14 @@ def create_app() -> FastAPI:
                 int(idx)
             except (captures.CaptureError, ValueError):
                 raise HTTPException(422, "replaces must be <capture>:<room index> of a stored scan") from None
+        body = await request.body()
+        if b'"room_levels"' in body:   # a scan that spans stories: every named floor must exist
+            try:
+                rl = captures.room_levels_of(json.loads(body)) or []
+            except ValueError:
+                rl = []
+            if any(x and x not in {lv.id for lv in h.levels} for x in rl):
+                raise HTTPException(422, "unknown level in room_levels")
         if purpose not in ("", "stairs"):
             raise HTTPException(422, "unknown purpose")
         stair = None
@@ -364,7 +372,7 @@ def create_app() -> FastAPI:
                 raise HTTPException(422, "a staircase joins two different, existing levels")
             stair = {"from_level": stair_from, "to_level": stair_to}
         try:
-            return captures.save_capture(house_id, await request.body(), name, level, replaces, purpose, stair)
+            return captures.save_capture(house_id, body, name, level, replaces, purpose, stair)
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 
@@ -452,7 +460,8 @@ def create_app() -> FastAPI:
                 out.append({"key": f"{meta['blob']}:{i}", "capture": meta["blob"], "index": i, "scan": meta.get("name", ""),
                             "name": (names[i] if i < len(names) else "") or (r.name if r else ""),
                             "description": (about[i] if i < len(about) else "") or (r.description if r else ""),
-                            "level": r.level if r else meta.get("level"), "placed": r.id if r else None,
+                            "level": r.level if r else ((meta.get("room_levels") or [])[i:i + 1] or [None])[0] or meta.get("level"),
+                            "story": (meta.get("stories") or [])[i] if i < len(meta.get("stories") or []) else None, "placed": r.id if r else None,
                             "usdz": meta.get("usdz"), "at": meta["at"], "replaced_by": replaced_by.get(f"{meta['blob']}:{i}"),
                             "baro": meta.get("baro")})
         return out
@@ -477,7 +486,7 @@ def create_app() -> FastAPI:
         try:
             data = captures.load_capture(house_id, digest)
             meta = captures.get_meta(house_id, digest)
-            return place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta))
+            return place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta), room_levels=meta.get("room_levels"))
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
 
@@ -510,7 +519,7 @@ def create_app() -> FastAPI:
             data = captures.load_capture(house_id, digest)
             meta = captures.get_meta(house_id, digest)
             new, rep = roomplan.import_capture(h, data, level, digest, sim, names=meta.get("rooms"), descriptions=meta.get("descriptions"),
-                                               make_rooms=meta.get("purpose") != "stairs")
+                                               make_rooms=meta.get("purpose") != "stairs", room_levels=meta.get("room_levels"))
             new = roomplan.apply_stair(new, data, digest, meta, sim, rep.stairs, rep.notes)
             if (args := retire_args(house_id, meta)):
                 new, gone = roomplan.retire_room(new, *args)

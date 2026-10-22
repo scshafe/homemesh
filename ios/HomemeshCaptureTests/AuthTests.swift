@@ -536,3 +536,17 @@ final class FurnitureTests: XCTestCase {
         XCTAssertNotNil(House3D.build(plan).rootNode.childNode(withName: "furniture:f1", recursively: false))
     }
 }
+
+final class StoryFloorsTests: XCTestCase {
+    private let levels = [LevelRef(id: "B", name: "Basement"), LevelRef(id: "G", name: "Ground"), LevelRef(id: "F", name: "First")]
+
+    func testTheLowestStoryIsOnTheChosenFloorAndTheRestStackAbove() {
+        XCTAssertEqual(StoryFloors.defaults(stories: [0, 1], base: "B", levels: levels), [0: "B", 1: "G"])
+        XCTAssertEqual(StoryFloors.defaults(stories: [1, 2], base: "G", levels: levels), [1: "G", 2: "F"])
+    }
+
+    func testStoriesAboveTheTopFloorStayOnIt() {
+        XCTAssertEqual(StoryFloors.defaults(stories: [0, 1, 2], base: "G", levels: levels), [0: "G", 1: "F", 2: "F"])
+        XCTAssertEqual(StoryFloors.defaults(stories: [0], base: "nope", levels: levels), [:])
+    }
+}

@@ -283,7 +283,7 @@ def _preview(scan_walls: list[Wall], c: Candidate) -> list[dict]:
 
 
 def propose(house: House, data: dict, level: str, blob: str, names: list[str] | None = None,
-            retire: tuple[dict, str, int] | None = None) -> dict:
+            retire: tuple[dict, str, int] | None = None, room_levels: list[str | None] | None = None) -> dict:
     """The proposal for placing capture `blob` (`data`) on `level` of `house`.
 
     `retire` = (earlier capture's data, its blob, room index) when this scan re-scans a room: that room's own walls
@@ -291,7 +291,7 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
     old room stays and the match is by name.
     """
     try:
-        scanned, rep = import_capture(house, data, level, blob, Similarity2D(), names=names)
+        scanned, rep = import_capture(house, data, level, blob, Similarity2D(), names=names, room_levels=room_levels)
     except ImportError_ as e:
         raise ValueError(str(e)) from None
     mine = lambda ref: (ref or "").startswith(f"{blob}#")  # noqa: E731

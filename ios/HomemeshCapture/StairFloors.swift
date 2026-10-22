@@ -137,3 +137,15 @@ struct ScanStaircaseSheet: View {
         }
     }
 }
+
+
+/// A RoomPlan session can span stories (the owner walks up the stairs mid-scan); each room carries RoomPlan's `story`.
+/// The lowest story goes on the chosen floor, the next on the floor above it in the stack, and so on (clamped to the top).
+enum StoryFloors {
+    nonisolated static func stories(_ rooms: [CapturedRoom]) -> [Int] { Array(Set(rooms.map(\.story))).sorted() }
+
+    nonisolated static func defaults(stories: [Int], base: String, levels: [LevelRef]) -> [Int: String] {
+        guard let lo = stories.min(), let i = levels.firstIndex(where: { $0.id == base }) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: stories.map { ($0, levels[min(levels.count - 1, i + ($0 - lo))].id) })
+    }
+}
