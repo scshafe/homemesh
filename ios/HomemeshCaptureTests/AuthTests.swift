@@ -355,3 +355,12 @@ final class ScreenAwakeTests: XCTestCase {
         XCTAssertFalse(awake.held)
     }
 }
+
+final class SessionBudgetTests: XCTestCase {
+    func testAFreshSessionIsRenewedByRoomsOrTime() {
+        XCTAssertFalse(SessionBudget.exhausted(rooms: 0, seconds: 0))
+        XCTAssertFalse(SessionBudget.exhausted(rooms: SessionBudget.maxRooms - 1, seconds: SessionBudget.maxSeconds - 1))
+        XCTAssertTrue(SessionBudget.exhausted(rooms: SessionBudget.maxRooms, seconds: 10))
+        XCTAssertTrue(SessionBudget.exhausted(rooms: 1, seconds: SessionBudget.maxSeconds))
+    }
+}

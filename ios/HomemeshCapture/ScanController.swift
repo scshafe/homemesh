@@ -15,6 +15,13 @@ final class ScreenAwake {
     func release() { guard held else { return }; held = false; apply(false) }
 }
 
+/// When a RoomPlan session has had enough: the scene limit is not observable, so the signals are rooms and time.
+enum SessionBudget {
+    static let maxRooms = 4
+    static let maxSeconds: TimeInterval = 6 * 60
+    static func exhausted(rooms: Int, seconds: TimeInterval) -> Bool { rooms >= maxRooms || seconds >= maxSeconds }
+}
+
 /// Wraps Apple's RoomCaptureView and collects the rooms of one scanning session.
 ///
 /// One controller, one RoomCaptureView and one ARSession live for the whole multi-room scan (the screen keeps
@@ -39,6 +46,21 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
     var onPhase: ((Phase) -> Void)?
     /// A visible message while scanning ("" clears it): limited tracking, or no walls detected after a while.
     var onHint: ((String) -> Void)?
+    /// The session cannot go on (an error such as the scene size limit, or a start or stop that hung). The
+    /// controller has already shut its AR session down and must not be used again: the owner of the controller
+    /// replaces it. `salvaged` is the room scanned so far, when RoomPlan could still build it.
+    var onSessionLost: ((String, CapturedRoom?) -> Void)?
+
+    /// RoomPlan stops a session whose scene grows too large ("Capture scene exceeded limit"), and a very long one
+    /// gets slow. The measurable signals are rooms scanned and time spent scanning in this session; past either,
+    /// the next room should start a new session.
+    private(set) var roomsDone = 0
+    private(set) var scanSeconds: TimeInterval = 0
+    var wantsFreshSession: Bool { SessionBudget.exhausted(rooms: roomsDone, seconds: scanSeconds) }
+    private(set) var lost = false
+    static let startTimeout: Duration = .seconds(8)
+    static let stopTimeout: Duration = .seconds(45)
+    private var watchdog: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
     private var runStarted = Date()
@@ -75,6 +97,8 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
     func shutdown() {
         monitor?.cancel()
         monitor = nil
+        watchdog?.cancel()
+        watchdog = nil
         Self.log.notice("shutdown from phase \(self.phase.rawValue, privacy: .public): pausing the AR session")
         captureView.captureSession.stop(pauseARSession: true)
         phase = .idle
@@ -131,13 +155,49 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
             onError?("The previous room is still being processed; wait a moment and try again.")
             return
         }
+        guard !lost else {
+            Self.log.error("start refused: this session is lost")
+            return
+        }
         runSignpost = Self.signposter.beginInterval("run")
+        sessionStarted = false
         wallsSeen = 0
         runStarted = Date()
         set(.running)
         ScreenAwake.shared.hold()
         startMonitor()
         captureView.captureSession.run(configuration: RoomCaptureSession.Configuration())
+        armWatchdog(Self.startTimeout, while: .running, expecting: "the camera session did not start") { [weak self] in self?.sessionStarted == false }
+    }
+
+    private var sessionStarted = false
+
+    /// If `stillStuck` holds after `after`, the session is given up on rather than left to hang. Logged either way.
+    private func armWatchdog(_ after: Duration, while phase: Phase, expecting what: String, stillStuck: @escaping @MainActor () -> Bool) {
+        watchdog?.cancel()
+        watchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: after)
+            guard !Task.isCancelled, let self, self.phase == phase, stillStuck() else { return }
+            Self.log.error("watchdog: \(what, privacy: .public) within \(String(describing: after), privacy: .public)")
+            self.lose("The scanner stalled (\(what)). Start the next room again; it will use a new session.", data: nil)
+        }
+    }
+
+    /// Gives up this session: stops everything, tries to keep what was scanned, tells the owner of the controller.
+    private func lose(_ message: String, data: CapturedRoomData?) {
+        guard !lost else { return }
+        lost = true
+        if let runSignpost { Self.signposter.endInterval("run", runSignpost) }
+        runSignpost = nil
+        let hadWalls = wallsSeen > 0
+        shutdown()
+        onPhase?(.idle)
+        guard let data, hadWalls else { onSessionLost?(message, nil); return }
+        Task { @MainActor [weak self] in
+            let room = try? await RoomBuilder(options: [.beautifyObjects]).capturedRoom(from: data)
+            Self.log.notice("salvage after a lost session: \(room == nil ? "failed" : "\(room!.walls.count) wall(s)", privacy: .public)")
+            self?.onSessionLost?(message, room)
+        }
     }
 
     /// Ends this room. The AR session keeps running, so the next room continues in the same frame.
@@ -145,16 +205,20 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         guard phase == .running else { return }
         stopSignpost = Self.signposter.beginInterval("stop and process")
         set(.stopping)
+        scanSeconds += Date().timeIntervalSince(runStarted)
         ScreenAwake.shared.release()
         monitor?.cancel()
         onHint?("")
         captureView.captureSession.stop(pauseARSession: false)
+        armWatchdog(Self.stopTimeout, while: .stopping, expecting: "processing the room took too long") { true }
     }
 
     // MARK: RoomCaptureSessionDelegate
 
     func captureSession(_ session: RoomCaptureSession, didStartWith configuration: RoomCaptureSession.Configuration) {
         Self.log.notice("session started")
+        sessionStarted = true
+        watchdog?.cancel()
     }
 
     func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
@@ -162,17 +226,18 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
     }
 
     func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: Error?) {
+        guard !lost else { return }
+        if let error {
+            let exceeded = (error as? RoomCaptureSession.CaptureError) == .exceedSceneSizeLimit
+            Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public) (size limit: \(exceeded))")
+            lose(exceeded
+                 ? "RoomPlan's scene size limit was reached. The next room starts a new session (a new frame) and is placed by the usual placement step."
+                 : "The scan stopped: \(error.localizedDescription). The next room starts a new session.", data: data)
+            return
+        }
         if let runSignpost { Self.signposter.endInterval("run", runSignpost) }
         runSignpost = nil
-        if let error {
-            Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public)")
-            monitor?.cancel()
-            ScreenAwake.shared.release()
-            set(.idle)
-            onError?("The scan stopped: \(error.localizedDescription)")
-        } else {
-            Self.log.notice("session ended; the room is being processed")
-        }
+        Self.log.notice("session ended; the room is being processed")
     }
 
     // MARK: RoomCaptureViewDelegate
@@ -186,6 +251,8 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
     }
 
     func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
+        guard !lost else { return }
+        watchdog?.cancel()
         if let stopSignpost { Self.signposter.endInterval("stop and process", stopSignpost) }
         stopSignpost = nil
         set(.idle)
@@ -194,7 +261,8 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
             onError?(error.localizedDescription)
             return
         }
-        Self.log.notice("room processed: \(processedResult.walls.count) wall(s)")
+        roomsDone += 1
+        Self.log.notice("room processed: \(processedResult.walls.count) wall(s); \(self.roomsDone) in this session, \(Int(self.scanSeconds)) s scanned")
         onProcessed?(processedResult)
     }
 }
