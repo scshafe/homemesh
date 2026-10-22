@@ -200,3 +200,37 @@ final class ZoneDecodeTests: XCTestCase {
         XCTAssertEqual(z["weight"] as? Double, 2)       // untouched fields stay
     }
 }
+
+final class ShortlistTests: XCTestCase {
+    private func equipment(_ id: String, _ kind: String) -> CatalogueEquipment {
+        CatalogueEquipment(id: id, name: id, kind: kind, system: "", radios: [], ports: [], poe_in: false, max_nodes: nil, price: nil, notes: "", origin: "generic", assumed: true)
+    }
+
+    func testShortlistIsKeptPerHouse() throws {
+        let d = UserDefaults(suiteName: "shortlist-test")!
+        d.removePersistentDomain(forName: "shortlist-test")
+        XCTAssertEqual(Shortlist.load(house: "a", defaults: d), Shortlist())
+        var s = Shortlist()
+        s.equipment = ["mesh-1"]; s.kMax = 3
+        s.save(house: "a", defaults: d)
+        XCTAssertEqual(Shortlist.load(house: "a", defaults: d).kMax, 3)
+        XCTAssertEqual(Shortlist.load(house: "b", defaults: d), Shortlist())
+    }
+
+    func testRequestUsesTheShortlistOrEverythingButRouters() {
+        let cat = [equipment("r", "router"), equipment("m1", "mesh_node"), equipment("m2", "mesh_node")]
+        var s = Shortlist()
+        s.equipment = ["m2"]
+        XCTAssertEqual(s.requestEquipment(in: cat), ["m2"])
+        s.allCatalogue = true
+        XCTAssertEqual(s.requestEquipment(in: cat), ["m1", "m2"])
+    }
+
+    func testEntryIsOneObjectNotAList() throws {
+        var d = try HouseDoc(data: Data(#"{"id":"h","revision":0}"#.utf8))
+        d.setObject("entry", ["position": [1.0, 2.0], "level": "L0", "kind": "modem"])
+        XCTAssertEqual(d.object("entry")?["kind"] as? String, "modem")
+        d.setObject("entry", nil)
+        XCTAssertNil(d.object("entry"))
+    }
+}

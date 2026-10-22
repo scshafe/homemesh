@@ -109,6 +109,13 @@ struct HouseDoc {
         return "\(prefix)\(n)"
     }
 
+    /// A single object of the house (the internet `entry`): set it, or remove it with nil.
+    mutating func setObject(_ key: String, _ value: [String: Any]?) {
+        if let value { root[key] = value } else { root.removeValue(forKey: key) }
+    }
+
+    func object(_ key: String) -> [String: Any]? { root[key] as? [String: Any] }
+
     func item(_ collection: String, _ id: String) -> [String: Any]? {
         (root[collection] as? [[String: Any]])?.first { $0["id"] as? String == id }
     }

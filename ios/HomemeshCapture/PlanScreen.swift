@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum PlanTool: String, CaseIterable, Identifiable {
-    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", stair = "Stair", zone = "Zone"
+    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", entry = "Internet", stair = "Stair", zone = "Zone"
     var id: String { rawValue }
 }
 
@@ -26,9 +26,12 @@ struct PlanScreen: View {
 
     private var markers: [PlanMarker] {
         guard let plan else { return [] }
-        return plan.outlets.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .outlet, at: $0.position) }
-            + plan.jacks.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .jack, at: $0.position) }
-            + plan.access_points.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .accessPoint, at: $0.position) }
+        var out: [PlanMarker] = []
+        for o in plan.outlets where o.level == level { out.append(PlanMarker(id: o.id, kind: .outlet, at: o.position)) }
+        for j in plan.jacks where j.level == level { out.append(PlanMarker(id: j.id, kind: .jack, at: j.position)) }
+        for a in plan.access_points where a.level == level { out.append(PlanMarker(id: a.id, kind: .accessPoint, at: a.position)) }
+        if let e = plan.entry, e.level == level { out.append(PlanMarker(id: "entry", kind: .entry, at: e.position)) }
+        return out
     }
 
     private var stairsHere: [PlanStair] { plan?.stairs.filter { $0.from_level == level || $0.to_level == level } ?? [] }
@@ -124,6 +127,10 @@ struct PlanScreen: View {
             Task { await save(d) }
         case .zone:
             draft.append(p)
+        case .entry:
+            d.setObject("entry", ["position": [p.x, p.y], "level": level, "kind": "modem"])
+            selectedMarker = PlanMarker(id: "entry", kind: .entry, at: p)
+            Task { await save(d) }
         case .stair:
             draft.append(p)
             guard draft.count == 2, !stairTarget.isEmpty else { if stairTarget.isEmpty { status = "Choose the floor it leads to first."; draft = [] }; return }
@@ -199,9 +206,12 @@ struct MarkerInspector: View {
     @State private var state = "unknown"
     @State private var poe = false
     @State private var eirp = ""
+    @State private var entryKind = "modem"
+    @State private var wanDown = ""
+    @State private var wanUp = ""
 
     private var collection: String {
-        switch marker.kind { case .outlet: "outlets"; case .jack: "jacks"; case .accessPoint: "access_points" }
+        switch marker.kind { case .outlet: "outlets"; case .jack: "jacks"; case .accessPoint: "access_points"; case .entry: "entry" }
     }
 
     var body: some View {
@@ -215,13 +225,21 @@ struct MarkerInspector: View {
                     Picker("Works?", selection: $state) { ForEach(["live", "dead", "unknown"], id: \.self) { Text($0).tag($0) } }
                     Toggle("Power over Ethernet", isOn: $poe)
                     field("Height above the floor (m)", $height)
+                case .entry:
+                    Picker("Comes in as", selection: $entryKind) { Text("Modem").tag("modem"); Text("Fibre ONT").tag("ont"); Text("Coax drop").tag("coax_drop") }
+                    field("Download from your provider (Mbit/s)", $wanDown)
+                    field("Upload (Mbit/s)", $wanUp)
                 case .accessPoint:
                     TextField("Name", text: $name)
                     field("Height (m)", $height)
                     field("Transmit power + antenna gain (dBm)", $eirp)
                 }
                 Button("Save") { save() }
-                Button("Delete", role: .destructive) { var d = doc; d.remove(collection, marker.id); onSaved(d); onRemoved() }
+                Button("Delete", role: .destructive) {
+                    var d = doc
+                    if marker.kind == .entry { d.setObject("entry", nil) } else { d.remove(collection, marker.id) }
+                    onSaved(d); onRemoved()
+                }
             }
         }
         .onAppear(perform: load)
@@ -229,7 +247,7 @@ struct MarkerInspector: View {
     }
 
     private var title: String {
-        switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)" }
+        switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)"; case .entry: "Where the internet comes in" }
     }
 
     private func field(_ label: String, _ text: Binding<String>) -> some View {
@@ -239,7 +257,10 @@ struct MarkerInspector: View {
     private func num(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: ".")) }
 
     private func load() {
-        let it = doc.item(collection, marker.id) ?? [:]
+        let it = (marker.kind == .entry ? doc.object("entry") : doc.item(collection, marker.id)) ?? [:]
+        entryKind = it["kind"] as? String ?? "modem"
+        wanDown = (it["wan_down"] as? Double).map { String(format: "%g", $0) } ?? ""
+        wanUp = (it["wan_up"] as? Double).map { String(format: "%g", $0) } ?? ""
         height = String(format: "%.2f", (it["z"] as? Double) ?? (it["height"] as? Double) ?? 0.3)
         name = it["name"] as? String ?? ""
         type = it["type"] as? String ?? "cat6"
@@ -254,6 +275,12 @@ struct MarkerInspector: View {
         case .outlet: d.set(collection, marker.id, ["z": num(height) ?? 0.3])
         case .jack: d.set(collection, marker.id, ["type": type, "state": state, "poe": poe, "z": num(height) ?? 0.3])
         case .accessPoint: d.set(collection, marker.id, ["name": name, "height": num(height) ?? 1.5, "eirp_dbm": num(eirp) ?? 23])
+        case .entry:
+            var e = doc.object("entry") ?? [:]
+            e["kind"] = entryKind
+            if let v = num(wanDown), v > 0 { e["wan_down"] = v } else { e.removeValue(forKey: "wan_down") }
+            if let v = num(wanUp), v > 0 { e["wan_up"] = v } else { e.removeValue(forKey: "wan_up") }
+            d.setObject("entry", e)
         }
         onSaved(d)
     }

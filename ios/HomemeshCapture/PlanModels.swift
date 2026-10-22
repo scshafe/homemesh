@@ -89,6 +89,12 @@ struct PlanZone: Codable, Hashable, Identifiable, Sendable {
     let name: String
 }
 
+struct PlanEntry: Codable, Hashable, Sendable {
+    let position: Pt
+    let level: String
+    let kind: String
+}
+
 /// What the plan screens read from `GET /api/houses/<id>` (the rest of the house stays on the server).
 struct PlanHouse: Codable, Sendable {
     let id: String
@@ -102,8 +108,9 @@ struct PlanHouse: Codable, Sendable {
     let access_points: [PlanAP]
     let stairs: [PlanStair]
     let zones: [PlanZone]
+    let entry: PlanEntry?
 
-    enum CodingKeys: String, CodingKey { case id, name, revision, levels, walls, rooms, outlets, jacks, access_points, stairs, zones }
+    enum CodingKeys: String, CodingKey { case id, name, revision, levels, walls, rooms, outlets, jacks, access_points, stairs, zones, entry }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -118,6 +125,7 @@ struct PlanHouse: Codable, Sendable {
         access_points = try c.decodeIfPresent([PlanAP].self, forKey: .access_points) ?? []
         stairs = try c.decodeIfPresent([PlanStair].self, forKey: .stairs) ?? []
         zones = try c.decodeIfPresent([PlanZone].self, forKey: .zones) ?? []
+        entry = try c.decodeIfPresent(PlanEntry.self, forKey: .entry)
     }
 }
 

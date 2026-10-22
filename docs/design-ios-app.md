@@ -280,6 +280,14 @@ receiver height and "must be met"; for an allow zone what it needs (nothing, an 
 allowed heights. Changing the kind clears the fields of the old kind (a demand's `need` is removed, as the model
 requires). The catalogue shortlist is P6c.
 
+### As built (P6c)
+
+The **Internet** tool places the one `entry` (modem, fibre ONT or coax drop, with the provider's download and upload
+speeds); a plan needs it. **Equipment to plan with** (`CatalogueView`) lists `GET /api/catalogue` (mesh systems and APs; routers
+as the gateway choice), with a detail page per item (radios, ports, price, notes, and "numbers assumed" where the catalogue
+says so). The shortlist, gateway, client device, K max and the "every system" switch are kept per house on the phone
+(`Shortlist`, UserDefaults) and become the plan request in P7 (`equipment`, `gateway_equipment`, `client`, `k_max`).
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the
