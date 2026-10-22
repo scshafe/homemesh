@@ -85,6 +85,8 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    house, and is removed only after the server confirmed the scan and its 3D model.
    **Undo** (top right of a floor's plan) goes back to the plan as it was before the last change; press again to go further
    back. Nothing is lost: the earlier versions stay in the house's history.
+   **3D view of the house** (SceneKit): walls at their floor's height, a slab per floor and the staircases; drag to turn,
+   pinch to zoom, and hide floors with the buttons below. Each room's own scanned model is in the room details.
    Still later: placing scans is in the room details; planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.

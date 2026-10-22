@@ -321,6 +321,12 @@ Undo: `POST /api/houses/<id>/revisions/<n>/restore?expect_revision=` saves revis
 moved on). The plan screen's Undo restores the revision before the current one, and again before that on a second press; an ordinary edit
 resets the chain.
 
+### As built (P9c)
+
+`House3D` builds a SceneKit scene from the plan data (a box per wall at elevation + base + half its height, a thin translucent slab per
+floor, a block per staircase; plan (x, y) to scene (x, -y) with Y up), `House3DView` lets the owner orbit it and hide floors. Openings,
+furniture and the scanned meshes are not drawn (a room's own USDZ opens in Quick Look from the room details).
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the
