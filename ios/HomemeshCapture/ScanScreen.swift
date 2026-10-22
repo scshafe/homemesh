@@ -25,41 +25,30 @@ struct ScanScreen: View {
     @State private var busy = false
     @State private var status = ""
     @State private var hint = ""
+    @State private var cameraProblem = ""
     @FocusState private var focused: String?
     @Environment(\.dismiss) private var dismiss
 
     private var levels: [LevelRef] { model.summary(houseId)?.levels ?? [] }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScanView(controller: controller).id(generation)
-                .frame(height: focused == nil ? 400 : 160).clipped()   // the keyboard gets the room the preview gave up
-                .animation(.easeOut(duration: 0.2), value: focused == nil)
-                .overlay(alignment: .top) { floatingBar }
-            Form {
-                Section("Scan") {
-                    Button(phase == .running ? "Done with this room" : phase == .stopping ? "Processing the room…" : "Start scanning a room") { toggle() }
-                        .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy)
-                    if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").foregroundStyle(.red) }
-                    if !hint.isEmpty { Text(hint).font(.footnote).foregroundStyle(.orange) }
-                    ForEach(allRooms.indices, id: \.self) { i in
-                        let id = allRooms[i].identifier.uuidString
-                        TextField("Name room \(i + 1) (required)", text: Binding(get: { names[id] ?? "" }, set: { names[id] = $0 }))
-                            .focused($focused, equals: id)
-                            .submitLabel(.done)
+        ZStack {
+            ScanView(controller: controller).id(generation).ignoresSafeArea()   // the camera fills the screen, edge to edge
+            VStack(spacing: 10) {   // everything else floats on glass and respects the safe areas
+                floatingBar
+                if !cameraProblem.isEmpty {
+                    VStack(spacing: 8) {
+                        Text(cameraProblem).font(.footnote).multilineTextAlignment(.center)
+                        Button("Retry") { cameraProblem = ""; replaceController() }.buttonStyle(.borderedProminent)
                     }
+                    .padding(12).glass()
+                } else if !hint.isEmpty {
+                    Text(hint).font(.footnote).multilineTextAlignment(.center).padding(10).glass()
                 }
-                if !allRooms.isEmpty {   // chosen with the name, after the scan, starting from a suggestion
-                    Section {
-                        floorPicker
-                        if !levelReason.isEmpty { Text("Suggested: \(levelReason).").font(.footnote).foregroundStyle(.secondary) }
-                    } header: { Text("Floor") }
-                }
-                if !status.isEmpty { Section { Text(status) } }
-                if !allRooms.isEmpty {   // last in the form: out of the way of the keyboard and of the room fields
-                    Section { Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle || busy) }
-                }
+                Spacer(minLength: 0)
+                controls
             }
+            .padding(.horizontal, 12)
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
@@ -71,25 +60,65 @@ struct ScanScreen: View {
             earlierRooms = (try? await model.client().rooms(house: houseId)) ?? []
             suggestFloor()
         }
-
         .onDisappear { controller.shutdown() }
     }
 
-    /// Back on the left, Save on the right, floating over the preview (no navigation bar row).
+    /// Start or finish a room, the rooms' names, the floor, messages and Discard, in one glass panel over the camera.
+    private var controls: some View {
+        VStack(spacing: 10) {
+            if !allRooms.isEmpty || !status.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(allRooms.indices, id: \.self) { i in
+                            let id = allRooms[i].identifier.uuidString
+                            TextField("Name room \(i + 1) (required)", text: Binding(get: { names[id] ?? "" }, set: { names[id] = $0 }))
+                                .focused($focused, equals: id)
+                                .submitLabel(.done)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        if !allRooms.isEmpty {
+                            Text("Floor").font(.footnote.weight(.semibold))
+                            floorPicker
+                            if !levelReason.isEmpty { Text("Suggested: \(levelReason).").font(.footnote).foregroundStyle(.secondary) }
+                        }
+                        if !status.isEmpty { Text(status).font(.footnote) }
+                        if !allRooms.isEmpty {
+                            Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle || busy).font(.footnote)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 280)
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").font(.footnote).foregroundStyle(.red) }
+            Button { toggle() } label: {
+                Text(phase == .running ? "Done with this room" : phase == .stopping ? "Processing the room…" : "Start scanning a room")
+                    .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy)
+        }
+        .padding(14)
+        .glass(26)
+        .padding(.bottom, 6)
+    }
+
+    /// Back on the left, Save on the right (once a room exists), floating over the camera.
     private var floatingBar: some View {
         HStack {
-            Button { dismiss() } label: { Image(systemName: "chevron.backward").font(.headline).padding(12) }
-                .background(.regularMaterial, in: Circle())
+            Button { dismiss() } label: { Image(systemName: "chevron.backward").font(.headline).frame(width: 44, height: 44) }
+                .glass(22)
                 .accessibilityLabel("Back")
             Spacer()
             if !allRooms.isEmpty {
-                Button { Task { await upload() } } label: { Text("Save").font(.headline).padding(.horizontal, 18).padding(.vertical, 10) }
-                    .background(.regularMaterial, in: Capsule())
+                Button { Task { await upload() } } label: { Text("Save").font(.headline).padding(.horizontal, 20).frame(height: 44) }
+                    .glass(22)
                     .disabled(busy || phase != .idle || !allNamed)
                     .accessibilityHint("Saves the scan to \(model.summary(houseId)?.name ?? houseId) and uploads it")
             }
         }
-        .padding(.horizontal, 12).padding(.top, 8)
+        .padding(.top, 4)
     }
 
     /// The floor to start the picker on, from the floor asked for, the rooms scanned at the same height, or the last used.
@@ -144,6 +173,7 @@ struct ScanScreen: View {
         }
         controller.onPhase = { phase = $0 }
         controller.onHint = { hint = $0 }
+        controller.onCameraProblem = { cameraProblem = $0 }
         phase = controller.phase
     }
 
@@ -163,6 +193,7 @@ struct ScanScreen: View {
         controller = ScanController()
         generation += 1
         hint = ""
+        cameraProblem = ""
         bind()
     }
 
@@ -222,6 +253,22 @@ struct ScanScreen: View {
             status = "Not uploaded yet: \(error.localizedDescription). The scan is saved on this phone; the house screen has it under \"Waiting to upload\"."
         }
     }
+}
+
+/// The system's glass on iOS 26 and later (Liquid Glass), a thin material before that.
+struct GlassBackground: ViewModifier {
+    let radius: CGFloat
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
+        } else {
+            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
+        }
+    }
+}
+
+extension View {
+    func glass(_ radius: CGFloat = 20) -> some View { modifier(GlassBackground(radius: radius)) }
 }
 
 /// Building the upload (combining rooms, encoding, USDZ export) is heavy: it runs off the main actor so the UI

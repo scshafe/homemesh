@@ -1,4 +1,5 @@
 import ARKit
+import AVFoundation
 import os
 import RoomPlan
 import SwiftUI
@@ -62,6 +63,12 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
     static let stopTimeout: Duration = .seconds(45)
     private var watchdog: Task<Void, Never>?
 
+    /// Why the camera view is not showing the camera ("" when it is): shown to the owner with a Retry.
+    var onCameraProblem: ((String) -> Void)?
+    private var previewing = false
+    private var previewWatch: Task<Void, Never>?
+    private var cameraProblem = ""
+
     private var monitor: Task<Void, Never>?
     private var runStarted = Date()
     private var wallsSeen = 0
@@ -87,6 +94,64 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
     @objc private func appLeft() { ScreenAwake.shared.release() }
     @objc private func appBack() { if phase == .running { ScreenAwake.shared.hold() } }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        startPreview()
+    }
+
+    /// RoomCaptureView draws nothing until its session runs, so a fresh controller (a new session after four rooms, a
+    /// failure, or a new scan) used to show a dark view. The AR session is started here, in world tracking, as soon as the
+    /// view is up; `start()` then runs the room capture on the same running session. Every outcome is logged.
+    private func startPreview() {
+        guard !previewing, !lost, phase == .idle else { return }
+        let auth = AVCaptureDevice.authorizationStatus(for: .video)
+        Diagnostics.event("preview", ["camera_auth": auth.rawValue, "thermal": Diagnostics.thermal()])
+        switch auth {
+        case .denied, .restricted:
+            setCameraProblem("Camera access is off. Allow it in Settings > homemesh > Camera, then tap Retry.", why: "camera-auth-\(auth.rawValue)")
+            return
+        default: break
+        }
+        previewing = true
+        captureView.captureSession.arSession.run(ARWorldTrackingConfiguration())
+        Self.log.notice("preview started")
+        Diagnostics.event("preview-started")
+        previewWatch?.cancel()
+        previewWatch = Task { @MainActor [weak self] in
+            var checks = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(checks == 0 ? 3 : 2))
+                checks += 1
+                self?.checkPreview()
+            }
+        }
+    }
+
+    /// Frames must keep arriving while the screen is up; if they do not, say why we can (tracking state, thermal state).
+    private func checkPreview() {
+        guard !lost, phase != .running else { return }
+        let session = captureView.captureSession.arSession
+        guard let frame = session.currentFrame else {
+            setCameraProblem("The camera is not delivering images (it may be in use by another app, or the phone is too hot). Tap Retry.", why: "no-frames")
+            return
+        }
+        if ProcessInfo.processInfo.systemUptime - frame.timestamp > 3 {
+            setCameraProblem("The camera stopped delivering images. Tap Retry.", why: "stale-frames")
+        } else if case .notAvailable = frame.camera.trackingState {
+            setCameraProblem("The camera has no tracking. Check that nothing covers it and that the room is lit.", why: "tracking-unavailable")
+        } else {
+            setCameraProblem("", why: "ok")
+        }
+    }
+
+    private func setCameraProblem(_ message: String, why: String) {
+        guard message != cameraProblem else { return }
+        cameraProblem = message
+        Self.log.notice("camera: \(why, privacy: .public)")
+        Diagnostics.event("camera", ["state": why, "thermal": Diagnostics.thermal()])
+        onCameraProblem?(message)
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         shutdown()
@@ -99,8 +164,12 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
         monitor = nil
         watchdog?.cancel()
         watchdog = nil
+        previewWatch?.cancel()
+        previewWatch = nil
         Self.log.notice("shutdown from phase \(self.phase.rawValue, privacy: .public): pausing the AR session")
         captureView.captureSession.stop(pauseARSession: true)
+        captureView.captureSession.arSession.pause()   // also when only the preview was running
+        previewing = false
         phase = .idle
         ScreenAwake.shared.release()
     }
