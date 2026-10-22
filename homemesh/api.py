@@ -25,7 +25,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, calibration, captures, jobs, roomplan, store
+from . import blueprint, calibration, captures, jobs, place, roomplan, store
 from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
@@ -284,6 +284,16 @@ def create_app() -> FastAPI:
     def list_captures(house_id: str) -> list[dict]:
         get_house(house_id)
         return captures.list_captures(house_id)
+
+    @app.post("/api/houses/{house_id}/captures/{digest}/place", dependencies=[api])
+    def place_capture(house_id: str, digest: str, level: str) -> dict:
+        """Where this scan probably belongs on `level` (see design-ios-app.md, section 4). Stores nothing."""
+        h = get_house(house_id)
+        try:
+            data = captures.load_capture(house_id, digest)
+            return place.propose(h, data, level, digest, names=captures.get_meta(house_id, digest).get("rooms"))
+        except (captures.CaptureError, roomplan.ImportError_, store.StoreError, ValueError) as e:
+            raise HTTPException(422, str(e)) from None
 
     @app.post("/api/houses/{house_id}/captures/{digest}/import", dependencies=[api])
     async def import_capture(house_id: str, digest: str, level: str, request: Request) -> dict:
