@@ -88,6 +88,11 @@ struct Client: Sendable {
 
     func rooms(house: String) async throws -> [RoomItem] { try await get("/api/houses/\(house)/rooms") }
 
+    /// Undo: the house as it was at `revision`, saved as the next revision (history is kept).
+    func restore(house: String, revision: Int, expect: Int) async throws {
+        _ = try await call("POST", "/api/houses/\(house)/revisions/\(revision)/restore?expect_revision=\(expect)")
+    }
+
     func nameRooms(house: String, blob: String, names: [String], descriptions: [String]? = nil) async throws -> CaptureMeta {
         try await send("PUT", "/api/houses/\(house)/captures/\(blob)/rooms", RoomNamesBody(names: names, descriptions: descriptions))
     }

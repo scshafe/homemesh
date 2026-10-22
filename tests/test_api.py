@@ -60,6 +60,19 @@ class ApiTest(unittest.TestCase):
         bad = {**h2, "measure_checks": [{"id": "m2", "what": "x", "scanned": 0, "measured": 1}]}
         self.assertEqual(self.c.put(f"/api/houses/synthetic-box?expect_revision={h2['revision']}", json=bad, headers=self.ok).status_code, 422)
 
+    def test_restore_a_revision_is_an_undo_that_keeps_history(self):
+        h = self.c.get("/api/houses/synthetic-box", headers=self.ok).json()
+        first = h["revision"]
+        h["name"] = "Renamed"
+        second = self.c.put(f"/api/houses/synthetic-box?expect_revision={first}", json=h, headers=self.ok).json()["revision"]
+        r = self.c.post(f"/api/houses/synthetic-box/revisions/{first}/restore?expect_revision={second}", headers=self.ok)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["revision"], r.json()["name"] != "Renamed"), (second + 1, True))
+        self.assertEqual(self.c.get("/api/houses/synthetic-box/revisions", headers=self.ok).json()[-3:], [first, second, second + 1])
+        self.assertEqual(self.c.post(f"/api/houses/synthetic-box/revisions/{first}/restore?expect_revision={second}", headers=self.ok).status_code, 409)  # stale
+        self.assertEqual(self.c.post(f"/api/houses/synthetic-box/revisions/999/restore?expect_revision={second + 1}", headers=self.ok).status_code, 404)
+        self.assertEqual(self.c.post(f"/api/houses/synthetic-box/revisions/{first}/restore?expect_revision={second + 1}").status_code, 401)
+
     def test_add_a_stair(self):
         body = {"from_level": "L0", "to_level": "L1", "polygon": [[1, 1], [2, 1], [2, 4], [1, 4]]}
         self.c.post("/api/houses/synthetic-box/levels", json={"name": "First"}, headers=self.ok)

@@ -19,6 +19,7 @@ struct PlanScreen: View {
     @State private var selectedStair: String?
     @State private var selectedZone: String?
     @State private var zoneKind = "allow"
+    @State private var undoCursor: Int?        // the revision the last undo restored; the next undo goes one before it
     @State private var draft: [Pt] = []
     @State private var stairTarget = ""
     @State private var status = ""
@@ -74,6 +75,13 @@ struct PlanScreen: View {
             if !status.isEmpty { Text(status).font(.footnote).padding(.horizontal) }
         }
         .navigationTitle(plan?.levels.first { $0.id == level }?.name ?? "Plan")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Undo", systemImage: "arrow.uturn.backward") { Task { await undo() } }
+                    .disabled(undoTarget == nil)
+                    .accessibilityHint("Goes back to the plan as it was before the last change")
+            }
+        }
         .task { await load() }
     }
 
@@ -188,7 +196,27 @@ struct PlanScreen: View {
         }
     }
 
+    private var undoTarget: Int? {
+        guard let plan else { return nil }
+        let t = (undoCursor ?? plan.revision) - 1
+        return t >= 1 ? t : nil
+    }
+
+    private func undo() async {
+        guard let plan, let t = undoTarget else { return }
+        do {
+            try await model.client().restore(house: houseId, revision: t, expect: plan.revision)
+            undoCursor = t
+            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil
+            status = "Back to the plan as it was at revision \(t)."
+            await load()
+        } catch {
+            status = "Could not undo: \(error.localizedDescription)"
+        }
+    }
+
     private func save(_ new: HouseDoc) async {
+        undoCursor = nil
         do {
             try await model.client().saveHouse(house: houseId, json: try new.data(), expectRevision: new.revision)
             status = "Saved."
