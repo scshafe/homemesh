@@ -104,6 +104,7 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
 - One scan view and one AR session live for the whole multi-room scan; between rooms the session stops with
   `pauseARSession: false`, so rooms share one frame. Building the upload (combine, encode, USDZ) runs off the
   main thread.
+- The screen stays awake while a room is being scanned (idle timer off from start to stop; released on stop, error, leaving the screen and when the app is backgrounded).
 - Console.app (iPhone selected), filter `subsystem:homemesh.capture`: every phase change (idle, running,
   stopping), session start and end, processing results and errors are logged, and `run`, `stop and process` and
   `build payload` are signposts (Instruments, os_signpost) so a stall shows which step it was in.
