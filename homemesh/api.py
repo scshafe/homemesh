@@ -27,7 +27,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, calibration, captures, diagnostics, jobs, place, roomplan, stack, store
+from . import blueprint, calibration, captures, connections, diagnostics, jobs, place, roomplan, stack, store
 from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
@@ -438,6 +438,13 @@ def create_app() -> FastAPI:
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 
+    @app.get("/api/houses/{house_id}/doors", dependencies=[api])
+    def doors_checklist(house_id: str, level: str = "") -> list[dict]:
+        """Every scan's doors and where they were said to lead, with what is still unlabelled or has no partner."""
+        get_house(house_id)
+        rows = connections.checklist(captures.list_captures(house_id))
+        return [r for r in rows if not level or (r["level"] or "") == level]
+
     @app.get("/api/houses/{house_id}/captures/{digest}/doors", dependencies=[api])
     def capture_doors(house_id: str, digest: str) -> dict:
         """The doors of a scan in its own frame with where each was said to lead, and its walls, for a small picture of it."""
@@ -506,8 +513,12 @@ def create_app() -> FastAPI:
         old, _, idx = key.partition(":")
         return captures.load_capture(house_id, old), old, int(idx)
 
+    def door_label_index(house_id: str) -> dict[str, str]:
+        """Every labelled door of every scan: {"<capture>#<door id>": where it leads}."""
+        return {f"{m['blob']}#{k}": v for m in captures.list_captures(house_id) for k, v in (m.get("door_labels") or {}).items()}
+
     @app.post("/api/houses/{house_id}/captures/{digest}/place", dependencies=[api])
-    def place_capture(house_id: str, digest: str, level: str) -> dict:
+    def place_capture(house_id: str, digest: str, level: str, guess: bool = False) -> dict:
         """Where this scan probably belongs on `level` (see design-ios-app.md, section 4). Stores nothing."""
         h = get_house(house_id)
         try:
@@ -515,7 +526,7 @@ def create_app() -> FastAPI:
             meta = captures.get_meta(house_id, digest)
             t0 = time.perf_counter()
             out = place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta), room_levels=meta.get("room_levels"),
-                                door_labels=meta.get("door_labels"))
+                                door_labels=meta.get("door_labels"), plan_labels=door_label_index(house_id), guess=guess)
             logging.getLogger("homemesh.place").info("place %s on %s: %s in %.0f ms (%d walls on the level)", digest[:8], level, out["confidence"],
                                                      (time.perf_counter() - t0) * 1000, sum(1 for w in h.walls if w.level == level))
             return out

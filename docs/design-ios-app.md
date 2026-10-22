@@ -497,16 +497,25 @@ pickers; validated on upload) and the meta keeps `stories` (RoomPlan's `story` p
 index in the whole scan); the room list shows each room's own floor; `PUT .../level` puts the whole scan on one floor
 and clears the split.
 
-## Doorway labels for stitching (owner decision, 2026-10-22)
+## Doorway labels for stitching (owner decisions, 2026-10-22)
 
-Where a door leads is something the owner knows and the scan does not. Each door or opening of a scan can carry
-"leads to: <room name>" (a room on any floor, or "outside"), stored per capture as `door_labels` (`{door id: name}`,
-the id being the first 8 characters of RoomPlan's identifier, so it survives re-import). Set in the post-scan save
-sheet (an optional Doors section: a small picture of the scan with its doors numbered, each with a picker of the house's
-rooms, this session's rooms and Outside), carried in the capture wrapper, and editable later from the room's screen
-(`GET/PUT .../captures/<blob>/doors`). Placement: a labelled door whose room is already on the floor pairs with each
-plan door within 0.6 m of that room's outline, in both orientations; the best by the usual score is the proposal with
-confidence **labelled** and the global search is skipped (when nothing fits, the ordinary search runs). In the placement
-view the owner can also tap a door on the red scan and then its partner on the plan: it snaps (a flip button chooses the
-orientation) and the pair is saved as labels on both scans, the quick path for scans not yet placed. Labels are
-the input a later "place everything on this floor" would chain from.
+**Placement is by labelled connections, not by search.** Each door, opening or arch of a scan can carry "leads to: <room name>"
+(a room on any floor, or "outside"), stored per capture as `door_labels` (`{door id: name}`, the id being the first 8
+characters of RoomPlan's identifier, so it survives re-import). Doors and openings without a door count the same. A
+**connection** is a door in scan A labelled "leads to B" and a door in scan B labelled "leads to A". Placing a scan is pure
+geometry: lay its labelled door on the partner door of the already placed room, centres coinciding (apart from the wall's
+thickness), walls parallel, the two rooms on opposite sides of the wall (which settles the orientation: no half-turn
+ambiguity). Several connections to placed rooms are used together (least squares) and the residual is shown in cm; when
+they disagree or the rooms would overlap the confidence is `confirm`, otherwise `labelled`. The first scan on an empty
+floor just lands (as before), a floor's first scan can still line up by a staircase (unchanged: staircase scans are the
+floor-to-floor connection). With no usable connection `place` answers `unlabelled` with what is missing ("Pantry has no
+door labelled Kitchen") and does **no search**; the old candidate search is behind `?guess=true`, the app's small "Guess for
+me" button.
+
+**Labelling.** In the post-scan save sheet (an optional Doors sheet: a small picture of the scan, doors numbered, a "leads
+to" menu each: the house's rooms, this session's rooms, Outside), on the room's screen for uploaded scans
+(`GET/PUT .../captures/<blob>/doors`), and in the placement view by tap-to-pair: tap a door on the red scan, then the same
+door on the plan; the scan snaps (rooms on opposite sides; a Flip button overrides) and accepting writes the labels on both
+scans. A **Doors checklist** per floor (`GET /api/houses/<id>/doors?level=`) lists each scan's doors as unlabelled, outside,
+ok or missing and the issues in words ("Kitchen says door 2 leads to Pantry but Pantry has no door labelled Kitchen"), so
+everything can be labelled first and placed after.
