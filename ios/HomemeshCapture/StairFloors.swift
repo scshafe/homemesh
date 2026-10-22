@@ -149,3 +149,57 @@ enum StoryFloors {
         return Dictionary(uniqueKeysWithValues: stories.map { ($0, levels[min(levels.count - 1, i + ($0 - lo))].id) })
     }
 }
+
+
+/// Stairs drawn as steps. RoomPlan only ever models a staircase as one box, so the steps are ours: the count is the owner's, else
+/// the rise over a usual riser, spread over the run, the bottom at the end marked `low` (else the polygon's first end).
+/// Visual only: the Wi-Fi model cares about the opening, not the steps.
+enum StairGeometry {
+    static let riser = 0.18
+
+    struct Layout: Equatable {
+        let treads: [Seg]     // the edge between one step and the next, across the flight
+        let low: Pt           // centre of the bottom end
+        let high: Pt          // centre of the top end
+        let across: Pt        // half the width, as a vector
+        let steps: Int
+    }
+
+    static func stepCount(rise: Double?, steps: Int?) -> Int {
+        if let steps, steps >= 2 { return steps }
+        guard let rise, rise > 0 else { return 12 }
+        return max(2, Int((rise / riser).rounded()))
+    }
+
+    /// The two ends (centres of the short edges) of a four-corner flight and the vector across it.
+    static func ends(_ polygon: [Pt]) -> (a: Pt, b: Pt, across: Pt)? {
+        guard polygon.count == 4 else { return nil }
+        func mid(_ p: Pt, _ q: Pt) -> Pt { Pt((p.x + q.x) / 2, (p.y + q.y) / 2) }
+        func len(_ p: Pt, _ q: Pt) -> Double { hypot(q.x - p.x, q.y - p.y) }
+        let p = polygon
+        if len(p[1], p[2]) >= len(p[0], p[1]) {   // the run is along p1 to p2
+            return (mid(p[0], p[1]), mid(p[2], p[3]), Pt((p[1].x - p[0].x) / 2, (p[1].y - p[0].y) / 2))
+        }
+        return (mid(p[1], p[2]), mid(p[3], p[0]), Pt((p[2].x - p[1].x) / 2, (p[2].y - p[1].y) / 2))
+    }
+
+    static func layout(polygon: [Pt], rise: Double?, steps: Int?, low: Pt?) -> Layout? {
+        guard let e = ends(polygon) else { return nil }
+        func d(_ p: Pt, _ q: Pt) -> Double { hypot(q.x - p.x, q.y - p.y) }
+        var (lo, hi) = (e.a, e.b)
+        if let low, d(low, e.b) < d(low, e.a) { (lo, hi) = (e.b, e.a) }
+        let n = stepCount(rise: rise, steps: steps)
+        let treads = (1..<n).map { k -> Seg in
+            let t = Double(k) / Double(n)
+            let c = Pt(lo.x + (hi.x - lo.x) * t, lo.y + (hi.y - lo.y) * t)
+            return Seg(a: Pt(c.x - e.across.x, c.y - e.across.y), b: Pt(c.x + e.across.x, c.y + e.across.y))
+        }
+        return Layout(treads: treads, low: lo, high: hi, across: e.across, steps: n)
+    }
+
+    /// The point to store as `low` to turn the flight round.
+    static func swappedLow(polygon: [Pt], low: Pt?, rise: Double?, steps: Int?) -> Pt? {
+        guard let l = layout(polygon: polygon, rise: rise, steps: steps, low: low) else { return nil }
+        return l.high
+    }
+}

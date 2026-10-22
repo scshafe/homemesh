@@ -59,9 +59,26 @@ enum House3D {
             scene.rootNode.addChildNode(n)
         }
         for st in plan.stairs where visible == nil || visible!.contains(st.from_level) || visible!.contains(st.to_level) {
+            let lo = min(elevation[st.from_level] ?? 0, elevation[st.to_level] ?? 0)
+            let hi = max(elevation[st.from_level] ?? 0, elevation[st.to_level] ?? lo + 2.5)
+            let rise = max(hi - lo, 0.1)
+            if let l = StairGeometry.layout(polygon: st.polygon, rise: rise, steps: st.steps, low: st.low) {   // steps, bottom to top
+                let run = hypot(l.high.x - l.low.x, l.high.y - l.low.y), width = 2 * hypot(l.across.x, l.across.y)
+                let n = l.steps, tread = run / Double(n), riser = rise / Double(n)
+                for k in 0..<n {
+                    let t = (Double(k) + 0.5) / Double(n)
+                    let box = SCNBox(width: tread, height: max(riser * 0.9, 0.05), length: width, chamferRadius: 0)
+                    box.firstMaterial?.diffuse.contents = UIColor.systemPurple.withAlphaComponent(0.55)
+                    let node = SCNNode(geometry: box)
+                    node.name = k == 0 ? "stair:\(st.id)" : "stair:\(st.id):\(k)"
+                    node.position = SCNVector3(Float(l.low.x + (l.high.x - l.low.x) * t), Float(lo + riser * (Double(k) + 0.5)), Float(-(l.low.y + (l.high.y - l.low.y) * t)))
+                    node.eulerAngles.y = Float(atan2(l.high.y - l.low.y, l.high.x - l.low.x))
+                    scene.rootNode.addChildNode(node)
+                }
+                continue
+            }
             let b = Geometry.bounds(st.polygon)
-            let lo = elevation[st.from_level] ?? 0, hi = elevation[st.to_level] ?? lo + 2.5
-            let box = SCNBox(width: b.width, height: max(hi - lo, 0.1), length: b.height, chamferRadius: 0)
+            let box = SCNBox(width: b.width, height: rise, length: b.height, chamferRadius: 0)
             box.firstMaterial?.diffuse.contents = UIColor.systemPurple.withAlphaComponent(0.4)
             let n = SCNNode(geometry: box)
             n.name = "stair:\(st.id)"

@@ -82,6 +82,8 @@ struct PlanStair: Codable, Hashable, Identifiable, Sendable {
     let from_level: String
     let to_level: String
     let polygon: [Pt]
+    var steps: Int? = nil   // the owner's count of steps; round(rise / 0.18 m) when nil
+    var low: Pt? = nil      // a point at the bottom end of the flight, when known
 }
 
 struct PlanZone: Codable, Hashable, Identifiable, Sendable {

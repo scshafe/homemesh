@@ -550,3 +550,42 @@ final class StoryFloorsTests: XCTestCase {
         XCTAssertEqual(StoryFloors.defaults(stories: [0], base: "nope", levels: levels), [:])
     }
 }
+
+final class StairStepsTests: XCTestCase {
+    // a flight 1.2 m wide and 4.4 m long running along +x
+    private let poly = [Pt(0, 0), Pt(4.4, 0), Pt(4.4, 1.2), Pt(0, 1.2)]
+    private let polyAlongY = [Pt(0, 0), Pt(1.2, 0), Pt(1.2, 4.4), Pt(0, 4.4)]
+
+    func testTheStepCountIsTheRiseOverAUsualRiserUnlessTheOwnerSaysSo() {
+        XCTAssertEqual(StairGeometry.stepCount(rise: 2.714, steps: nil), 15)   // 2.714 / 0.18 = 15.08
+        XCTAssertEqual(StairGeometry.stepCount(rise: 2.714, steps: 16), 16)
+        XCTAssertEqual(StairGeometry.stepCount(rise: nil, steps: nil), 12)
+        XCTAssertEqual(StairGeometry.stepCount(rise: 0.1, steps: nil), 2)
+    }
+
+    func testTreadsAreSpreadOverTheRunAcrossTheFlight() throws {
+        let l = try XCTUnwrap(StairGeometry.layout(polygon: poly, rise: 2.7, steps: nil, low: nil))
+        XCTAssertEqual(l.steps, 15)
+        XCTAssertEqual(l.treads.count, 14)
+        XCTAssertEqual(l.treads[0].a.x, 4.4 / 15, accuracy: 1e-9)
+        XCTAssertEqual(hypot(l.treads[0].b.x - l.treads[0].a.x, l.treads[0].b.y - l.treads[0].a.y), 1.2, accuracy: 1e-9)
+        let alongY = try XCTUnwrap(StairGeometry.layout(polygon: polyAlongY, rise: 2.7, steps: nil, low: nil))
+        XCTAssertEqual(alongY.treads[0].a.y, 4.4 / 15, accuracy: 1e-9)   // the longer side is the run, whichever way it lies
+    }
+
+    func testTheBottomIsTheEndNearTheLowPointAndTurningRoundSwapsIt() throws {
+        let up = try XCTUnwrap(StairGeometry.layout(polygon: poly, rise: 2.7, steps: nil, low: Pt(4.3, 0.6)))
+        XCTAssertEqual(up.low.x, 4.4, accuracy: 1e-9)
+        XCTAssertEqual(up.high.x, 0, accuracy: 1e-9)
+        let turned = try XCTUnwrap(StairGeometry.swappedLow(polygon: poly, low: Pt(4.3, 0.6), rise: 2.7, steps: nil))
+        XCTAssertEqual(turned.x, 0, accuracy: 1e-9)
+        XCTAssertNil(StairGeometry.layout(polygon: [Pt(0, 0), Pt(1, 1), Pt(2, 0)], rise: 2, steps: nil, low: nil))
+    }
+
+    func testTheThreeDModelBuildsOneBlockPerStep() throws {
+        let json = #"{"id":"h","name":"H","revision":1,"levels":[{"id":"B","name":"Basement","elevation":-2.7,"height":2.4},{"id":"G","name":"Ground","elevation":0,"height":2.5}],"stairs":[{"id":"s1","from_level":"B","to_level":"G","polygon":[[0,0],[4.4,0],[4.4,1.2],[0,1.2]],"steps":10}]}"#
+        let plan = try JSONDecoder().decode(PlanHouse.self, from: Data(json.utf8))
+        let scene = House3D.build(plan)
+        XCTAssertEqual(scene.rootNode.childNodes.filter { $0.name?.hasPrefix("stair:s1") == true }.count, 10)
+    }
+}

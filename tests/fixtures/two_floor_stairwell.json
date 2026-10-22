@@ -176,6 +176,7 @@
     {
       "from_level": "L0",
       "id": "s0",
+      "low": null,
       "polygon": [
         [
           6.0,
@@ -201,6 +202,7 @@
         "ref": null,
         "source": "manual"
       },
+      "steps": null,
       "to_level": "L1",
       "void": true
     }

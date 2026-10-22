@@ -37,6 +37,13 @@ struct PlanScreen: View {
         return out
     }
 
+    /// The steps of a staircase: the rise is the height between the two floors it joins.
+    private func stairLayout(_ st: PlanStair, _ plan: PlanHouse) -> StairGeometry.Layout? {
+        let ev = Dictionary(uniqueKeysWithValues: plan.levels.map { ($0.id, $0.elevation) })
+        let rise = ev[st.from_level].flatMap { a in ev[st.to_level].map { abs($0 - a) } }
+        return StairGeometry.layout(polygon: st.polygon, rise: rise, steps: st.steps, low: st.low)
+    }
+
     private var stairsHere: [PlanStair] { plan?.stairs.filter { $0.from_level == level || $0.to_level == level } ?? [] }
 
     var body: some View {
@@ -66,7 +73,7 @@ struct PlanScreen: View {
                     }
                 }
                 PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
-                           bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), draft: draft,
+                           bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), stairLayouts: stairsHere.compactMap { stairLayout($0, plan) }, draft: draft,
                            selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone,
                            furniture: plan.furniture.filter { $0.level == level }, selectedFurniture: selectedFurniture, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
                     .background(Color(.secondarySystemBackground))
@@ -104,7 +111,7 @@ struct PlanScreen: View {
                 MarkerInspector(marker: m, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedMarker = nil })
                     .frame(maxHeight: 300)
             } else if let id = selectedStair, let st = plan.stairs.first(where: { $0.id == id }) {
-                StairInspector(stair: st, doc: doc, here: level, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedStair = nil })
+                StairInspector(stair: st, doc: doc, here: level, rise: plan.levels.first { $0.id == st.from_level }.flatMap { a in plan.levels.first { $0.id == st.to_level }.map { abs($0.elevation - a.elevation) } }, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedStair = nil })
                     .frame(maxHeight: 240)
             } else if let id = selectedFurniture, let f = plan.furniture.first(where: { $0.id == id }) {
                 FurnitureInspector(item: f, doc: doc, onSaved: { new in Task { await save(new) } }, onClose: { selectedFurniture = nil })
@@ -353,9 +360,11 @@ struct StairInspector: View {
     let stair: PlanStair
     let doc: HouseDoc
     let here: String
+    var rise: Double? = nil
     let onSaved: (HouseDoc) -> Void
     let onRemoved: () -> Void
     @State private var other = ""
+    @State private var steps = ""
 
     var body: some View {
         Form {
@@ -363,18 +372,28 @@ struct StairInspector: View {
                 Picker("Joins this floor to", selection: $other) {
                     ForEach(doc.levels.filter { $0.id != here }, id: \.id) { Text($0.name).tag($0.id) }
                 }
+                TextField("Number of steps (blank: \(StairGeometry.stepCount(rise: rise, steps: nil)))", text: $steps).keyboardType(.numberPad)
+                Text(stair.low == nil ? "Which end is the bottom is not known; the arrow points the way the flight is drawn." : "The arrow points up the flight.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Turn the flight round (swap bottom and top)") {
+                    var d = doc
+                    if let l = StairGeometry.swappedLow(polygon: stair.polygon, low: stair.low, rise: rise, steps: Int(steps)) {
+                        d.set("stairs", stair.id, ["low": [l.x, l.y]])
+                        onSaved(d)
+                    }
+                }
                 Button("Save") {
                     var d = doc
                     let ev = Dictionary(uniqueKeysWithValues: doc.levels.map { ($0.id, $0.elevation) })
                     let up = (ev[other] ?? 0) > (ev[here] ?? 0)
-                    d.set("stairs", stair.id, ["from_level": up ? here : other, "to_level": up ? other : here])
+                    d.set("stairs", stair.id, ["from_level": up ? here : other, "to_level": up ? other : here, "steps": Int(steps.trimmed)])
                     onSaved(d)
                 }
                 Button("Delete", role: .destructive) { var d = doc; d.remove("stairs", stair.id); onSaved(d); onRemoved() }
             }
         }
-        .onAppear { other = stair.from_level == here ? stair.to_level : stair.from_level }
-        .onChange(of: stair.id) { other = stair.from_level == here ? stair.to_level : stair.from_level }
+        .onAppear { other = stair.from_level == here ? stair.to_level : stair.from_level; steps = stair.steps.map(String.init) ?? "" }
+        .onChange(of: stair.id) { other = stair.from_level == here ? stair.to_level : stair.from_level; steps = stair.steps.map(String.init) ?? "" }
     }
 }
 

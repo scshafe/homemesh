@@ -370,6 +370,32 @@ def scan_footprint(data: dict, sim: Similarity2D | None = None) -> list[list[flo
     return [[round(x, 4), round(y, 4)] for x, y in _hull(ends)]
 
 
+def _low_end(house: House, poly: list, blob: str) -> tuple[float, float] | None:
+    """Which end of the flight is the bottom. RoomPlan models stairs as one box, so its extent cannot say; the end
+    nearer a door or opening of this scan is taken (you walk in at the bottom), when one end is clearly nearer."""
+    if len(poly) != 4:
+        return None
+    p = [np.array(q, float) for q in poly]
+    e1, e2 = p[1] - p[0], p[2] - p[1]
+    ends = ((p[0] + p[1]) / 2, (p[2] + p[3]) / 2) if np.linalg.norm(e2) >= np.linalg.norm(e1) else ((p[1] + p[2]) / 2, (p[3] + p[0]) / 2)
+    spots = []
+    for w in house.walls:
+        if not (w.prov.ref or "").startswith(f"{blob}#"):
+            continue
+        a, b = np.array(w.a, float), np.array(w.b, float)
+        ln = float(np.linalg.norm(b - a))
+        for o in w.openings:
+            if ln > 0:
+                spots.append(a + (b - a) / ln * (o.offset + o.width / 2))
+    if not spots:
+        return None
+    d = [min(float(np.linalg.norm(e - s)) for s in spots) for e in ends]
+    if abs(d[0] - d[1]) < 0.3:
+        return None
+    low = ends[0] if d[0] < d[1] else ends[1]
+    return (round(float(low[0]), 4), round(float(low[1]), 4))
+
+
 def apply_stair(house: House, data: dict, blob: str, meta: dict, sim: Similarity2D | None, found: list[dict], notes: list[str]) -> House:
     """The staircase the owner said this scan holds (`meta["stair"]` = from/to floors), added to `house` as a Stair
     (replacing the one an earlier import of this scan made). Its footprint is the biggest stairs object RoomPlan found
@@ -400,7 +426,8 @@ def apply_stair(house: House, data: dict, blob: str, meta: dict, sim: Similarity
     n = len(keep)
     while f"s{n + 1}" in {s.id for s in keep}:
         n += 1
-    new = Stair(id=f"s{n + 1}", from_level=a, to_level=b, polygon=[tuple(p) for p in poly], void=True, prov=Prov(source="scan", ref=f"{blob}#stair"))
+    new = Stair(id=f"s{n + 1}", from_level=a, to_level=b, polygon=[tuple(p) for p in poly], void=True, low=_low_end(house, poly, blob),
+                prov=Prov(source="scan", ref=f"{blob}#stair"))
     house = house.model_copy(update={"stairs": [*keep, new]})
     return stack.with_rise(house, a, b, rise) if rise else house
 

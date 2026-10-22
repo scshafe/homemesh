@@ -47,6 +47,7 @@ struct PlanCanvas: View {
     var selected: String?
     var markers: [PlanMarker] = []
     var stairs: [[Pt]] = []
+    var stairLayouts: [StairGeometry.Layout] = []   // the steps of those staircases, drawn over them
     var draft: [Pt] = []                // points of a stair or zone being drawn
     var selectedMarker: String?
     var zones: [PlanZone] = []
@@ -162,6 +163,22 @@ struct PlanCanvas: View {
                     path.closeSubpath()
                     ctx.fill(path, with: .color(.purple.opacity(0.25)))
                     ctx.stroke(path, with: .color(.purple), lineWidth: 1.5)
+                }
+                for l in stairLayouts {
+                    var steps = Path()
+                    for t in l.treads { steps.move(to: map(t.a)); steps.addLine(to: map(t.b)) }
+                    ctx.stroke(steps, with: .color(.purple.opacity(0.8)), lineWidth: 1)
+                    var arrow = Path()   // from the bottom to the top of the flight
+                    arrow.move(to: map(l.low)); arrow.addLine(to: map(l.high))
+                    ctx.stroke(arrow, with: .color(.purple), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    let h = map(l.high), lo = map(l.low)
+                    let ang = atan2(h.y - lo.y, h.x - lo.x)
+                    var head = Path()
+                    head.move(to: h)
+                    head.addLine(to: CGPoint(x: h.x - 9 * cos(ang - 0.45), y: h.y - 9 * sin(ang - 0.45)))
+                    head.addLine(to: CGPoint(x: h.x - 9 * cos(ang + 0.45), y: h.y - 9 * sin(ang + 0.45)))
+                    head.closeSubpath()
+                    ctx.fill(head, with: .color(.purple))
                 }
                 if draft.count >= 1 {
                     var path = Path()
