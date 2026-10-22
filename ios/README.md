@@ -110,6 +110,10 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
   finish (8 s / 45 s), the session is shut down, the room scanned so far is kept when RoomPlan can still build it,
   and the next room gets a new camera view, session and frame. Each session uploads as its own scan, so the rooms of
   different sessions are placed one by one by the usual placement step.
+- The scan screen is the camera, edge to edge; Back, Save, the hint, the room names, the floor picker and
+  Start/Done float over it on glass (Liquid Glass on iOS 26, a thin material before). The AR session starts as soon as
+  the screen (or a renewed session) is up so the camera is never dark; if frames do not arrive, or camera access is
+  off, the screen says why with a Retry, and the event log records it (`preview`, `camera`).
 - Diagnostics (Settings switch, on by default): the app keeps a rolling event log (JSON lines, about 2 MB, flushed per
   event so it survives a crash: scan phases, session errors with domain and code, renewals, hang-guard trips, upload
   results, launch with version/device/OS, thermal state, memory warnings; no names or scan content) and subscribes to
