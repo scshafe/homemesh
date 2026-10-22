@@ -209,6 +209,7 @@ struct RoomDetailView: View {
                     ScanScreen(houseId: houseId, initialLevel: room.level ?? "", replacing: room, onUploaded: { onChanged() })
                 }
                 if let capture {
+                    NavigationLink("Doors: where each leads") { DoorsScreen(houseId: houseId, capture: capture) }
                     NavigationLink("Place on the plan") { PlaceView(houseId: houseId, capture: capture) }
                     Text(room.placed == nil ? "Not on the plan yet." : "On the plan.").font(.footnote)
                 }

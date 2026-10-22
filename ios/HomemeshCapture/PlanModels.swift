@@ -25,6 +25,7 @@ struct PlanOpening: Codable, Hashable, Sendable {
     let kind: String
     let offset: Double
     let width: Double
+    var prov: PlanProv? = nil
 }
 
 struct PlanProv: Codable, Hashable, Sendable {
@@ -229,6 +230,18 @@ enum Geometry {
         let pts = segs.flatMap { [$0.a, $0.b] }
         guard !pts.isEmpty else { return Pt(0, 0) }
         return Pt(pts.map(\.x).reduce(0, +) / Double(pts.count), pts.map(\.y).reduce(0, +) / Double(pts.count))
+    }
+
+    static func apply(_ t: Transform2D, _ p: Pt) -> Pt {
+        let r = rotate(p, degrees: t.rotation)
+        return Pt(r.x + t.tx, r.y + t.ty)
+    }
+
+    /// The turn and shift (`delta`, `d` of `adjust`) that make the proposal `t0` end up as the transform `target`.
+    static func nudge(from t0: Transform2D, to target: Transform2D, centre c: Pt) -> (delta: Double, d: Pt) {
+        let delta = target.rotation - t0.rotation
+        let r = rotate(Pt(t0.tx - c.x, t0.ty - c.y), degrees: delta)
+        return (delta, Pt(target.tx - r.x - c.x, target.ty - r.y - c.y))
     }
 
     /// The preview moved by hand: turned by `delta` degrees about `centre`, then shifted by `d`.

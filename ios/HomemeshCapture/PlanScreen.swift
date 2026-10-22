@@ -269,7 +269,7 @@ struct MarkerInspector: View {
     @State private var wanUp = ""
 
     private var collection: String {
-        switch marker.kind { case .outlet: "outlets"; case .jack: "jacks"; case .accessPoint: "access_points"; case .entry: "entry"; case .measurement, .suggestion: "measurements" }
+        switch marker.kind { case .outlet: "outlets"; case .jack: "jacks"; case .accessPoint: "access_points"; case .entry: "entry"; case .measurement, .suggestion, .door, .planDoor: "measurements" }
     }
 
     var body: some View {
@@ -283,7 +283,7 @@ struct MarkerInspector: View {
                     Picker("Works?", selection: $state) { ForEach(["live", "dead", "unknown"], id: \.self) { Text($0).tag($0) } }
                     Toggle("Power over Ethernet", isOn: $poe)
                     field("Height above the floor (m)", $height)
-                case .measurement, .suggestion:
+                case .measurement, .suggestion, .door, .planDoor:
                     Picker("Band", selection: $band) { Text("2.4 GHz").tag("2.4"); Text("5 GHz").tag("5"); Text("6 GHz").tag("6") }.pickerStyle(.segmented)
                     field("Signal you read here (dBm, for example -62)", $rssi)
                     field("Speed here (Mbit/s, optional)", $rate)
@@ -310,7 +310,7 @@ struct MarkerInspector: View {
     }
 
     private var title: String {
-        switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)"; case .entry: "Where the internet comes in"; case .measurement, .suggestion: "Measurement \(marker.id)" }
+        switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)"; case .entry: "Where the internet comes in"; case .measurement, .suggestion, .door, .planDoor: "Measurement \(marker.id)" }
     }
 
     private func field(_ label: String, _ text: Binding<String>) -> some View {
@@ -342,7 +342,7 @@ struct MarkerInspector: View {
         case .outlet: d.set(collection, marker.id, ["z": num(height) ?? 0.3])
         case .jack: d.set(collection, marker.id, ["type": type, "state": state, "poe": poe, "z": num(height) ?? 0.3])
         case .accessPoint: d.set(collection, marker.id, ["name": name, "height": num(height) ?? 1.5, "eirp_dbm": num(eirp) ?? 23])
-        case .measurement, .suggestion:
+        case .measurement, .suggestion, .door, .planDoor:
             d.set(collection, marker.id, ["band": band, "rssi": num(rssi), "throughput": num(rate), "device": device.trimmed.isEmpty ? "iPhone" : device.trimmed])
         case .entry:
             var e = doc.object("entry") ?? [:]
