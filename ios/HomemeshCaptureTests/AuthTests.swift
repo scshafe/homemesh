@@ -60,4 +60,30 @@ final class FieldTests: XCTestCase {
             XCTAssertFalse(h.levels.isEmpty, u.lastPathComponent)
         }
     }
+
+    func testPlacementDecodesWhatTheServerSends() throws {
+        let json = #"""
+        {"confidence":"auto","reason":"a clear match","transform":{"rotation":-37.0,"tx":1.5,"ty":2.0},"score":9.2,"source":"doorway",
+         "evidence":{"openings":1},"alternatives":[{"transform":{"rotation":0,"tx":0,"ty":0},"score":1.0,"source":"name"}],
+         "preview":[{"a":[0,0],"b":[4,0]}]}
+        """#
+        let p = try JSONDecoder().decode(Placement.self, from: Data(json.utf8))
+        XCTAssertEqual(p.confidence, "auto")
+        XCTAssertEqual(p.preview.first?.b, Pt(4, 0))
+        XCTAssertEqual(p.alternatives.count, 1)
+    }
+
+    func testAdjustAndComposeAgree() {
+        // a point of the scan, placed by T0 and then nudged, must land where the composed transform puts it
+        let t0 = Transform2D(rotation: 30, tx: 2, ty: -1)
+        let p = Pt(1, 2)
+        let r0 = Geometry.rotate(p, degrees: t0.rotation)
+        let placed = Pt(r0.x + t0.tx, r0.y + t0.ty)
+        let centre = Pt(1.5, 0.5), d = Pt(0.4, -0.2), delta = 12.0
+        let nudged = Geometry.adjust([Seg(a: placed, b: placed)], centre: centre, delta: delta, d: d)[0].a
+        let t = Geometry.compose(t0, centre: centre, delta: delta, d: d)
+        let r = Geometry.rotate(p, degrees: t.rotation)
+        XCTAssertEqual(nudged.x, r.x + t.tx, accuracy: 1e-9)
+        XCTAssertEqual(nudged.y, r.y + t.ty, accuracy: 1e-9)
+    }
 }
