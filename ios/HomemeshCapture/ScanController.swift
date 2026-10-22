@@ -29,7 +29,7 @@ enum SessionBudget {
 /// session is stopped with `pauseARSession: false`, so the next run continues in the same world frame and
 /// rooms share one coordinate frame, as in Apple's multi-room sample. Starting a room while the previous run
 /// is still stopping is refused, and every transition is logged (Console: subsystem `homemesh.capture`).
-final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDelegate, @preconcurrency RoomCaptureSessionDelegate {
+final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
     // RoomCaptureViewDelegate refines NSCoding; UIViewController already encodes itself.
     required init?(coder: NSCoder) { fatalError("not used") }
     init() { super.init(nibName: nil, bundle: nil) }
