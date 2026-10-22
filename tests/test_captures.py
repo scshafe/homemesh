@@ -149,6 +149,19 @@ class CaptureApiTest(Base):
         moved = self.c.put(f"{self.url}/{m['blob']}/level", json={"level": "L0"}, headers=self.ok).json()
         self.assertIsNone(moved["room_levels"])
 
+    def test_door_labels_are_listed_kept_and_edited(self):
+        data = two_rooms()
+        data["door_labels"] = {"A-door0": "Hall"}
+        m = self.upload(data=data).json()
+        self.assertEqual(m["door_labels"], {"A-door0": "Hall"})   # keyed by the first 8 characters of the identifier
+        d = self.c.get(f"{self.url}/{m['blob']}/doors", headers=self.ok).json()
+        self.assertEqual([x["id"] for x in d["doors"]], ["A-door0", "B-door0"])
+        self.assertEqual(d["doors"][0]["label"], "Hall")
+        self.assertEqual(d["doors"][0]["number"], 1)
+        self.assertEqual(len(d["walls"]), 8)
+        put = self.c.put(f"{self.url}/{m['blob']}/doors", json={"labels": {"B-door0": "Outside", "nope": "x", "A-door0": ""}}, headers=self.ok).json()
+        self.assertEqual(put["door_labels"], {"B-door0": "Outside"})   # unknown doors dropped, empty clears
+
     def test_import_with_a_transform(self):
         m = self.upload().json()
         r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", content=json.dumps({"transform": {"rotation": 90, "tx": 10, "ty": 20}}),

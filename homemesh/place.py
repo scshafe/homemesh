@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .model import House, Room, Wall
-from .roomplan import ImportError_, Similarity2D, import_capture, retire_room, stair_footprints
+from .roomplan import ImportError_, Similarity2D, import_capture, retire_room, scan_doors, stair_footprints
 
 # Weights of the score; tests pin their effect, not their values.
 W_WALL = 1.0       # per metre of scan wall lying on a parallel plan wall
@@ -367,6 +367,34 @@ def _candidates(scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs=(), pl
     return list(out.values())
 
 
+def _label_candidates(data: dict, labels: dict[str, str], plan_rooms, plan_open: list[Opening2]) -> list[Candidate]:
+    """Placements from doors the owner labelled: a scan door that leads to a room already on the plan lies on that room's
+    boundary, so it pairs with each plan door within 0.6 m of that room's outline, in both orientations."""
+    out: list[Candidate] = []
+    if not labels:
+        return out
+    doors = {d["id"]: d for d in scan_doors(data)}
+    for did, to in labels.items():
+        d = doors.get(did)
+        if d is None or _fold(to) in ("", "outside"):
+            continue
+        targets = [poly for n, poly in plan_rooms if _fold(n) == _fold(to)]
+        if not targets:
+            continue
+        so = Opening2(np.array([d["x"], d["y"]]), math.radians(d["angle"]), d["width"], "door")
+        for p in plan_open:
+            if p.kind != "door" or abs(p.width - so.width) > WIDTH_TOL + 0.1:
+                continue
+            if not any(_edge_dist(p.mid, poly) <= 0.6 for poly in targets):
+                continue
+            for flip in (0.0, math.pi):
+                th = p.angle - so.angle + flip
+                deg = (math.degrees(th) + 180) % 360 - 180
+                t = p.mid - _rot(deg) @ so.mid
+                out.append(Candidate(deg, float(t[0]), float(t[1]), f"label:{to}"))
+    return out
+
+
 def _snap(c: Candidate, scan_walls: list[Wall], plan_dom: float | None) -> None:
     """Houses are mostly rectilinear: nudge the rotation onto the plan's dominant direction when within 3 degrees."""
     dom = _dominant(scan_walls)
@@ -398,7 +426,8 @@ def _preview(scan_walls: list[Wall], c: Candidate) -> list[dict]:
 
 
 def propose(house: House, data: dict, level: str, blob: str, names: list[str] | None = None,
-            retire: tuple[dict, str, int] | None = None, room_levels: list[str | None] | None = None) -> dict:
+            retire: tuple[dict, str, int] | None = None, room_levels: list[str | None] | None = None,
+            door_labels: dict[str, str] | None = None) -> dict:
     """The proposal for placing capture `blob` (`data`) on `level` of `house`.
 
     `retire` = (earlier capture's data, its blob, room index) when this scan re-scans a room: that room's own walls
@@ -443,6 +472,18 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
                 "preview": _preview(scan_walls, c)}
 
     scan_open, plan_open = _openings(scan_walls), _openings(plan_walls)
+    labelled = _label_candidates(data, door_labels or {}, plan_rooms, plan_open)
+    if labelled:   # the owner said where a door leads: that pairing is the candidate, no global search
+        ctx = _Ctx.build(scan_walls, plan_walls)
+        for c in labelled:
+            _score(c, ctx, scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
+        labelled.sort(key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
+        best = labelled[0]
+        if best.openings >= 1 and best.area_m2 <= 0.5:
+            others = [c for c in labelled[1:] if _distinct(best, c)]
+            return {"confidence": "labelled", "reason": "lined up by the door you said leads to " + best.source.removeprefix("label:"),
+                    **_out(best), "evidence": {"openings": best.openings, "wall_overlap_m": round(best.wall_m, 2), "room_overlap_m2": round(best.area_m2, 2),
+                                               "source": best.source}, "alternatives": [_out(c) for c in others[:2]], "preview": _preview(scan_walls, best)}
     cands = _candidates(scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
     if not cands:
         return {"confidence": "manual", "reason": "no shared doorway or room name to line the scan up by",

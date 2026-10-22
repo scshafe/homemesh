@@ -71,6 +71,10 @@ class CaptureLevel(BaseModel):
     level: str
 
 
+class DoorLabels(BaseModel):
+    labels: dict[str, str]  # door id -> the room it leads to, or "outside"; "" clears one
+
+
 class CaptureStair(BaseModel):
     from_level: str | None = None   # both None clears
     to_level: str | None = None
@@ -434,6 +438,27 @@ def create_app() -> FastAPI:
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 
+    @app.get("/api/houses/{house_id}/captures/{digest}/doors", dependencies=[api])
+    def capture_doors(house_id: str, digest: str) -> dict:
+        """The doors of a scan in its own frame with where each was said to lead, and its walls, for a small picture of it."""
+        get_house(house_id)
+        try:
+            meta = captures.get_meta(house_id, digest)
+            data = captures.load_capture(house_id, digest)
+        except captures.CaptureError as e:
+            raise HTTPException(422, str(e)) from None
+        labels = meta.get("door_labels") or {}
+        ds = [{**d, "number": i + 1, "label": labels.get(d["id"], "")} for i, d in enumerate(roomplan.scan_doors(data))]
+        return {"doors": ds, "walls": roomplan.scan_wall_segments(data), "rooms": meta.get("rooms") or []}
+
+    @app.put("/api/houses/{house_id}/captures/{digest}/doors", dependencies=[api])
+    def set_capture_doors(house_id: str, digest: str, req: DoorLabels) -> dict:
+        get_house(house_id)
+        try:
+            return captures.set_door_labels(house_id, digest, req.labels)
+        except captures.CaptureError as e:
+            raise HTTPException(422, str(e)) from None
+
     @app.get("/api/houses/{house_id}/rooms", dependencies=[api])
     def room_list(house_id: str) -> list[dict]:
         """Every room of every scan, joined with the house room its import made (unplaced when none)."""
@@ -489,7 +514,8 @@ def create_app() -> FastAPI:
             data = captures.load_capture(house_id, digest)
             meta = captures.get_meta(house_id, digest)
             t0 = time.perf_counter()
-            out = place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta), room_levels=meta.get("room_levels"))
+            out = place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta), room_levels=meta.get("room_levels"),
+                                door_labels=meta.get("door_labels"))
             logging.getLogger("homemesh.place").info("place %s on %s: %s in %.0f ms (%d walls on the level)", digest[:8], level, out["confidence"],
                                                      (time.perf_counter() - t0) * 1000, sum(1 for w in h.walls if w.level == level))
             return out
