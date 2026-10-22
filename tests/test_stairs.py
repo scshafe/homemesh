@@ -4,7 +4,7 @@ import unittest
 from homemesh import place
 from homemesh.materials import default_materials
 from homemesh.model import House, Level, Slab, Stair
-from homemesh.roomplan import import_capture, stair_footprints
+from homemesh.roomplan import apply_stair, import_capture, stair_footprints
 from tests.roomplan_synth import room
 from tests.test_place import moved, wrap
 
@@ -72,3 +72,43 @@ class StairsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApplyStairTest(unittest.TestCase):
+    def house(self):
+        h = two_level_house()
+        return h
+
+    def test_a_scan_with_a_staircase_and_floors_adds_the_stair_and_refines_the_height(self):
+        data = wrap(with_stairs(room(0, 0, 6, 4, "A"), 2.0, 1.5, rise=3.1))
+        meta = {"stair": {"from_level": "L0", "to_level": "L1"}}
+        h, rep = import_capture(self.house(), data, "L0", "A" * 64)
+        notes = []
+        h = apply_stair(h, data, "A" * 64, meta, None, rep.stairs, notes)
+        (st,) = h.stairs
+        self.assertEqual((st.from_level, st.to_level, st.prov.ref), ("L0", "L1", "A" * 64 + "#stair"))
+        lv = {x.id: x for x in h.levels}
+        self.assertAlmostEqual(lv["L0"].height, 3.1 - 0.3, places=2)
+        self.assertEqual(lv["L0"].height_source, "stair")
+        self.assertAlmostEqual(lv["L1"].elevation - lv["L0"].elevation, 3.1, places=2)   # floor to floor is the measured rise
+        self.assertTrue(any("rises 3.10 m" in n for n in notes))
+        # importing again replaces the stair, never doubles it
+        h = apply_stair(h, data, "A" * 64, meta, None, rep.stairs, [])
+        self.assertEqual(len(h.stairs), 1)
+
+    def test_without_the_floors_nothing_is_added(self):
+        data = wrap(with_stairs(room(0, 0, 6, 4, "A"), 2.0, 1.5))
+        h, rep = import_capture(self.house(), data, "L0", "A" * 64)
+        self.assertEqual(apply_stair(h, data, "A" * 64, {}, None, rep.stairs, []).stairs, [])
+
+    def test_a_stairs_scan_without_a_stairs_object_uses_its_footprint_and_says_so(self):
+        data = wrap(room(0, 0, 4, 2, "A"))
+        meta = {"stair": {"from_level": "L0", "to_level": "L1"}, "purpose": "stairs"}
+        h, rep = import_capture(self.house(), data, "L0", "A" * 64, make_rooms=False)
+        self.assertEqual(h.rooms, [])
+        notes = []
+        h = apply_stair(h, data, "A" * 64, meta, None, rep.stairs, notes)
+        self.assertEqual(len(h.stairs), 1)
+        self.assertGreaterEqual(len(h.stairs[0].polygon), 3)
+        self.assertTrue(any("no stairs object" in n for n in notes))
+        self.assertEqual({x.id: x.height for x in h.levels}["L0"], 2.5)   # no rise measured: heights stay

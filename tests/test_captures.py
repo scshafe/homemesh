@@ -100,6 +100,29 @@ class CaptureApiTest(Base):
         bad["baro"] = {"session": "s1", "rel_m": "high"}
         self.assertIsNone(self.upload(data=bad).json()["baro"])
 
+    def test_staircase_summary_floors_and_the_stairs_scan(self):
+        from tests.test_stairs import with_stairs
+        data = two_rooms()
+        with_stairs(data["rooms"][0], 1.0, 1.0, w=1.2, d=4.9, rise=3.3)
+        m = self.upload(data=data).json()
+        self.assertEqual(m["stairs_found"], [{"rise": 3.3, "width": 1.2, "run": 4.9}])
+        lv = self.c.post("/api/houses/synthetic-box/levels", json={"name": "Up"}, headers=self.ok).json()["levels"][-1]["id"]
+        bad = self.c.put(f"{self.url}/{m['blob']}/stair", json={"from_level": "L0", "to_level": "L0"}, headers=self.ok)
+        self.assertEqual(bad.status_code, 422)
+        ok = self.c.put(f"{self.url}/{m['blob']}/stair", json={"from_level": "L0", "to_level": lv}, headers=self.ok)
+        self.assertEqual(ok.json()["stair"], {"from_level": "L0", "to_level": lv})
+        out = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", headers=self.ok).json()
+        self.assertEqual([(s["from_level"], s["to_level"]) for s in out["house"]["stairs"]], [("L0", lv)])
+        # a scan made for the stairs: no rooms in the list, no rooms on import, walls kept
+        st = self.c.post(self.url + f"?name=Stairs&purpose=stairs&stair_from=L0&stair_to={lv}", content=json.dumps(two_rooms(1)), headers=self.ok)
+        self.assertEqual(st.status_code, 200, st.text)
+        keys = [r["capture"] for r in self.c.get("/api/houses/synthetic-box/rooms", headers=self.ok).json()]
+        self.assertNotIn(st.json()["blob"], keys)
+        imp = self.c.post(f"{self.url}/{st.json()['blob']}/import?level=L0", headers=self.ok).json()
+        self.assertEqual([r for r in imp["house"]["rooms"] if (r["prov"].get("ref") or "").startswith(st.json()["blob"])], [])
+        self.assertTrue(any("no stairs object" in n for n in imp["report"]["notes"]))
+        self.assertEqual(self.c.post(self.url + "?purpose=other", content=json.dumps(two_rooms()), headers=self.ok).status_code, 422)
+
     def test_import_with_a_transform(self):
         m = self.upload().json()
         r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", content=json.dumps({"transform": {"rotation": 90, "tx": 10, "ty": 20}}),

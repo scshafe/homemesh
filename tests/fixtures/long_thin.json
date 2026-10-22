@@ -27,6 +27,7 @@
       "below_ground": false,
       "elevation": 0.0,
       "height": 2.5,
+      "height_source": "default",
       "id": "L0",
       "name": "Ground",
       "slab": null

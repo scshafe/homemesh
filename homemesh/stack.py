@@ -37,8 +37,9 @@ def restack(house: House, order: list[str], below_ground: list[str] | None = Non
     lvls = []
     for i in order:
         lv = by_id[i]
-        h = (measured_height(house, i) if measure else None) or lv.height
-        lvls.append(lv.model_copy(update={"below_ground": i in below, "height": h}))
+        walls = measured_height(house, i) if measure and lv.height_source != "stair" else None
+        lvls.append(lv.model_copy(update={"below_ground": i in below, "height": walls or lv.height,
+                                          "height_source": "walls" if walls else lv.height_source}))
     ground = next((n for n, lv in enumerate(lvls) if not lv.below_ground), None)
     if ground is None:
         raise StackError("at least one level must be above ground")
@@ -58,3 +59,18 @@ def restack(house: House, order: list[str], below_ground: list[str] | None = Non
 
 def _slab(lv: Level) -> float:
     return lv.slab.thickness if lv.slab else SLAB
+
+
+def with_rise(house: House, level_a: str, level_b: str, rise: float) -> House:
+    """A staircase's measured rise is the floor-to-floor distance of the two levels it joins, when they are neighbours
+    in the stack: the lower level's height becomes rise minus the slab. Anything else is left as it was."""
+    order = [lv.id for lv in house.levels]
+    if level_a not in order or level_b not in order or abs(order.index(level_a) - order.index(level_b)) != 1:
+        return house
+    lo, hi = sorted((level_a, level_b), key=order.index)
+    upper = house.levels[order.index(hi)]
+    height = round(rise - _slab(upper), 2)
+    if not 1.8 <= height <= 6.0:
+        return house
+    levels = [lv.model_copy(update={"height": height, "height_source": "stair"}) if lv.id == lo else lv for lv in house.levels]
+    return restack(house.model_copy(update={"levels": levels}), order, [lv.id for lv in levels if lv.below_ground])
