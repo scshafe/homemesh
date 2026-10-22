@@ -211,7 +211,8 @@ owner draws it on the plan (P5/P6).
 
 Owner feedback from the phone, decided by the oversight session (the owner can override).
 
-**Evidence.** "Basement storage" went to L2 Guest (the owner has not yet confirmed which floor it is on), and the
+**Evidence.** "Basement storage" went to L2 Guest (the owner has since confirmed it is in the basement and moved it to
+L1, the basement level, in the store; the Library and the 17:48 scan too), and the
 house's Basement level sits +2.8 m *above* Ground, because levels were always created on top of the stack.
 (Pantry and Wine Cellar were confirmed on Ground and placed correctly: ceiling height is not a floor signal here,
 so nothing below uses it to *choose* a floor.) The old rule, a Floor picker shown before the scan and defaulting to
@@ -406,3 +407,29 @@ touching the canvas (the tap targets there have no list alternative yet).
    handled by the web app and the owner's rooms come from scans.
 9. **Deployment target.** Keep iOS 17 as the minimum until a feature needs more
    (the owner's phone runs a newer iOS).
+
+## Later (owner direction, not built)
+
+The ideal scan is **one continuous session that still captures one room at a time**, with on-device speech
+recognition labelling each room as the owner walks into it ("this is the pantry") and switching floors by voice
+("going downstairs", "now on the basement"). Recorded here so nothing built now closes it off; no work is scheduled.
+
+What it would need:
+- **Session and segmentation.** One RoomPlan session spanning rooms and floors, cut into rooms: either a
+  `CapturedStructure` built from per-room `CapturedRoom`s as today (stop/start between rooms inside one running
+  ARSession, which the app already does), or segmenting one long capture by room boundary. The former reuses what
+  exists; the latter needs RoomPlan to expose a per-room split mid-session, which it does not today.
+- **Speech.** `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true` (no audio leaves the phone),
+  microphone and speech permissions, a small grammar of intents (room label, floor change), kept on a rolling
+  transcript with timestamps.
+- **Mapping utterances to boundaries.** A label applies to the room being entered: its timestamp is matched to the
+  nearest room boundary (a stop/start, or a doorway crossing in the camera track). A floor phrase sets the current
+  floor from that moment until the next one. Ambiguous or unheard phrases leave the room unnamed for the save sheet.
+- **Barometer to confirm.** A spoken floor change is checked against the altimeter (a drop or rise of about a
+  storey since the last room); a mismatch is shown, not silently applied.
+
+Compatibility: the one-room-per-scan flow stays the manual path and the fallback when speech is off or unclear.
+The save sheet's per-room name fields, per-story floor pickers (4c) and barometer suggestion are exactly where
+voice results would land as *prefilled suggestions* (a name, a floor and "heard: 'going downstairs'" as the
+reason), and the owner still confirms before saving. Captures already carry per-room names, `room_levels` and
+`baro`, so a voice session needs no new storage.
