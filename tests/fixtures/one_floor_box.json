@@ -159,6 +159,7 @@
   "revision": 0,
   "rooms": [
     {
+      "description": "",
       "id": "r0",
       "kind": "room",
       "level": "L0",
@@ -190,6 +191,7 @@
       }
     },
     {
+      "description": "",
       "id": "r1",
       "kind": "room",
       "level": "L0",

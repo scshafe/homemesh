@@ -234,7 +234,8 @@ def _area(poly: list[tuple[float, float]]) -> float:
 
 
 def import_capture(house: House, data: dict, level: str, blob: str, transform: Similarity2D | None = None,
-                   defaults: Defaults = Defaults(), names: list[str] | None = None) -> tuple[House, Report]:
+                   defaults: Defaults = Defaults(), names: list[str] | None = None,
+                   descriptions: list[str] | None = None) -> tuple[House, Report]:
     """A copy of `house` with the scan's walls and openings on `level`.
 
     Importing the same blob again replaces what it added before (walls whose
@@ -334,7 +335,8 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
         n += 1
         taken_r.add(f"r{n}")
         label = (names[i] if names and i < len(names) and names[i].strip() else carried[i]) or f"Room {i + 1}"
-        new_rooms.append(Room(id=f"r{n}", level=level, name=label.strip()[:80], polygon=[(round(x, 4), round(y, 4)) for x, y in poly],
+        about = (descriptions[i] if descriptions and i < len(descriptions) else "").strip()[:500]
+        new_rooms.append(Room(id=f"r{n}", level=level, name=label.strip()[:80], description=about, polygon=[(round(x, 4), round(y, 4)) for x, y in poly],
                               prov=Prov(source="scan", ref=f"{blob}#room/{i}")))
     rep.rooms = len(new_rooms)
 

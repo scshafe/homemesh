@@ -1,7 +1,7 @@
 """Stored scans: the capture JSON (and its USDZ) as blobs, with a small index.
 
     houses/<id>/blobs/<sha256>            the JSON as uploaded, and the USDZ
-    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, level}  (derived; rebuildable from the blob)
+    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, descriptions, level}  (derived; rebuildable from the blob)
 """
 
 from __future__ import annotations
@@ -72,12 +72,22 @@ def attach_usdz(house_id: str, digest: str, raw: bytes) -> dict:
     return meta
 
 
-def set_room_names(house_id: str, digest: str, names: list[str]) -> dict:
-    """The owner's names for the capture's rooms, in the order of the capture (one per room)."""
+def set_room_names(house_id: str, digest: str, names: list[str], descriptions: list[str] | None = None) -> dict:
+    """The owner's names (and optionally descriptions) for the capture's rooms, in the order of the capture."""
     meta = get_meta(house_id, digest)
-    if len(names) != meta["counts"]["rooms"]:
-        raise CaptureError(f"the capture has {meta['counts']['rooms']} room(s), got {len(names)} name(s)")
-    meta["rooms"] = [str(n).strip()[:80] for n in names]
+    n = meta["counts"]["rooms"]
+    if len(names) != n or (descriptions is not None and len(descriptions) != n):
+        raise CaptureError(f"the capture has {n} room(s); give one name{' and one description' if descriptions is not None else ''} for each")
+    meta["rooms"] = [str(x).strip()[:80] for x in names]
+    if descriptions is not None:
+        meta["descriptions"] = [str(x).strip()[:500] for x in descriptions]
+    store._write_atomic(_dir(house_id) / f"{digest}.json", json.dumps(meta).encode())
+    return meta
+
+
+def set_level(house_id: str, digest: str, level: str) -> dict:
+    meta = get_meta(house_id, digest)
+    meta["level"] = level
     store._write_atomic(_dir(house_id) / f"{digest}.json", json.dumps(meta).encode())
     return meta
 

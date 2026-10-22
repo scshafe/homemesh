@@ -102,6 +102,31 @@ class CaptureApiTest(Base):
         self.assertEqual(self.upload().json()["level"], "L0")  # the same scan again keeps what is known
         self.assertEqual(self.c.get(self.url, headers=self.ok).json()[0]["level"], "L0")
 
+    def test_room_list_descriptions_and_floor_move(self):
+        url = "/api/houses/fresh/captures"
+        self.c.post("/api/houses", json={"id": "fresh", "name": "Fresh"}, headers=self.ok)
+        h = self.c.post("/api/houses/fresh/levels", json={"name": "First"}, headers=self.ok).json()
+        m = self.c.post(url + "?level=L0", content=json.dumps(two_rooms()), headers=self.ok).json()
+        rooms = self.c.get("/api/houses/fresh/rooms", headers=self.ok).json()
+        self.assertEqual([(r["index"], r["placed"], r["level"]) for r in rooms], [(0, None, "L0"), (1, None, "L0")])
+        r = self.c.put(f"{url}/{m['blob']}/rooms", json={"names": ["Great room", "Corby"], "descriptions": ["", "boy's room"]}, headers=self.ok)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.c.put(f"{url}/{m['blob']}/rooms", json={"names": ["a", "b"], "descriptions": ["x"]}, headers=self.ok).status_code, 422)
+        imp = self.c.post(f"{url}/{m['blob']}/import?level=L0", headers=self.ok).json()["house"]
+        self.assertEqual(self.c.put("/api/houses/fresh?expect_revision=%d" % h["revision"], content=json.dumps(imp), headers=self.ok).status_code, 200)
+        rooms = self.c.get("/api/houses/fresh/rooms", headers=self.ok).json()
+        self.assertEqual([(r["name"], r["description"], bool(r["placed"])) for r in rooms], [("Great room", "", True), ("Corby", "boy's room", True)])
+        # the floor of a placed scan moves with its walls and rooms, in one revision
+        before = self.c.get("/api/houses/fresh", headers=self.ok).json()["revision"]
+        mv = self.c.put(f"{url}/{m['blob']}/level", json={"level": "L1"}, headers=self.ok)
+        self.assertEqual((mv.status_code, mv.json()["level"]), (200, "L1"))
+        house = self.c.get("/api/houses/fresh", headers=self.ok).json()
+        self.assertTrue(all(w["level"] == "L1" for w in house["walls"]))
+        self.assertTrue(all(r["level"] == "L1" for r in house["rooms"]))
+        self.assertEqual(house["revision"], before + 1)
+        self.assertEqual({r["level"] for r in self.c.get("/api/houses/fresh/rooms", headers=self.ok).json()}, {"L1"})
+        self.assertEqual(self.c.put(f"{url}/{m['blob']}/level", json={"level": "nope"}, headers=self.ok).status_code, 422)
+
     def test_place_endpoint(self):
         self.c.post("/api/houses", json={"id": "fresh", "name": "Fresh"}, headers=self.ok)
         url = "/api/houses/fresh/captures"

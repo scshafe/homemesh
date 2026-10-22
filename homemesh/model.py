@@ -95,6 +95,7 @@ class Room(_Base):
     id: str
     level: str
     name: str
+    description: str = ""
     polygon: list[Point2] = Field(min_length=3)
     kind: str = "room"
     prov: Prov = Field(default_factory=manual)
