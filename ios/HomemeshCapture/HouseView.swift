@@ -213,6 +213,7 @@ struct RoomDetailView: View {
                     Text(room.placed == nil ? "Not on the plan yet." : "On the plan.").font(.footnote)
                 }
             }
+            RoomFurnitureSection(houseId: houseId, roomId: room.placed)
             if !status.isEmpty { Text(status).font(.footnote) }
         }
         .navigationTitle(room.title)

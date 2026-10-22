@@ -53,6 +53,8 @@ struct PlanCanvas: View {
     var heat: HeatLayer?
     var heatB: HeatLayer?                // with `heat`, the map shows where B is faster (blue) or A is (red)
     var selectedZone: String?
+    var furniture: [PlanFurniture] = []
+    var selectedFurniture: String?
     var onTapPlan: ((Pt, Double) -> Void)?    // a tap, in plan metres, with a tolerance of about 24 points in metres
     var onDrag: ((Pt) -> Void)?       // plan metres moved since the gesture began
     var onDragEnd: (() -> Void)?
@@ -64,6 +66,7 @@ struct PlanCanvas: View {
         if !names.isEmpty { parts.append("rooms: " + names.joined(separator: ", ")) }
         if !markers.isEmpty { parts.append("\(markers.count) marked thing(s)") }
         if !zones.isEmpty { parts.append("\(zones.count) zone(s)") }
+        if !furniture.isEmpty { parts.append("\(furniture.count) piece(s) of furniture") }
         if heat != nil { parts.append("coloured by client speed") }
         return parts.joined(separator: ", ")
     }
@@ -99,6 +102,19 @@ struct PlanCanvas: View {
                     ctx.fill(path, with: .color(.blue.opacity(0.08)))
                     let c = Pt(r.polygon.map(\.x).reduce(0, +) / Double(r.polygon.count), r.polygon.map(\.y).reduce(0, +) / Double(r.polygon.count))
                     ctx.draw(Text(r.name).font(.caption).foregroundStyle(.secondary), at: map(c))
+                }
+                for f in furniture {   // under the walls and the things marked on the plan
+                    let corners = f.corners
+                    var path = Path()
+                    path.move(to: map(corners[0]))
+                    for p in corners.dropFirst() { path.addLine(to: map(p)) }
+                    path.closeSubpath()
+                    let sel = f.id == selectedFurniture
+                    ctx.fill(path, with: .color((f.movable ? Color.orange : Color.brown).opacity(sel ? 0.45 : 0.22)))
+                    ctx.stroke(path, with: .color(sel ? .accentColor : (f.movable ? .orange : .brown)), style: StrokeStyle(lineWidth: sel ? 3 : 1, dash: f.movable ? [4, 2] : []))
+                    if scale * CGFloat(min(f.width, f.depth)) > 26 {
+                        ctx.draw(Text(f.title).font(.system(size: 9)).foregroundStyle(.secondary), at: map(f.center))
+                    }
                 }
                 for w in walls {
                     var path = Path()
