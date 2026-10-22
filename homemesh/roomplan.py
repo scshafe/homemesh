@@ -498,7 +498,34 @@ def _area(poly: list[tuple[float, float]]) -> float:
 
 def import_capture(house: House, data: dict, level: str, blob: str, transform: Similarity2D | None = None,
                    defaults: Defaults = Defaults(), names: list[str] | None = None,
-                   descriptions: list[str] | None = None, make_rooms: bool = True) -> tuple[House, Report]:
+                   descriptions: list[str] | None = None, make_rooms: bool = True,
+                   room_levels: list[str | None] | None = None) -> tuple[House, Report]:
+    """`room_levels` (one level id per room, None for `level`) splits a scan whose rooms are on different stories: the
+    rooms of each level are imported on it, all with the one placement `transform`."""
+    ids = {lv.id for lv in house.levels}
+    n_rooms = len(_rooms(data))
+    if room_levels and len(room_levels) == n_rooms and any(lv and lv != level for lv in room_levels):
+        per = [lv if lv in ids else level for lv in room_levels]
+        groups: dict[str, list[int]] = {}
+        for i, lv in enumerate(per):
+            groups.setdefault(lv, []).append(i)
+        cur, total = house, Report()
+        rooms_all = _rooms(data)
+        for g, (lv, idx) in enumerate(groups.items()):   # the first level clears this scan's earlier import, the rest append
+            sub = {**data, "rooms": [rooms_all[i] for i in idx]}
+            cur, r = _import_one(cur, sub, lv, blob, transform, defaults, names, descriptions, make_rooms, idx, append=g > 0)
+            for f in ("replaced", "walls", "paired_walls", "openings", "skipped_openings", "rooms", "curved_walls", "profile_walls", "folded_jogs", "furniture"):
+                setattr(total, f, getattr(total, f) + getattr(r, f))
+            total.stairs += r.stairs
+            total.notes += [n for n in r.notes if n not in total.notes]
+        total.notes.append("the scan's rooms are on " + ", ".join(sorted(groups)) + ": each was imported on its own floor")
+        return cur, total
+    return _import_one(house, data, level, blob, transform, defaults, names, descriptions, make_rooms, list(range(n_rooms)), append=False)
+
+
+def _import_one(house: House, data: dict, level: str, blob: str, transform: Similarity2D | None, defaults: Defaults,
+                names: list[str] | None, descriptions: list[str] | None, make_rooms: bool, room_idx: list[int],
+                append: bool) -> tuple[House, Report]:
     """A copy of `house` with the scan's walls and openings on `level`.
 
     Importing the same blob again replaces what it added before (walls whose
@@ -540,7 +567,8 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
     extra = [m for m in default_materials() if m.id not in mats and m.id in {defaults.material, "wood-door", "glass"}]
     houses_mats = [*house.materials, *extra]
 
-    kept = [w for w in house.walls if not (w.prov.ref or "").startswith(f"{blob}#")]
+    appending = append   # a later level of a split scan: keep what the earlier ones added
+    kept = house.walls if appending else [w for w in house.walls if not (w.prov.ref or "").startswith(f"{blob}#")]
     rep.replaced = len(house.walls) - len(kept)
     taken = {w.id for w in kept}
     new: list[Wall] = []
@@ -597,12 +625,14 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
 
     # one Room per scanned room: the outline is the convex hull of its wall ends (an L-shaped room gets
     # its hull until a floor outline is imported), named by the owner (`names`), else by the capture, else "Room N"
-    kept_rooms = [r for r in house.rooms if not (r.prov.ref or "").startswith(f"{blob}#")]
+    kept_rooms = house.rooms if appending else [r for r in house.rooms if not (r.prov.ref or "").startswith(f"{blob}#")]
     taken_r = {r.id for r in kept_rooms}
     new_rooms: list[Room] = []
     carried = room_names(data)
     n = 0
-    for i, r in enumerate(_rooms(data) if make_rooms else []):
+    for k, r in enumerate(_rooms(data) if make_rooms else []):
+        i = room_idx[k]   # the room's index in the whole scan: names, descriptions and the room ref use it
+        j = k            # its index in `data`
         ends = []
         for sf in _surfaces(r):
             if sf.kind == "wall":
@@ -615,7 +645,7 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
             n += 1
         n += 1
         taken_r.add(f"r{n}")
-        label = (names[i] if names and i < len(names) and names[i].strip() else carried[i]) or f"Room {i + 1}"
+        label = (names[i] if names and i < len(names) and names[i].strip() else carried[j]) or f"Room {i + 1}"
         about = (descriptions[i] if descriptions and i < len(descriptions) else "").strip()[:500]
         new_rooms.append(Room(id=f"r{n}", level=level, name=label.strip()[:80], description=about, polygon=[(round(x, 4), round(y, 4)) for x, y in poly],
                               prov=Prov(source="scan", ref=f"{blob}#room/{i}")))
@@ -625,7 +655,7 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
     # furniture: this scan's earlier items are replaced, keeping what the owner named or overrode (matched by object id)
     if make_rooms:
         before = {f.prov.ref: f for f in house.furniture if (f.prov.ref or "").startswith(f"{blob}#")}
-        kept_f = [f for f in house.furniture if not (f.prov.ref or "").startswith(f"{blob}#")]
+        kept_f = house.furniture if appending else [f for f in house.furniture if not (f.prov.ref or "").startswith(f"{blob}#")]
         taken_f = {f.id for f in kept_f}
         level_rooms = [r for r in (*kept_rooms, *new_rooms) if r.level == level]
         n = 0

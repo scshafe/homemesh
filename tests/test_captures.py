@@ -123,6 +123,32 @@ class CaptureApiTest(Base):
         self.assertTrue(any("no stairs object" in n for n in imp["report"]["notes"]))
         self.assertEqual(self.c.post(self.url + "?purpose=other", content=json.dumps(two_rooms()), headers=self.ok).status_code, 422)
 
+    def test_a_scan_spanning_stories_is_imported_on_each_rooms_floor(self):
+        lv = self.c.post("/api/houses/synthetic-box/levels", json={"name": "Up"}, headers=self.ok).json()["levels"][-1]["id"]
+        data = two_rooms()
+        data["rooms"][0]["story"], data["rooms"][1]["story"] = 0, 1
+        data["room_levels"] = ["L0", lv]
+        m = self.upload(data=data).json()
+        self.assertEqual((m["stories"], m["room_levels"]), ([0, 1], ["L0", lv]))
+        rooms = {r["index"]: r for r in self.c.get("/api/houses/synthetic-box/rooms", headers=self.ok).json() if r["capture"] == m["blob"]}
+        self.assertEqual((rooms[0]["level"], rooms[1]["level"], rooms[1]["story"]), ("L0", lv, 1))
+        out = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", headers=self.ok).json()
+        mine = lambda x: (x["prov"].get("ref") or "").startswith(m["blob"])  # noqa: E731
+        by_level = {}
+        for w in filter(mine, out["house"]["walls"]):
+            by_level[w["level"]] = by_level.get(w["level"], 0) + 1
+        self.assertEqual(by_level, {"L0": 4, lv: 4})   # four walls each, never merged across the floors
+        self.assertEqual(sorted(r["level"] for r in filter(mine, out["house"]["rooms"])), sorted(["L0", lv]))
+        self.assertEqual(sorted(f["level"] for f in filter(mine, out["house"]["furniture"])), sorted(["L0", lv]))
+        # importing again replaces everything of this scan on both floors
+        again = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", json={"house": out["house"]}, headers=self.ok).json()
+        self.assertEqual(len([w for w in again["house"]["walls"] if mine(w)]), 8)
+        # an unknown floor is refused; moving the whole scan to one floor clears the split
+        data["room_levels"] = ["L0", "nope"]
+        self.assertEqual(self.upload(data=data).status_code, 422)
+        moved = self.c.put(f"{self.url}/{m['blob']}/level", json={"level": "L0"}, headers=self.ok).json()
+        self.assertIsNone(moved["room_levels"])
+
     def test_import_with_a_transform(self):
         m = self.upload().json()
         r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", content=json.dumps({"transform": {"rotation": 90, "tx": 10, "ty": 20}}),

@@ -1,7 +1,7 @@
 """Stored scans: the capture JSON (and its USDZ) as blobs, with a small index.
 
     houses/<id>/blobs/<sha256>            the JSON as uploaded, and the USDZ
-    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, descriptions, level, replaces, baro, stairs_found, stair, purpose}  (derived; rebuildable from the blob)
+    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, descriptions, level, replaces, baro, stairs_found, stair, purpose, stories, room_levels}  (derived; rebuildable from the blob)
 """
 
 from __future__ import annotations
@@ -55,6 +55,20 @@ def stairs_found(data: dict) -> list[dict]:
     return [{k: f[k] for k in ("rise", "width", "run")} for f in stair_footprints(data)]
 
 
+def room_levels_of(data: dict) -> list[str | None] | None:
+    """The app's floor for each room when a scan spans stories (`room_levels` in the wrapper), else None."""
+    rl = data.get("room_levels")
+    n = len(data["rooms"]) if isinstance(data.get("rooms"), list) else 1
+    if isinstance(rl, list) and len(rl) == n and all(x is None or isinstance(x, str) for x in rl):
+        return [x or None for x in rl]
+    return None
+
+
+def stories_of(data: dict) -> list[int | None]:
+    """RoomPlan's `story` of each room."""
+    return [r.get("story") if isinstance(r.get("story"), int) else None for r in _rooms(data)]
+
+
 def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", replaces: str = "", purpose: str = "",
                  stair: dict | None = None) -> dict:
     if len(raw) > MAX_JSON:
@@ -68,7 +82,8 @@ def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", rep
     counts = summarise(data)
     digest = store.put_blob(house_id, raw)
     meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None, "rooms": room_names(data), "level": level or None, "replaces": replaces or None, "baro": baro_of(data),
-            "stairs_found": stairs_found(data), "stair": stair or None, "purpose": purpose or None}
+            "stairs_found": stairs_found(data), "stair": stair or None, "purpose": purpose or None,
+            "stories": stories_of(data), "room_levels": room_levels_of(data)}
     path = _dir(house_id) / f"{digest}.json"
     if path.exists():  # the same scan uploaded twice: keep what is known (the USDZ, the name)
         old = json.loads(path.read_text())
@@ -76,7 +91,8 @@ def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", rep
                      "rooms": old.get("rooms") if any(old.get("rooms") or []) else meta["rooms"],
                      "level": level or old.get("level"), "replaces": replaces or old.get("replaces"),
                      "baro": meta["baro"] or old.get("baro"), "stair": stair or old.get("stair"),
-                     "purpose": purpose or old.get("purpose")})
+                     "purpose": purpose or old.get("purpose"),
+                     "room_levels": meta["room_levels"] or old.get("room_levels")})
     store._write_atomic(path, json.dumps(meta).encode())
     return meta
 
@@ -108,6 +124,7 @@ def set_room_names(house_id: str, digest: str, names: list[str], descriptions: l
 def set_level(house_id: str, digest: str, level: str) -> dict:
     meta = get_meta(house_id, digest)
     meta["level"] = level
+    meta["room_levels"] = None   # the whole scan is on one floor now
     store._write_atomic(_dir(house_id) / f"{digest}.json", json.dumps(meta).encode())
     return meta
 
