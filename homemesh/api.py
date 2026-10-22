@@ -444,6 +444,18 @@ def create_app() -> FastAPI:
                 out["registration"]["max_error_m"] = roomplan.registration_error(src, dst, sim)
         return out
 
+    @app.post("/api/houses/{house_id}/revisions/{revision}/restore", dependencies=[api])
+    def restore_revision(house_id: str, revision: int, expect_revision: int) -> dict:
+        """Undo: save the house as it was at `revision` as the next revision (history is kept, nothing is rewritten)."""
+        get_house(house_id)
+        try:
+            old = store.load(house_id, revision)
+            return store.save(old, expect_revision=expect_revision).model_dump(mode="json")
+        except store.Conflict:
+            raise HTTPException(409, "changed elsewhere; reload") from None
+        except store.StoreError as e:
+            raise HTTPException(404 if "no such" in str(e) else 422, str(e)) from None
+
     @app.get("/api/houses/{house_id}/revisions", dependencies=[api])
     def revisions(house_id: str) -> list[int]:
         return store.list_revisions(house_id)

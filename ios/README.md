@@ -83,6 +83,8 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    **Offline**: Upload first saves the scan on the phone (Files, homemesh, Uploads), then sends it. If there is no signal
    or the server says no, it stays under "Waiting to upload" in the house, is retried whenever you open or refresh the
    house, and is removed only after the server confirmed the scan and its 3D model.
+   **Undo** (top right of a floor's plan) goes back to the plan as it was before the last change; press again to go further
+   back. Nothing is lost: the earlier versions stay in the house's history.
    Still later: placing scans is in the room details; planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.

@@ -315,6 +315,12 @@ Offline scan queue: `UploadQueue` writes the scan (JSON, USDZ, house, floor, nam
 network call and removes it only after 2xx for both parts; `HouseView` lists and retries the house's queued scans (in order, stopping at the
 first failure) on open and on refresh. Everything else still needs the server (Q3).
 
+### As built (P9b)
+
+Undo: `POST /api/houses/<id>/revisions/<n>/restore?expect_revision=` saves revision `n` as the next revision (history kept, 409 if the house
+moved on). The plan screen's Undo restores the revision before the current one, and again before that on a second press; an ordinary edit
+resets the chain.
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the
