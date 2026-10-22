@@ -160,44 +160,107 @@ def _transform_walls(walls: list[Wall], sim: Similarity2D) -> list[Wall]:
     return [w.model_copy(update={"a": sim.apply(w.a), "b": sim.apply(w.b)}) for w in walls]
 
 
-def _score(c: Candidate, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples,
+MAX_FULL = 60   # candidates scored in full; the rest are ranked by their cheap evidence (coinciding openings, names)
+
+
+def _seg_points(walls: list[Wall]) -> tuple[np.ndarray, np.ndarray]:
+    """Points along the walls every SAMPLE metres and each one's wall angle (mod pi), as arrays."""
+    pts, angs = [], []
+    for w in walls:
+        a, b = np.array(w.a, float), np.array(w.b, float)
+        ln = float(np.linalg.norm(b - a))
+        if ln < 1e-6:
+            continue
+        n = max(1, int(ln / SAMPLE))
+        t = (np.arange(n) + 0.5) / n
+        pts.append(a + (b - a) * t[:, None])
+        angs.append(np.full(n, math.atan2(b[1] - a[1], b[0] - a[0]) % math.pi))
+    if not pts:
+        return np.zeros((0, 2)), np.zeros(0)
+    return np.vstack(pts), np.concatenate(angs)
+
+
+@dataclass
+class _Ctx:
+    """What does not change from one candidate to the next, computed once per proposal."""
+    scan_pts: np.ndarray
+    scan_ang: np.ndarray
+    plan_a: np.ndarray
+    plan_ab: np.ndarray
+    plan_len2: np.ndarray
+    plan_ang: np.ndarray
+
+    @staticmethod
+    def build(scan_walls: list[Wall], plan_walls: list[Wall]) -> "_Ctx":
+        pts, ang = _seg_points(scan_walls)
+        a = np.array([w.a for w in plan_walls], float).reshape(-1, 2)
+        b = np.array([w.b for w in plan_walls], float).reshape(-1, 2)
+        ab = b - a
+        pa = np.array([math.atan2(d[1], d[0]) % math.pi for d in ab]) if len(ab) else np.zeros(0)
+        return _Ctx(pts, ang, a, ab, np.maximum((ab * ab).sum(axis=1), 1e-12), pa)
+
+
+def _inside_many(P: np.ndarray, poly: np.ndarray) -> np.ndarray:
+    x, y = P[:, 0][:, None], P[:, 1][:, None]
+    x1, y1 = poly[:, 0][None], poly[:, 1][None]
+    x2, y2 = np.roll(poly[:, 0], -1)[None], np.roll(poly[:, 1], -1)[None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        crosses = ((y1 > y) != (y2 > y)) & (x < (x2 - x1) * (y - y1) / (y2 - y1) + x1)
+    return (crosses.sum(axis=1) % 2).astype(bool)
+
+
+def _edge_dist_many(P: np.ndarray, poly: np.ndarray) -> np.ndarray:
+    a, b = poly, np.roll(poly, -1, axis=0)
+    ab = (b - a)[None]
+    ap = P[:, None, :] - a[None]
+    t = np.clip((ap * ab).sum(axis=2) / np.maximum((ab * ab).sum(axis=2), 1e-12), 0, 1)
+    d = ap - t[..., None] * ab
+    return np.sqrt((d * d).sum(axis=2)).min(axis=1)
+
+
+def _deep_many(P: np.ndarray, poly: np.ndarray, margin: float) -> np.ndarray:
+    """Which points are inside `poly` by more than `margin`. Points outside its bounding box are skipped."""
+    out = np.zeros(len(P), bool)
+    if not len(P):
+        return out
+    lo, hi = poly.min(axis=0), poly.max(axis=0)
+    near = np.all((P >= lo) & (P <= hi), axis=1)
+    if near.any():
+        Q = P[near]
+        out[near] = _inside_many(Q, poly) & (_edge_dist_many(Q, poly) > margin)
+    return out
+
+
+def _score(c: Candidate, ctx: _Ctx, scan_open, scan_rooms, plan_open, plan_rooms,
            scan_stairs=(), plan_stairs=()) -> None:
-    sim = c.sim()
     R = _rot(c.rotation)
     t = np.array([c.tx, c.ty])
+    P = ctx.scan_pts @ R.T + t
+    ang = (ctx.scan_ang + math.radians(c.rotation)) % math.pi
     # walls lying on parallel plan walls, and walls crossing plan rooms
     covered = crossing = 0
     same = {_fold(n) for n, _ in scan_rooms} - {""}  # a room scanned again lies on top of itself: not an overlap
-    solid = [(n, poly) for n, poly in plan_rooms if _fold(n) not in same]
-    for w in scan_walls:
-        a, b = np.array(sim.apply(w.a)), np.array(sim.apply(w.b))
-        ang = math.atan2(b[1] - a[1], b[0] - a[0]) % math.pi
-        ln = float(np.linalg.norm(b - a))
-        n = max(1, int(ln / SAMPLE))
-        for i in range(n):
-            p = a + (b - a) * ((i + 0.5) / n)
-            on = False
-            for q, qa in plan_samples:
-                dq = abs(qa - ang)
-                if min(dq, math.pi - dq) <= ANGLE_TOL and float(np.linalg.norm(p - q)) <= WALL_TOL * 3:
-                    for w2 in plan_walls:
-                        if _dist_to_wall(p, w2) <= WALL_TOL:
-                            on = True
-                            break
-                    if on:
-                        break
-            covered += on
-            if any(_deep_inside(p, poly, INSET) for _, poly in solid):
-                crossing += 1
+    solid = [poly for n, poly in plan_rooms if _fold(n) not in same]
+    if len(P) and len(ctx.plan_a):
+        keep = np.all((ctx.plan_a + np.minimum(ctx.plan_ab, 0) <= P.max(axis=0) + WALL_TOL) &
+                      (ctx.plan_a + np.maximum(ctx.plan_ab, 0) >= P.min(axis=0) - WALL_TOL), axis=1)   # walls near the scan at all
+        if keep.any():
+            A, AB, L2, PA = ctx.plan_a[keep], ctx.plan_ab[keep], ctx.plan_len2[keep], ctx.plan_ang[keep]
+            ap = P[:, None, :] - A[None]
+            tt = np.clip((ap * AB[None]).sum(axis=2) / L2[None], 0, 1)
+            d = ap - tt[..., None] * AB[None]
+            dist = np.sqrt((d * d).sum(axis=2))
+            dq = np.abs(ang[:, None] - PA[None])
+            parallel = np.minimum(dq, math.pi - dq) <= ANGLE_TOL
+            covered = int(((dist <= WALL_TOL) & parallel).any(axis=1).sum())
+    if len(P):
+        inside = np.zeros(len(P), bool)
+        for poly in solid:
+            inside |= _deep_many(P, poly, INSET)
+        crossing = int(inside.sum())
     c.wall_m = covered * SAMPLE
     # coinciding openings
-    c.openings = 0
-    for o in scan_open:
-        mid = R @ o.mid + t
-        for p in plan_open:
-            if p.kind == o.kind and float(np.linalg.norm(mid - p.mid)) <= OPENING_TOL and abs(p.width - o.width) <= 0.25:
-                c.openings += 1
-                break
+    c.openings = _open_matches(R, t, scan_open, plan_open)
     # equal names with coinciding centres, and room overlap
     c.names = 0
     c.area_m2 = 0.0
@@ -208,14 +271,66 @@ def _score(c: Candidate, scan_walls, scan_open, scan_rooms, plan_walls, plan_ope
             if _fold(name) and _fold(name) == _fold(pname) and float(np.linalg.norm(centre - ppoly.mean(axis=0))) <= 1.0:
                 c.names += 1
         lo, hi = tp.min(axis=0), tp.max(axis=0)
-        for x in np.arange(lo[0] + 0.1, hi[0], 0.2):
-            for y in np.arange(lo[1] + 0.1, hi[1], 0.2):
-                p = np.array([x, y])
-                if _deep_inside(p, tp, INSET) and any(_deep_inside(p, pp, INSET) for pn, pp in plan_rooms if _fold(pn) != _fold(name) or not _fold(name)):
-                    c.area_m2 += 0.04
+        xs, ys = np.arange(lo[0] + 0.1, hi[0], 0.2), np.arange(lo[1] + 0.1, hi[1], 0.2)
+        if not len(xs) or not len(ys):
+            continue
+        G = np.array([(x, y) for x in xs for y in ys])
+        G = G[_deep_many(G, tp, INSET)]
+        if len(G):
+            hit = np.zeros(len(G), bool)
+            for pn, pp in plan_rooms:
+                if _fold(pn) != _fold(name) or not _fold(name):
+                    hit |= _deep_many(G, pp, INSET)
+            c.area_m2 += 0.04 * int(hit.sum())
     c.stairs = sum(1 for sp in scan_stairs
                    if any(float(np.linalg.norm((R @ sp.mean(axis=0)) + t - pp.mean(axis=0))) <= 0.6 for pp in plan_stairs))
     c.score = (W_WALL * c.wall_m + W_OPENING * c.openings + W_STAIR * c.stairs + W_NAME * c.names - W_AREA * c.area_m2 - W_CROSS * crossing * SAMPLE)
+
+
+def _open_matches(R: np.ndarray, t: np.ndarray, scan_open: list[Opening2], plan_open: list[Opening2]) -> int:
+    """Scan openings that coincide with a plan opening of the same kind and about the same width."""
+    if not scan_open or not plan_open:
+        return 0
+    sm = np.array([o.mid for o in scan_open]) @ R.T + t
+    pm = np.array([o.mid for o in plan_open])
+    sk = np.array([o.kind == "window" for o in scan_open])
+    pk = np.array([o.kind == "window" for o in plan_open])
+    sw, pw = np.array([o.width for o in scan_open]), np.array([o.width for o in plan_open])
+    near = np.linalg.norm(sm[:, None, :] - pm[None], axis=2) <= OPENING_TOL
+    ok = near & (sk[:, None] == pk[None]) & (np.abs(sw[:, None] - pw[None]) <= 0.25)
+    return int(ok.any(axis=1).sum())
+
+
+def _prefilter(cands: list[Candidate], scan_open, scan_rooms, plan_open, plan_rooms) -> list[Candidate]:
+    """Keep the MAX_FULL candidates with the most cheap evidence (a deterministic order); the full wall and overlap
+    score is the expensive part and is only worth spending on those."""
+    if len(cands) <= MAX_FULL:
+        return cands
+    def cheap(c: Candidate) -> tuple:
+        R, t = _rot(c.rotation), np.array([c.tx, c.ty])
+        names = 0
+        for name, poly in scan_rooms:
+            if not _fold(name):
+                continue
+            centre = ((R @ poly.T).T + t).mean(axis=0)
+            names += sum(1 for pn, pp in plan_rooms if _fold(pn) == _fold(name) and float(np.linalg.norm(centre - pp.mean(axis=0))) <= 1.0)
+        overlap = 0.0   # room overlap on a coarse 0.5 m grid: a doorway match that puts the scan on top of rooms is a poor one
+        for name, poly in scan_rooms:
+            tp = (R @ poly.T).T + t
+            lo, hi = tp.min(axis=0), tp.max(axis=0)
+            xs, ys = np.arange(lo[0] + 0.25, hi[0], 0.5), np.arange(lo[1] + 0.25, hi[1], 0.5)
+            if not len(xs) or not len(ys):
+                continue
+            G = np.array([(x, y) for x in xs for y in ys])
+            G = G[_deep_many(G, tp, INSET)]
+            hit = np.zeros(len(G), bool)
+            for pn, pp in plan_rooms:
+                if len(G) and (_fold(pn) != _fold(name) or not _fold(name)):
+                    hit |= _deep_many(G, pp, INSET)
+            overlap += 0.25 * int(hit.sum())
+        return (-(_open_matches(R, t, scan_open, plan_open) * W_OPENING + names * W_NAME - W_AREA * overlap),
+                round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2))
+    return sorted(cands, key=cheap)[:MAX_FULL]
 
 
 def _candidates(scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs=(), plan_stairs=()) -> list[Candidate]:
@@ -309,8 +424,9 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
 
     if not plan_walls and scan_stairs and plan_stairs:  # the first scan of a floor: line it up by the staircase from the floor below/above
         cands = _candidates([], [], [], [], scan_stairs, plan_stairs)
+        ctx0 = _Ctx.build(scan_walls, [])
         for c in cands:
-            _score(c, scan_walls, [], scan_rooms, [], [], [], [], scan_stairs, plan_stairs)
+            _score(c, ctx0, [], scan_rooms, [], [], scan_stairs, plan_stairs)
         cands.sort(key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
         best = cands[0]
         return {"confidence": "confirm", "reason": "lined up by the staircase to the floor below or above: check the rotation", **_out(best),
@@ -332,14 +448,15 @@ def propose(house: House, data: dict, level: str, blob: str, names: list[str] | 
         return {"confidence": "manual", "reason": "no shared doorway or room name to line the scan up by",
                 "transform": {"rotation": 0.0, "tx": 0.0, "ty": 0.0}, "score": 0.0, "evidence": {}, "alternatives": [],
                 "preview": _preview(scan_walls, Candidate(0.0, 0.0, 0.0, "none"))}
-    plan_samples = _samples(plan_walls)
+    ctx = _Ctx.build(scan_walls, plan_walls)
     plan_dom = _dominant(plan_walls)
+    cands = _prefilter(cands, scan_open, scan_rooms, plan_open, plan_rooms)
     for c in cands:
-        _score(c, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples, scan_stairs, plan_stairs)
+        _score(c, ctx, scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
     cands.sort(key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
     for c in cands[:5]:
         _snap(c, scan_walls, plan_dom)
-        _score(c, scan_walls, scan_open, scan_rooms, plan_walls, plan_open, plan_rooms, plan_samples, scan_stairs, plan_stairs)
+        _score(c, ctx, scan_open, scan_rooms, plan_open, plan_rooms, scan_stairs, plan_stairs)
     top = sorted(cands[:5], key=lambda c: (-c.score, round(c.rotation, 1), round(c.tx, 2), round(c.ty, 2)))
     best = top[0]
     others = [c for c in top[1:] if _distinct(best, c)]
