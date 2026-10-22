@@ -73,6 +73,8 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    "Find the best arrangements" runs the plan with your shortlist and shows the progress. Results are ranked best first
    with badges (best trade-off, misses a must-have, unstable ranking); open one for why it ranks there, where its nodes
    go, how each zone fares and how the nodes connect, and "Show the signal on the plan" for the client-speed map by floor.
+   Tap the circle on two results to **compare** them: the signal maps (A, B, or where one is faster) and a table of
+   score, cost, worst zone and each zone's utility.
    Still later: placing scans is in the room details; planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.
