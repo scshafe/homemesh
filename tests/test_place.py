@@ -64,6 +64,19 @@ class PlaceTest(unittest.TestCase):
                 # the two sides of the shared wall are one wall thickness (0.12 m) apart in the doorway match
                 self.assertLessEqual(worst_gap(centres(h, "B" * 64), centres(self.truth, "B" * 64)), 0.14)
 
+    def test_a_door_labelled_to_a_placed_room_is_the_candidate(self):
+        house, _ = import_capture(empty_house(), wrap(self.a), "L0", "A" * 64, names=["Kitchen"])
+        scan = wrap(moved(wrap(self.b), 37, 5, -3)["rooms"][0])
+        p = place.propose(house, scan, "L0", "B" * 64, door_labels={"B-door0": "kitchen"})   # names compare folded
+        self.assertEqual(p["confidence"], "labelled", p)
+        self.assertIn("Kitchen".lower(), p["reason"].lower())
+        h, _ = import_capture(house, scan, "L0", "B" * 64, Similarity2D(1.0, **{k: p["transform"][k] for k in ("rotation", "tx", "ty")}))
+        self.assertLessEqual(worst_gap(centres(h, "B" * 64), centres(self.truth, "B" * 64)), 0.14)
+        # a label for a room that is not on the plan, or "outside", leaves the ordinary search in charge
+        for lbl in ("Garage", "outside"):
+            q = place.propose(house, scan, "L0", "B" * 64, door_labels={"B-door0": lbl})
+            self.assertEqual(q["confidence"], "auto")
+
     def test_rotation_is_snapped_to_the_plan(self):
         p, _ = self.placed(wrap(moved(wrap(self.b), 37.0, 2, 2)["rooms"][0]))
         self.assertAlmostEqual(p["transform"]["rotation"] % 90, (-37) % 90, delta=0.6)

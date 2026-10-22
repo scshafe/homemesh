@@ -443,6 +443,32 @@ def _in_poly(p: tuple[float, float], poly: list) -> bool:
     return inside
 
 
+def scan_doors(data: dict) -> list[dict]:
+    """The doors and openings of a scan, in its own plan frame: [{id, kind, room, x, y, angle (deg), width}]. `id` is the
+    first 8 characters of RoomPlan's identifier, the key doorway labels use."""
+    out = []
+    for i, r in enumerate(_rooms(data)):
+        for sf in _surfaces(r):
+            if sf.kind in ("door", "opening"):
+                mid = _plan(sf.centre)
+                ax = _plan(sf.axis)
+                out.append({"id": sf.ident[:8], "kind": sf.kind, "room": i, "x": round(float(mid[0]), 4), "y": round(float(mid[1]), 4),
+                            "angle": round(math.degrees(math.atan2(ax[1], ax[0])), 3), "width": round(sf.w, 3)})
+    return out
+
+
+def scan_wall_segments(data: dict) -> list[dict]:
+    """The scan's wall surfaces as plan segments in its own frame (for a small picture of the scan)."""
+    out = []
+    for r in _rooms(data):
+        for sf in _surfaces(r):
+            if sf.kind == "wall":
+                half = sf.axis * sf.w / 2
+                a, b = _plan(sf.centre - half), _plan(sf.centre + half)
+                out.append({"a": [round(float(a[0]), 3), round(float(a[1]), 3)], "b": [round(float(b[0]), 3), round(float(b[1]), 3)]})
+    return out
+
+
 def furniture_items(data: dict, sim: Similarity2D, floor_y: float) -> list[dict]:
     """RoomPlan objects other than stairs as furniture fields (plan coordinates, `ref` for matching on re-import)."""
     out = []

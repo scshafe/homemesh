@@ -496,3 +496,17 @@ pickers; validated on upload) and the meta keeps `stories` (RoomPlan's `story` p
 `place` split the scan's rooms by floor (walls merge per floor, one placement for all, furniture and room refs keep their
 index in the whole scan); the room list shows each room's own floor; `PUT .../level` puts the whole scan on one floor
 and clears the split.
+
+## Doorway labels for stitching (owner decision, 2026-10-22)
+
+Where a door leads is something the owner knows and the scan does not. Each door or opening of a scan can carry
+"leads to: <room name>" (a room on any floor, or "outside"), stored per capture as `door_labels` (`{door id: name}`,
+the id being the first 8 characters of RoomPlan's identifier, so it survives re-import). Set in the post-scan save
+sheet (an optional Doors section: a small picture of the scan with its doors numbered, each with a picker of the house's
+rooms, this session's rooms and Outside), carried in the capture wrapper, and editable later from the room's screen
+(`GET/PUT .../captures/<blob>/doors`). Placement: a labelled door whose room is already on the floor pairs with each
+plan door within 0.6 m of that room's outline, in both orientations; the best by the usual score is the proposal with
+confidence **labelled** and the global search is skipped (when nothing fits, the ordinary search runs). In the placement
+view the owner can also tap a door on the red scan and then its partner on the plan: it snaps (a flip button chooses the
+orientation) and the pair is saved as labels on both scans, the quick path for scans not yet placed. Labels are
+the input a later "place everything on this floor" would chain from.
