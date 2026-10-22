@@ -89,6 +89,17 @@ class CaptureApiTest(Base):
         names = [x["name"] for x in rooms if (x["prov"].get("ref") or "").startswith(m["blob"])]
         self.assertEqual(sorted(names), ["Room 2", "Study"])
 
+    def test_barometer_reading_is_kept_and_listed_with_the_rooms(self):
+        data = two_rooms()
+        data["baro"] = {"session": "s1", "rel_m": -2.9, "kpa": 101.2, "at": 1000.0}
+        m = self.upload(data=data).json()
+        self.assertEqual(m["baro"], data["baro"])
+        rooms = self.c.get("/api/houses/synthetic-box/rooms", headers=self.ok).json()
+        self.assertTrue(all(r["baro"] == data["baro"] for r in rooms))
+        bad = two_rooms()
+        bad["baro"] = {"session": "s1", "rel_m": "high"}
+        self.assertIsNone(self.upload(data=bad).json()["baro"])
+
     def test_import_with_a_transform(self):
         m = self.upload().json()
         r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", content=json.dumps({"transform": {"rotation": 90, "tx": 10, "ty": 20}}),
