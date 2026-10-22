@@ -296,6 +296,10 @@ explanation lines and stability note, node placements, per-zone utility, rate an
 `RateMapView` draws the `ratemap` grids per floor under the walls with the nodes and the router marked (log colour scale as in the web
 app). `ratemap` now returns null for cells with no service (NaN is not JSON). Comparing two arrangements is P7b.
 
+### As built (P7b)
+
+Tap the circle on two ranked rows, then "Compare": `CompareView` loads both `ratemap`s and shows A, B or the difference (blue where B is faster, red where A is, as in the web app) per floor, with a table of score, cost, worst zone, node count and each zone's utility.
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the
