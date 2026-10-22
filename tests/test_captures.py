@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from homemesh import api, captures, seed, store
 from tests.roomplan_synth import two_rooms
+from tests.test_place import moved, wrap
 
 
 class Base(unittest.TestCase):
@@ -126,6 +127,35 @@ class CaptureApiTest(Base):
         self.assertEqual(house["revision"], before + 1)
         self.assertEqual({r["level"] for r in self.c.get("/api/houses/fresh/rooms", headers=self.ok).json()}, {"L1"})
         self.assertEqual(self.c.put(f"{url}/{m['blob']}/level", json={"level": "nope"}, headers=self.ok).status_code, 422)
+
+    def test_rescan_replaces_the_rooms_own_walls_and_keeps_history(self):
+        self.c.post("/api/houses", json={"id": "again", "name": "Again"}, headers=self.ok)
+        url = "/api/houses/again/captures"
+        x = self.c.post(url + "?level=L0", content=json.dumps(two_rooms()), headers=self.ok).json()
+        self.c.put(f"{url}/{x['blob']}/rooms", json={"names": ["Great room", "Corby"]}, headers=self.ok)
+        imp = self.c.post(f"{url}/{x['blob']}/import?level=L0", headers=self.ok).json()["house"]
+        rev = self.c.get("/api/houses/again", headers=self.ok).json()["revision"]
+        self.c.put(f"/api/houses/again?expect_revision={rev}", content=json.dumps(imp), headers=self.ok)
+        walls_before = len(imp["walls"])
+        # Great room scanned again from another start point
+        y_data = moved(wrap(two_rooms()["rooms"][0]), 30, 2, 1)
+        self.assertEqual(self.c.post(url + "?replaces=nope", content=json.dumps(y_data), headers=self.ok).status_code, 422)
+        y = self.c.post(url + f"?level=L0&replaces={x['blob']}:0", content=json.dumps(y_data), headers=self.ok).json()
+        self.c.put(f"{url}/{y['blob']}/rooms", json={"names": ["Great room"]}, headers=self.ok)
+        p = self.c.post(f"{url}/{y['blob']}/place?level=L0", headers=self.ok).json()
+        self.assertEqual(p["confidence"], "auto", p)  # matched against Corby's room through the shared doorway
+        r = self.c.post(f"{url}/{y['blob']}/import?level=L0", content=json.dumps({"transform": p["transform"]}), headers=self.ok).json()
+        after = r["house"]
+        self.assertEqual(len([w for w in after["walls"] if w["prov"]["ref"].startswith(x["blob"])]), 4)  # Corby's three walls and the wall shared with it stay; the room's other three go
+        self.assertEqual(len([w for w in after["walls"] if w["prov"]["ref"].startswith(y["blob"])]), 4)
+        self.assertEqual(sorted(room["name"] for room in after["rooms"]), ["Corby", "Great room"])
+        self.assertTrue(any("replaced the earlier scan" in n for n in r["report"]["notes"]))
+        rev = self.c.get("/api/houses/again", headers=self.ok).json()["revision"]
+        self.c.put(f"/api/houses/again?expect_revision={rev}", content=json.dumps(after), headers=self.ok)
+        rooms = {x_["key"]: x_ for x_ in self.c.get("/api/houses/again/rooms", headers=self.ok).json()}
+        self.assertEqual(rooms[f"{x['blob']}:0"]["replaced_by"], f"{y['blob']}:0")
+        self.assertIsNone(rooms[f"{y['blob']}:0"]["replaced_by"])
+        self.assertEqual(walls_before, 7)  # 3 + 3 exclusive walls and the shared one
 
     def test_place_endpoint(self):
         self.c.post("/api/houses", json={"id": "fresh", "name": "Fresh"}, headers=self.ok)

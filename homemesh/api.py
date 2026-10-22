@@ -261,14 +261,21 @@ def create_app() -> FastAPI:
                 "access_points": len(h.access_points), "measurements": len(h.measurements)}
 
     @app.post("/api/houses/{house_id}/captures", dependencies=[api])
-    async def upload_capture(house_id: str, request: Request, name: str = "", level: str = "") -> dict:
+    async def upload_capture(house_id: str, request: Request, name: str = "", level: str = "", replaces: str = "") -> dict:
         """The capture JSON (CapturedRoom / CapturedStructure, or the app's {"rooms": [...]} wrapper).
         `level` is the level the owner said it was scanned on (kept with the capture, preselected when placing)."""
         h = get_house(house_id)
         if level and level not in {lv.id for lv in h.levels}:
             raise HTTPException(422, "unknown level")
+        if replaces:  # "<capture>:<room index>" of the room this scan re-scans
+            try:
+                old, _, idx = replaces.partition(":")
+                captures.get_meta(house_id, old)
+                int(idx)
+            except (captures.CaptureError, ValueError):
+                raise HTTPException(422, "replaces must be <capture>:<room index> of a stored scan") from None
         try:
-            return captures.save_capture(house_id, await request.body(), name, level)
+            return captures.save_capture(house_id, await request.body(), name, level, replaces)
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 
@@ -319,7 +326,19 @@ def create_app() -> FastAPI:
         h = get_house(house_id)
         placed = {(r.prov.ref or ""): r for r in h.rooms}
         out = []
-        for meta in sorted(captures.list_captures(house_id), key=lambda m: m["at"]):
+        metas = sorted(captures.list_captures(house_id), key=lambda m: m["at"])
+        replaced_by = {}
+        for meta in metas:  # a re-scan names the room it replaces; its first room of the same name (else the first) takes over
+            if meta.get("replaces"):
+                names_ = [n.strip().lower() for n in (meta.get("rooms") or [])]
+                old_idx = meta["replaces"].partition(":")[2]
+                replaced_by[meta["replaces"]] = f"{meta['blob']}:0"
+                old_meta = next((m for m in metas if m["blob"] == meta["replaces"].partition(":")[0]), None)
+                if old_meta and old_idx.isdigit() and int(old_idx) < len(old_meta.get("rooms") or []):
+                    want = (old_meta["rooms"][int(old_idx)] or "").strip().lower()
+                    if want in names_:
+                        replaced_by[meta["replaces"]] = f"{meta['blob']}:{names_.index(want)}"
+        for meta in metas:
             names = meta.get("rooms") or []
             about = meta.get("descriptions") or []
             for i in range(meta["counts"]["rooms"]):
@@ -328,7 +347,7 @@ def create_app() -> FastAPI:
                             "name": (names[i] if i < len(names) else "") or (r.name if r else ""),
                             "description": (about[i] if i < len(about) else "") or (r.description if r else ""),
                             "level": r.level if r else meta.get("level"), "placed": r.id if r else None,
-                            "usdz": meta.get("usdz"), "at": meta["at"]})
+                            "usdz": meta.get("usdz"), "at": meta["at"], "replaced_by": replaced_by.get(f"{meta['blob']}:{i}")})
         return out
 
     @app.get("/api/houses/{house_id}/captures", dependencies=[api])
@@ -336,13 +355,22 @@ def create_app() -> FastAPI:
         get_house(house_id)
         return captures.list_captures(house_id)
 
+    def retire_args(house_id: str, meta: dict):
+        """What a re-scan replaces: (earlier capture data, its blob, room index), or None."""
+        key = meta.get("replaces")
+        if not key:
+            return None
+        old, _, idx = key.partition(":")
+        return captures.load_capture(house_id, old), old, int(idx)
+
     @app.post("/api/houses/{house_id}/captures/{digest}/place", dependencies=[api])
     def place_capture(house_id: str, digest: str, level: str) -> dict:
         """Where this scan probably belongs on `level` (see design-ios-app.md, section 4). Stores nothing."""
         h = get_house(house_id)
         try:
             data = captures.load_capture(house_id, digest)
-            return place.propose(h, data, level, digest, names=captures.get_meta(house_id, digest).get("rooms"))
+            meta = captures.get_meta(house_id, digest)
+            return place.propose(h, data, level, digest, names=meta.get("rooms"), retire=retire_args(house_id, meta))
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
 
@@ -375,6 +403,10 @@ def create_app() -> FastAPI:
             data = captures.load_capture(house_id, digest)
             meta = captures.get_meta(house_id, digest)
             new, rep = roomplan.import_capture(h, data, level, digest, sim, names=meta.get("rooms"), descriptions=meta.get("descriptions"))
+            if (args := retire_args(house_id, meta)):
+                new, gone = roomplan.retire_room(new, *args)
+                rep.replaced += gone
+                rep.notes.append(f"replaced the earlier scan of this room ({gone} wall(s) removed); the old scan stays stored")
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, KeyError, TypeError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
         out = {"house": new.model_dump(mode="json"), "report": {"walls": rep.walls, "paired_walls": rep.paired_walls, "openings": rep.openings,

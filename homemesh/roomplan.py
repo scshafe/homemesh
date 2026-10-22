@@ -208,6 +208,26 @@ def _rooms(data: dict) -> list[dict]:
     raise ImportError_("no walls in the capture")
 
 
+def retire_room(house: House, data: dict, blob: str, index: int) -> tuple[House, int]:
+    """`house` without room `index` of the earlier import of capture `blob` (`data`): its room, and the walls (with
+    their openings) whose source surfaces all belong to that room. A wall paired with a face of another room of the
+    same scan, or from another scan, is kept. Returns the house and the number of walls removed."""
+    rooms = _rooms(data)
+    if not 0 <= index < len(rooms):
+        return house, 0
+    own = {sf.ident[:8] for sf in _surfaces(rooms[index]) if sf.kind == "wall"}
+    prefix = f"{blob}#wall/"
+    keep, gone = [], 0
+    for w in house.walls:
+        ref = w.prov.ref or ""
+        if ref.startswith(prefix) and set(ref[len(prefix):].split("+")) <= own:
+            gone += 1
+        else:
+            keep.append(w)
+    rest = [r for r in house.rooms if (r.prov.ref or "") != f"{blob}#room/{index}"]
+    return house.model_copy(update={"walls": keep, "rooms": rest}), gone
+
+
 def room_names(data: dict) -> list[str]:
     """The names carried by the capture itself (the app's wrapper puts `name` on each room), "" where none."""
     return [str(r.get("name") or "").strip()[:80] for r in _rooms(data)]

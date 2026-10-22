@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .model import House, Room, Wall
-from .roomplan import ImportError_, Similarity2D, import_capture
+from .roomplan import ImportError_, Similarity2D, import_capture, retire_room
 
 # Weights of the score; tests pin their effect, not their values.
 W_WALL = 1.0       # per metre of scan wall lying on a parallel plan wall
@@ -271,14 +271,24 @@ def _preview(scan_walls: list[Wall], c: Candidate) -> list[dict]:
     return [{"a": [round(x, 3) for x in w.a], "b": [round(x, 3) for x in w.b]} for w in _transform_walls(scan_walls, c.sim())]
 
 
-def propose(house: House, data: dict, level: str, blob: str, names: list[str] | None = None) -> dict:
-    """The proposal for placing capture `blob` (`data`) on `level` of `house`."""
+def propose(house: House, data: dict, level: str, blob: str, names: list[str] | None = None,
+            retire: tuple[dict, str, int] | None = None) -> dict:
+    """The proposal for placing capture `blob` (`data`) on `level` of `house`.
+
+    `retire` = (earlier capture's data, its blob, room index) when this scan re-scans a room: that room's own walls
+    are left out of the plan, so the scan is matched against its neighbours; if nothing else is on the level, the
+    old room stays and the match is by name.
+    """
     try:
         scanned, rep = import_capture(house, data, level, blob, Similarity2D(), names=names)
     except ImportError_ as e:
         raise ValueError(str(e)) from None
     mine = lambda ref: (ref or "").startswith(f"{blob}#")  # noqa: E731
     scan_walls = [w for w in scanned.walls if w.level == level and mine(w.prov.ref)]
+    if retire is not None:
+        lighter, _ = retire_room(house, *retire)
+        if any(w.level == level and not mine(w.prov.ref) for w in lighter.walls):
+            house = lighter
     plan_walls = [w for w in house.walls if w.level == level and not mine(w.prov.ref)]
     scan_rooms = [(r.name, np.array(r.polygon, float)) for r in scanned.rooms if r.level == level and mine(r.prov.ref)]
     plan_rooms = [(r.name, np.array(r.polygon, float)) for r in house.rooms if r.level == level and not mine(r.prov.ref)]

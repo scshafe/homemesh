@@ -7,6 +7,7 @@ import SwiftUI
 struct ScanScreen: View {
     let houseId: String
     let initialLevel: String
+    let replacing: RoomItem?   // set when this re-scans a room: it replaces that room's geometry
     let onUploaded: () -> Void
     @EnvironmentObject var model: AppModel
     @State private var controller = ScanController()
@@ -66,6 +67,7 @@ struct ScanScreen: View {
         controller.onProcessed = { room in
             rooms.append(room)
             status = "Room added: name it below."
+            if rooms.count == 1, let old = replacing, names[room.identifier.uuidString] == nil { names[room.identifier.uuidString] = old.name }
             focused = room.identifier.uuidString
         }
         controller.onError = { msg in status = "Scan failed: \(msg)" }
@@ -102,7 +104,12 @@ struct ScanScreen: View {
             try json.write(to: docs.appendingPathComponent("\(stamp).json"))
             status = "Uploading…"
             let id = try await model.uploader(house: houseId)
-                .upload(json: json, usdz: usdz, name: scanTitle, level: level)
+                .upload(json: json, usdz: usdz, name: scanTitle, level: level, replaces: replacing?.key ?? "")
+            if let old = replacing, !old.description.isEmpty {   // the description carries over to the new scan's room
+                let n = rooms.count
+                _ = try? await model.client().nameRooms(house: houseId, blob: id, names: rooms.map { names[$0.identifier.uuidString]?.trimmed ?? "" },
+                                                        descriptions: (0..<n).map { $0 == 0 ? old.description : "" })
+            }
             resetScan()
             try? FileManager.default.removeItem(at: docs.appendingPathComponent("\(stamp).json"))  // uploaded: keep nothing on the device
             status = "Uploaded (scan \(id.prefix(8))). The rooms are named; place them on the plan next."
