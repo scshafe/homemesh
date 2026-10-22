@@ -264,6 +264,14 @@ place (`HouseDoc`, Q1's passthrough: only the edited fields change, unknown fiel
 inspector and the **Accuracy** screen (mean error, bias, worst, and the bar: at least five readings and a mean within
 2 % or 3 cm) implement the accuracy check above. Staircase drawing and zones are P6.
 
+### As built (P6a)
+
+The plan has a tool bar (Select, Outlet, Jack, Access point, Stair). Each tool puts its thing at the tapped spot and saves
+the house (a revision per placement); Select edits (a jack's type, state, PoE, height; an access point's name, height,
+EIRP; an outlet's height; a staircase's other floor) or deletes. A stair is drawn as its centre line, bottom then top,
+as a 1 m wide flight; the floor it leads to decides `from_level`/`to_level` by elevation. Zones and the catalogue
+shortlist are P6b and P6c.
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the

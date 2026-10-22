@@ -61,6 +61,10 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    material (or use them for every wall on the floor still on the defaults), change or delete its openings. The same
    inspector has the **measure check**: type what a tape says for the wall; the house keeps the difference, and
    "Accuracy" (in the house list) shows the mean error against the 2 % / 3 cm bar from docs/design-ios-app.md.
+   The plan has a tool bar: Select, Outlet, Jack, Access point and Stair. Tap the plan with a tool to put the thing
+   there and set its details below (a jack's type and whether it works and carries PoE, an access point's height
+   and power); Select edits or deletes what you tap. A staircase is two taps (bottom, then top) after choosing the
+   floor it leads to; it joins the two floors in the Wi-Fi model as an open path.
    Still later: placing scans is in the room details; planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.

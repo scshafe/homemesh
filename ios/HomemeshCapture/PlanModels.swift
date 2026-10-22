@@ -53,6 +53,34 @@ struct PlanRoom: Codable, Hashable, Identifiable, Sendable {
     let polygon: [Pt]
 }
 
+struct PlanOutlet: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let level: String
+    let position: Pt
+}
+
+struct PlanJack: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let level: String
+    let position: Pt
+    let type: String
+    let state: String
+}
+
+struct PlanAP: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let level: String
+    let position: Pt
+    let name: String
+}
+
+struct PlanStair: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let from_level: String
+    let to_level: String
+    let polygon: [Pt]
+}
+
 /// What the plan screens read from `GET /api/houses/<id>` (the rest of the house stays on the server).
 struct PlanHouse: Codable, Sendable {
     let id: String
@@ -61,6 +89,26 @@ struct PlanHouse: Codable, Sendable {
     let levels: [HouseLite.Level]
     let walls: [PlanWall]
     let rooms: [PlanRoom]
+    let outlets: [PlanOutlet]
+    let jacks: [PlanJack]
+    let access_points: [PlanAP]
+    let stairs: [PlanStair]
+
+    enum CodingKeys: String, CodingKey { case id, name, revision, levels, walls, rooms, outlets, jacks, access_points, stairs }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        revision = try c.decode(Int.self, forKey: .revision)
+        levels = try c.decode([HouseLite.Level].self, forKey: .levels)
+        walls = try c.decodeIfPresent([PlanWall].self, forKey: .walls) ?? []
+        rooms = try c.decodeIfPresent([PlanRoom].self, forKey: .rooms) ?? []
+        outlets = try c.decodeIfPresent([PlanOutlet].self, forKey: .outlets) ?? []
+        jacks = try c.decodeIfPresent([PlanJack].self, forKey: .jacks) ?? []
+        access_points = try c.decodeIfPresent([PlanAP].self, forKey: .access_points) ?? []
+        stairs = try c.decodeIfPresent([PlanStair].self, forKey: .stairs) ?? []
+    }
 }
 
 struct Seg: Codable, Hashable, Sendable {
@@ -121,6 +169,23 @@ enum Geometry {
         let len2 = dx * dx + dy * dy
         let t = len2 == 0 ? 0 : max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
         return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+    }
+
+    static func contains(_ p: Pt, polygon: [Pt]) -> Bool {
+        var inside = false
+        for i in polygon.indices {
+            let a = polygon[i], b = polygon[(i + 1) % polygon.count]
+            if (a.y > p.y) != (b.y > p.y), p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x { inside.toggle() }
+        }
+        return inside
+    }
+
+    /// A stair flight drawn as its centre line from `a` to `b`: a rectangle `width` metres across.
+    static func stairRectangle(_ a: Pt, _ b: Pt, width: Double) -> [Pt] {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let len = max(hypot(dx, dy), 0.001)
+        let nx = -dy / len * width / 2, ny = dx / len * width / 2
+        return [Pt(a.x + nx, a.y + ny), Pt(b.x + nx, b.y + ny), Pt(b.x - nx, b.y - ny), Pt(a.x - nx, a.y - ny)]
     }
 
     static func bounds(_ pts: [Pt]) -> CGRect {
