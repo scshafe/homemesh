@@ -26,10 +26,12 @@ struct PlanScreen: View {
 
     private var markers: [PlanMarker] {
         guard let plan else { return [] }
-        return plan.outlets.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .outlet, at: $0.position) }
-            + plan.jacks.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .jack, at: $0.position) }
-            + plan.access_points.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .accessPoint, at: $0.position) }
-            + (plan.entry.flatMap { $0.level == level ? [PlanMarker(id: "entry", kind: .entry, at: $0.position)] : nil } ?? [])
+        var out: [PlanMarker] = []
+        for o in plan.outlets where o.level == level { out.append(PlanMarker(id: o.id, kind: .outlet, at: o.position)) }
+        for j in plan.jacks where j.level == level { out.append(PlanMarker(id: j.id, kind: .jack, at: j.position)) }
+        for a in plan.access_points where a.level == level { out.append(PlanMarker(id: a.id, kind: .accessPoint, at: a.position)) }
+        if let e = plan.entry, e.level == level { out.append(PlanMarker(id: "entry", kind: .entry, at: e.position)) }
+        return out
     }
 
     private var stairsHere: [PlanStair] { plan?.stairs.filter { $0.from_level == level || $0.to_level == level } ?? [] }
