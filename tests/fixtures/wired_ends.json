@@ -20,6 +20,7 @@
     "wan_down": null,
     "wan_up": null
   },
+  "furniture": [],
   "id": "synthetic-wired",
   "jacks": [
     {

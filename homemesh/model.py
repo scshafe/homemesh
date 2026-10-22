@@ -124,6 +124,27 @@ class SlabHole(_Base):
     prov: Prov = Field(default_factory=manual)
 
 
+class Furniture(_Base):
+    """A thing RoomPlan saw in a room (not a wall; the RF model ignores it). `movable` starts from the category
+    (`movable_default` true) and the owner overrides it (then false, and re-imports keep the override)."""
+    id: str
+    level: str
+    room: str | None = None  # the room whose outline holds the centre
+    category: str
+    name: str = ""
+    center: Point2
+    width: float = Field(gt=0)  # along the item's own x axis
+    depth: float = Field(gt=0)
+    height: float = Field(gt=0)
+    base_z: float = 0.0  # above the level's floor
+    rotation: float = 0.0  # degrees, of the item's x axis in the plan
+    attributes: dict[str, str] = Field(default_factory=dict)  # RoomPlan's storage type, chair type, ...
+    movable: bool = True
+    movable_default: bool = True
+    obstacle: bool = False  # reserved: counts as an obstacle to the Wi-Fi model (not used yet)
+    prov: Prov = Field(default_factory=manual)
+
+
 class Stair(_Base):
     id: str
     from_level: str
@@ -312,6 +333,7 @@ class House(_Base):
     slab_holes: list[SlabHole] = Field(default_factory=list)
     measure_checks: list[MeasureCheck] = Field(default_factory=list)
     stairs: list[Stair] = Field(default_factory=list)
+    furniture: list[Furniture] = Field(default_factory=list)
     entry: Entry | None = None
     switches: list[Switch] = Field(default_factory=list)
     jacks: list[Jack] = Field(default_factory=list)
@@ -347,6 +369,7 @@ class House(_Base):
         dupes("jack", [x.id for x in self.jacks])
         dupes("outlet", [x.id for x in self.outlets])
         dupes("zone", [x.id for x in self.zones])
+        dupes("furniture", [x.id for x in self.furniture])
         dupes("measure check", [x.id for x in self.measure_checks])
 
         def lv(what: str, level: str) -> None:
@@ -360,6 +383,8 @@ class House(_Base):
         for level in self.levels:
             if level.slab:
                 mat(f"level {level.id} slab", level.slab.material)
+        for f in self.furniture:
+            lv(f"furniture {f.id}", f.level)
         for w in self.walls:
             lv(f"wall {w.id}", w.level)
             mat(f"wall {w.id}", w.material)
