@@ -25,7 +25,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, calibration, captures, jobs, place, roomplan, store
+from . import blueprint, calibration, captures, jobs, place, roomplan, stack, store
 from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
@@ -45,6 +45,12 @@ class NewLevel(BaseModel):
     name: str
     elevation: float | None = None
     height: float = 2.5
+    below: bool = False  # a basement under the lowest level instead of a floor above the highest
+
+
+class LevelOrder(BaseModel):
+    order: list[str]  # every level id, bottom to top
+    below_ground: list[str] | None = None
 
 
 class RoomNames(BaseModel):
@@ -102,7 +108,7 @@ def create_app() -> FastAPI:
                 h = store.load(hid)
             except store.StoreError:
                 continue
-            out.append({"id": h.id, "name": h.name, "revision": h.revision, "levels": [{"id": lv.id, "name": lv.name} for lv in h.levels],
+            out.append({"id": h.id, "name": h.name, "revision": h.revision, "levels": [{"id": lv.id, "name": lv.name, "below_ground": lv.below_ground, "elevation": lv.elevation} for lv in h.levels],
                         "walls": len(h.walls), "rooms": len(h.rooms), "access_points": len(h.access_points),
                         "captures": len(captures.list_captures(hid))})
         return out
@@ -144,6 +150,16 @@ def create_app() -> FastAPI:
         n = len(ids)
         while f"L{n}" in ids:
             n += 1
+        if req.below:  # under the lowest level: the stack is re-derived with the basement at the bottom
+            lv = Level(id=f"L{n}", name=name, elevation=0.0, height=req.height, below_ground=True)
+            try:
+                moved = stack.restack(h.model_copy(update={"levels": [*h.levels, lv]}), [lv.id, *[x.id for x in h.levels]],
+                                      [lv.id, *[x.id for x in h.levels if x.below_ground]])
+                return store.save(moved, expect_revision=h.revision).model_dump(mode="json")
+            except store.Conflict:
+                raise HTTPException(409, "changed elsewhere; reload") from None
+            except (store.StoreError, stack.StackError, ValueError) as e:
+                raise HTTPException(422, str(e)) from None
         top = max(h.levels, key=lambda lv: lv.elevation)
         elevation = req.elevation if req.elevation is not None else round(top.elevation + top.height + 0.3, 3)
         slab_material = "slab-wood" if any(m.id == "slab-wood" for m in h.materials) else (h.materials[0].id if h.materials else None)
@@ -154,6 +170,18 @@ def create_app() -> FastAPI:
         except store.Conflict:
             raise HTTPException(409, "changed elsewhere; reload") from None
         except (store.StoreError, ValueError) as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.put("/api/houses/{house_id}/levels/order", dependencies=[api])
+    def order_levels(house_id: str, req: LevelOrder) -> dict:
+        """Reorder the floors (bottom to top) and mark basements; elevations are re-derived from the order and the
+        measured wall heights (homemesh/stack.py). Ids do not change, so walls, rooms and stairs stay attached."""
+        h = get_house(house_id)
+        try:
+            return store.save(stack.restack(h, req.order, req.below_ground), expect_revision=h.revision).model_dump(mode="json")
+        except store.Conflict:
+            raise HTTPException(409, "changed elsewhere; reload") from None
+        except (store.StoreError, stack.StackError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
 
     @app.post("/api/houses/{house_id}/stairs", dependencies=[api], status_code=201)
