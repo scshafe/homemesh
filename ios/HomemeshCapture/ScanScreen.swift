@@ -29,6 +29,7 @@ struct ScanScreen: View {
     @State private var cameraProblem = ""
     @State private var stairTo = ""                   // where the staircase found in this scan leads ("" = not a staircase)
     @State private var stairTouched = false
+    @State private var storyPicks: [Int: String] = [:]   // a floor the owner chose for a story of this scan
     @FocusState private var focused: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -85,6 +86,14 @@ struct ScanScreen: View {
                                 Text("Floor").font(.footnote.weight(.semibold))
                                 floorPicker
                                 if !levelReason.isEmpty { Text("Suggested: \(levelReason).").font(.footnote).foregroundStyle(.secondary) }
+                                if stories.count > 1 {
+                                    Text("These rooms are on different stories. Floor of each:").font(.footnote.weight(.semibold))
+                                    ForEach(stories, id: \.self) { st in
+                                        Picker("Story \(st + 1)", selection: Binding(get: { storyFloor(st) }, set: { storyPicks[st] = $0 })) {
+                                            ForEach(levels.reversed()) { Text($0.name).tag($0.id) }
+                                        }.pickerStyle(.menu)
+                                    }
+                                }
                                 if !rises.isEmpty {
                                     StairFloorPickers(levels: levels, from: level, to: Binding(get: { effectiveStairTo }, set: { stairTo = $0; stairTouched = true }))
                                 }
@@ -157,6 +166,13 @@ struct ScanScreen: View {
 
     private var allRooms: [CapturedRoom] { earlier.flatMap { $0 } + rooms }
 
+    private var stories: [Int] { StoryFloors.stories(allRooms) }
+
+    /// The floor for one story: the owner's pick, else the default stacking from the chosen floor.
+    private func storyFloor(_ story: Int) -> String {
+        storyPicks[story] ?? StoryFloors.defaults(stories: stories, base: level, levels: levels)[story] ?? level
+    }
+
     private var rises: [Double] { ScanFindings.stairRises(allRooms) }
 
     /// The floor the staircase leads to: what the owner picked, else the floor whose height fits the rise.
@@ -207,6 +223,7 @@ struct ScanScreen: View {
         levelTouched = false
         stairTouched = false
         stairTo = ""
+        storyPicks = [:]
         names = [:]
         replaceController()
     }
@@ -250,7 +267,8 @@ struct ScanScreen: View {
             var items: [(PendingUpload, [String])] = []
             FloorSuggestion.remember(level, house: houseId)
             for (gi, g) in groups.enumerated() {   // one scan per session: each session has its own frame
-                let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed }, baro: gi < baros.count ? baros[gi] : nil)
+                let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed }, baro: gi < baros.count ? baros[gi] : nil,
+                                                                storyLevels: Dictionary(uniqueKeysWithValues: StoryFloors.stories(g).map { ($0, storyFloor($0)) }))
                 var stair: (from: String, to: String)?
                 if let staircase { stair = (staircase.from, staircase.to) }
                 else if !ScanFindings.stairRises(g).isEmpty, !effectiveStairTo.isEmpty, !items.contains(where: { $0.0.stairFrom != nil }) { stair = (level, effectiveStairTo) }
@@ -303,7 +321,7 @@ extension View {
 enum ScanPayload {
     /// The capture JSON in the app's wrapper, each room carrying its name, and the exported USDZ.
     /// One room: that room. Several: combined by StructureBuilder so all share one coordinate frame.
-    nonisolated static func build(rooms: [CapturedRoom], names: [String: String], baro: BaroReading? = nil) async throws -> (json: Data, usdz: URL) {
+    nonisolated static func build(rooms: [CapturedRoom], names: [String: String], baro: BaroReading? = nil, storyLevels: [Int: String] = [:]) async throws -> (json: Data, usdz: URL) {
         try await Task.detached(priority: .userInitiated) {
             let log = ScanController.log, sp = ScanController.signposter
             let total = sp.beginInterval("build payload")
@@ -335,6 +353,9 @@ enum ScanPayload {
                 if let n = names[key], !n.isEmpty { roomObjects[i]["name"] = n }
             }
             var wrapper: [String: Any] = ["format": "homemesh-capture-1", "rooms": roomObjects]
+            // rooms on different stories get their own floor (the server imports each on it)
+            let floors: [String?] = roomObjects.map { storyLevels[($0["story"] as? Int) ?? 0] }
+            if Set(floors.compactMap { $0 }).count > 1 { wrapper["room_levels"] = floors.map { $0 ?? "" } }
             if let baro {
                 wrapper["baro"] = ["session": baro.session, "rel_m": baro.rel_m, "kpa": baro.kpa, "at": baro.at]
             }
