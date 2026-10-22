@@ -95,6 +95,17 @@ class CaptureApiTest(Base):
         walls = [w for w in r["house"]["walls"] if (w["prov"].get("ref") or "").startswith(m["blob"])]
         self.assertTrue(all(w["a"][0] >= 10 - 4.5 and w["a"][1] >= 20 for w in walls))
 
+    def test_place_endpoint(self):
+        self.c.post("/api/houses", json={"id": "fresh", "name": "Fresh"}, headers=self.ok)
+        url = "/api/houses/fresh/captures"
+        m = self.c.post(url, content=json.dumps(two_rooms()), headers=self.ok).json()
+        p = self.c.post(f"{url}/{m['blob']}/place?level=L0", headers=self.ok)
+        self.assertEqual(p.status_code, 200, p.text)
+        self.assertEqual(p.json()["confidence"], "auto")  # an empty level: nothing to line up with
+        self.assertEqual(self.c.post(f"{url}/{m['blob']}/place?level=nope", headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post(f"{url}/{'0' * 64}/place?level=L0", headers=self.ok).status_code, 422)
+        self.assertEqual(self.c.post(f"{url}/{m['blob']}/place?level=L0").status_code, 401)
+
     def test_import_preview_and_registration(self):
         m = self.upload().json()
         r = self.c.post(f"{self.url}/{m['blob']}/import?level=L0", headers=self.ok)

@@ -179,8 +179,14 @@ wrapper's `rooms[i].name` are used when none were set), `GET /api/schema/house`,
 `import` now creates a `Room` per scanned room (the convex hull of its wall ends, named
 from the owner's names, else the wrapper, else "Room N"; re-importing replaces them) and
 accepts a ready `transform` `{rotation, tx, ty}` besides point-pair `registration`.
-The hull is a stand-in for an L-shaped room's true outline. Not yet: the `place`
-endpoint (P4), and the app-side fixture decode test (it needs the Swift models, P3).
+The hull is a stand-in for an L-shaped room's true outline.
+`POST .../captures/<blob>/place?level=<id>` (`homemesh/place.py`) implements section 4 with
+two differences from the sketch: there is no point-to-line refinement (two scans of the two
+sides of one wall see opposite faces, so pulling walls onto each other would collapse a wall's
+thickness; the doorway match leaves the scans one wall thickness apart across the wall, which
+the import's face-pair merge absorbs), and a room scanned again (equal owner-given name) is not
+penalised for lying on its earlier self. Names the importer invented ("Room N") never count as
+names. Confidence: `auto`, `confirm` (overlap or a close second place), `manual`. The app-side fixture decode test landed with the Swift models (P3).
 
 ### Accuracy check (before deciding about blueprints)
 
