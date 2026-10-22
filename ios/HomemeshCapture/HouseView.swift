@@ -1,3 +1,4 @@
+import QuickLook
 import SwiftUI
 
 /// A house: its floors, each with its rooms; one obvious button to add a room scan.
