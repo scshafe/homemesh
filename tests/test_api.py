@@ -48,6 +48,18 @@ class ApiTest(unittest.TestCase):
         schema = self.c.get("/api/schema/house", headers=self.ok).json()
         self.assertIn("levels", schema["properties"])
 
+    def test_measure_checks_round_trip_and_survive_other_edits(self):
+        h = self.c.get("/api/houses/synthetic-box", headers=self.ok).json()
+        h["measure_checks"] = [{"id": "m1", "what": "Kitchen north wall", "level": "L0", "wall": "w1", "scanned": 4.02, "measured": 4.0, "at": "2026-10-22"}]
+        r = self.c.put(f"/api/houses/synthetic-box?expect_revision={h['revision']}", json=h, headers=self.ok)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["measure_checks"][0]["measured"], 4.0)
+        h2 = r.json()
+        h2["measure_checks"].append({**h2["measure_checks"][0]})   # a duplicate id is refused
+        self.assertEqual(self.c.put(f"/api/houses/synthetic-box?expect_revision={h2['revision']}", json=h2, headers=self.ok).status_code, 422)
+        bad = {**h2, "measure_checks": [{"id": "m2", "what": "x", "scanned": 0, "measured": 1}]}
+        self.assertEqual(self.c.put(f"/api/houses/synthetic-box?expect_revision={h2['revision']}", json=bad, headers=self.ok).status_code, 422)
+
     def test_add_a_stair(self):
         body = {"from_level": "L0", "to_level": "L1", "polygon": [[1, 1], [2, 1], [2, 4], [1, 4]]}
         self.c.post("/api/houses/synthetic-box/levels", json={"name": "First"}, headers=self.ok)

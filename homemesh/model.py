@@ -269,6 +269,18 @@ class Arrangement(_Base):
     nodes: list[PlacedNode]
 
 
+class MeasureCheck(_Base):
+    """A tape-measure reading against what the scan says (the accuracy check before deciding about blueprints)."""
+
+    id: str
+    what: str  # "Kitchen north wall", "Front door width", "Ceiling height"
+    level: str | None = None
+    wall: str | None = None  # the wall id at the time (ids can change when a scan is imported again)
+    scanned: float = Field(gt=0)  # metres, as the plan has it
+    measured: float = Field(gt=0)  # metres, the tape
+    at: str = ""  # ISO date
+
+
 class House(_Base):
     schema_version: int = SCHEMA_VERSION
     id: str
@@ -281,6 +293,7 @@ class House(_Base):
     walls: list[Wall] = Field(default_factory=list)
     rooms: list[Room] = Field(default_factory=list)
     slab_holes: list[SlabHole] = Field(default_factory=list)
+    measure_checks: list[MeasureCheck] = Field(default_factory=list)
     stairs: list[Stair] = Field(default_factory=list)
     entry: Entry | None = None
     switches: list[Switch] = Field(default_factory=list)
@@ -317,6 +330,7 @@ class House(_Base):
         dupes("jack", [x.id for x in self.jacks])
         dupes("outlet", [x.id for x in self.outlets])
         dupes("zone", [x.id for x in self.zones])
+        dupes("measure check", [x.id for x in self.measure_checks])
 
         def lv(what: str, level: str) -> None:
             if level not in levels:
