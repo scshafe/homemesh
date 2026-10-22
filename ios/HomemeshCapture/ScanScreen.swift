@@ -47,10 +47,7 @@ struct ScanScreen: View {
                 }
                 if !allRooms.isEmpty {   // chosen with the name, after the scan, starting from a suggestion
                     Section {
-                        Picker("Floor", selection: $level) {
-                            ForEach(levels.reversed()) { Text($0.name).tag($0.id) }
-                        }
-                        .pickerStyle(levels.count <= 4 ? .segmented : .menu)
+                        floorPicker
                         if !levelReason.isEmpty { Text("Suggested: \(levelReason).").font(.footnote).foregroundStyle(.secondary) }
                     } header: { Text("Floor") }
                 }
@@ -98,7 +95,7 @@ struct ScanScreen: View {
     }
 
     @ViewBuilder private var floorPicker: some View {
-        let choice = Binding(get: { level }, set: { level = $0; levelTouched = true; levelReason = "" })
+        let choice = Binding(get: { level }, set: { level = $0; levelReason = "" })
         if levels.count <= 4 {
             Picker("Floor", selection: choice) { ForEach(levels.reversed()) { Text($0.name).tag($0.id) } }.pickerStyle(.segmented)
         } else {
