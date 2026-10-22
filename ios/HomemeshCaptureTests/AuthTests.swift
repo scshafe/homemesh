@@ -364,3 +364,23 @@ final class SessionBudgetTests: XCTestCase {
         XCTAssertTrue(SessionBudget.exhausted(rooms: 1, seconds: SessionBudget.maxSeconds))
     }
 }
+
+final class FloorStackTests: XCTestCase {
+    func testFloorsBelowTheGroundFloorAreBasements() {
+        XCTAssertEqual(FloorStack.belowGround(order: ["B2", "B1", "G", "F1"], ground: "G"), ["B2", "B1"])
+        XCTAssertEqual(FloorStack.belowGround(order: ["G", "F1"], ground: "G"), [])
+        XCTAssertEqual(FloorStack.belowGround(order: ["B1", "G"], ground: "nope"), [])
+    }
+
+    func testGroundIsTheLowestFloorNotBelowGround() {
+        let ls = [LevelRef(id: "B", name: "Basement", below_ground: true), LevelRef(id: "G", name: "Ground"), LevelRef(id: "F", name: "First")]
+        XCTAssertEqual(FloorStack.ground(of: ls), "G")
+    }
+
+    func testDraggingATopFirstListGivesTheStackBottomToTop() {
+        // top first: First, Ground, Basement; drag Basement to the top row's slot... then back to bottom order
+        let stack = FloorStack.reordered(topFirst: ["F", "G", "B"], from: IndexSet(integer: 2), to: 3)
+        XCTAssertEqual(stack, ["B", "G", "F"])
+        XCTAssertEqual(FloorStack.reordered(topFirst: ["F", "G", "B"], from: IndexSet(integer: 0), to: 3), ["F", "B", "G"])
+    }
+}

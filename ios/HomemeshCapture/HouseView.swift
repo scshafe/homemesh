@@ -40,7 +40,7 @@ struct HouseView: View {
                     }
                 }
             }
-            ForEach(levels) { lv in
+            ForEach(levels.reversed()) { lv in   // the top floor first
                 Section {
                     let here = rooms.filter { $0.level == lv.id }
                     NavigationLink("Plan of \(lv.name): walls and materials") { PlanScreen(houseId: houseId, level: lv.id) }
@@ -59,6 +59,7 @@ struct HouseView: View {
                 Section("No floor") { ForEach(loose) { r in row(r) } }
             }
             Section {
+                NavigationLink("Floors: order and ground level") { FloorsView(houseId: houseId) }
                 Button("Add a floor") { newLevel = ""; addingLevel = true }
                 NavigationLink("3D view of the house") { House3DView(houseId: houseId) }
                 NavigationLink("Calibrate to my measurements") { CalibrateView(houseId: houseId) }
