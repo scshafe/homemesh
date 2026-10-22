@@ -49,6 +49,11 @@ class NewLevel(BaseModel):
 
 class RoomNames(BaseModel):
     names: list[str]
+    descriptions: list[str] | None = None
+
+
+class CaptureLevel(BaseModel):
+    level: str
 
 
 class NewHouse(BaseModel):
@@ -279,9 +284,52 @@ def create_app() -> FastAPI:
     def name_capture_rooms(house_id: str, digest: str, req: RoomNames) -> dict:
         get_house(house_id)
         try:
-            return captures.set_room_names(house_id, digest, req.names)
+            return captures.set_room_names(house_id, digest, req.names, req.descriptions)
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
+
+    @app.put("/api/houses/{house_id}/captures/{digest}/level", dependencies=[api])
+    def move_capture(house_id: str, digest: str, req: CaptureLevel) -> dict:
+        """Change the floor of a scan. If it is already on the plan, its walls and rooms move to that level
+        (a new revision); a scan is one session on one floor, so all its rooms move together."""
+        h = get_house(house_id)
+        if req.level not in {lv.id for lv in h.levels}:
+            raise HTTPException(422, "unknown level")
+        try:
+            captures.get_meta(house_id, digest)
+        except captures.CaptureError as e:
+            raise HTTPException(422, str(e)) from None
+        mine = lambda ref: (ref or "").startswith(f"{digest}#")  # noqa: E731
+        moves = any(mine(w.prov.ref) for w in h.walls) or any(mine(r.prov.ref) for r in h.rooms)
+        try:
+            if moves:
+                moved = h.model_copy(update={
+                    "walls": [w.model_copy(update={"level": req.level}) if mine(w.prov.ref) else w for w in h.walls],
+                    "rooms": [r.model_copy(update={"level": req.level}) if mine(r.prov.ref) else r for r in h.rooms]})
+                store.save(moved, expect_revision=h.revision)
+            return captures.set_level(house_id, digest, req.level)
+        except store.Conflict:
+            raise HTTPException(409, "changed elsewhere; reload") from None
+        except (store.StoreError, ValueError) as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.get("/api/houses/{house_id}/rooms", dependencies=[api])
+    def room_list(house_id: str) -> list[dict]:
+        """Every room of every scan, joined with the house room its import made (unplaced when none)."""
+        h = get_house(house_id)
+        placed = {(r.prov.ref or ""): r for r in h.rooms}
+        out = []
+        for meta in sorted(captures.list_captures(house_id), key=lambda m: m["at"]):
+            names = meta.get("rooms") or []
+            about = meta.get("descriptions") or []
+            for i in range(meta["counts"]["rooms"]):
+                r = placed.get(f"{meta['blob']}#room/{i}")
+                out.append({"key": f"{meta['blob']}:{i}", "capture": meta["blob"], "index": i, "scan": meta.get("name", ""),
+                            "name": (names[i] if i < len(names) else "") or (r.name if r else ""),
+                            "description": (about[i] if i < len(about) else "") or (r.description if r else ""),
+                            "level": r.level if r else meta.get("level"), "placed": r.id if r else None,
+                            "usdz": meta.get("usdz"), "at": meta["at"]})
+        return out
 
     @app.get("/api/houses/{house_id}/captures", dependencies=[api])
     def list_captures(house_id: str) -> list[dict]:
@@ -325,7 +373,8 @@ def create_app() -> FastAPI:
                 t = body["transform"]
                 sim = roomplan.Similarity2D(1.0, float(t["rotation"]), float(t["tx"]), float(t["ty"]))
             data = captures.load_capture(house_id, digest)
-            new, rep = roomplan.import_capture(h, data, level, digest, sim, names=captures.get_meta(house_id, digest).get("rooms"))
+            meta = captures.get_meta(house_id, digest)
+            new, rep = roomplan.import_capture(h, data, level, digest, sim, names=meta.get("rooms"), descriptions=meta.get("descriptions"))
         except (captures.CaptureError, roomplan.ImportError_, store.StoreError, KeyError, TypeError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
         out = {"house": new.model_dump(mode="json"), "report": {"walls": rep.walls, "paired_walls": rep.paired_walls, "openings": rep.openings,

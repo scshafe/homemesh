@@ -191,6 +191,8 @@ lower floor and the matching opening on the upper floor fix the XY offset betwee
 within one; `place.py` gains a candidate source "stair" for a scan on a level whose neighbouring level has the
 same stair. Rotation between floors is taken from the stair's long axis.
 
+**As built (P4b-1):** `Room.description`; capture meta `descriptions` and `level`; `PUT .../captures/<blob>/rooms` takes `names` and optional `descriptions`; `PUT .../captures/<blob>/level` (moves an imported scan's walls and rooms in one revision); `GET /api/houses/<id>/rooms` as above (without `walls` and `replaced_by`, which arrive with re-scan). The USDZ is `GET .../blobs/<capture meta usdz>`.
+
 Sub-milestones (small PRs): **P4b-1** server room list, descriptions, floor change, scan `level`
 (backend); **P4b-2** app: one name field, "Add room scan" button, rooms grouped by floor, room detail with the
 3D model (QuickLook) and rename/description/floor; **P4b-3** re-scan (`replaces`); **P4b-4** stairs
