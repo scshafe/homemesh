@@ -88,7 +88,7 @@ enum Diagnostics {
     /// The app, device and OS, once per launch.
     @MainActor static func launched() {
         let info = Bundle.main.infoDictionary ?? [:]
-        event("launch", ["version": info["CFBundleShortVersionString"] as? String ?? "?", "build": info["CFBundleVersion"] as? String ?? "?",
+        event("launch", ["version": info["CFBundleShortVersionString"] as? String ?? "?", "build": info["CFBundleVersion"] as? String ?? "?", "commit": BuildInfo.commit,
                          "device": UIDevice.current.model, "os": UIDevice.current.systemVersion,
                          "thermal": thermal(), "low_power": ProcessInfo.processInfo.isLowPowerModeEnabled])
         NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in

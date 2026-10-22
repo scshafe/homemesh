@@ -450,3 +450,11 @@ final class FloorSuggestionTests: XCTestCase {
         XCTAssertEqual(FloorSuggestion.suggest(levels: levels, current: baro("b", 0, 101.305, at: 7200), others: others, preferred: nil, lastUsed: nil)?.level, "G")
     }
 }
+
+final class BuildInfoTests: XCTestCase {
+    func testTheBuildCarriesItsCommitAndNumber() {
+        XCTAssertFalse(BuildInfo.commit.isEmpty)
+        XCTAssertNotNil(Int(BuildInfo.number))
+        XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String, BuildInfo.number)   // from the xcconfig
+    }
+}
