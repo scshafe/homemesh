@@ -77,6 +77,7 @@ struct HouseView: View {
             ForEach(levels.reversed()) { lv in   // the top floor first
                 Section {
                     let here = rooms.filter { $0.level == lv.id }
+                    NavigationLink("Doors on \(lv.name): label before placing") { DoorsChecklistView(houseId: houseId, level: lv.id, levelName: lv.name) }
                     NavigationLink("Plan of \(lv.name): walls and materials") { PlanScreen(houseId: houseId, level: lv.id) }
                     ForEach(here) { r in row(r) }
                     if here.isEmpty { Text("No rooms on this floor yet.").font(.footnote).foregroundStyle(.secondary) }
