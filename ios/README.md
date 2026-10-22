@@ -114,6 +114,7 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
   Start/Done float over it on glass (Liquid Glass on iOS 26, a thin material before). The AR session starts as soon as
   the screen (or a renewed session) is up so the camera is never dark; if frames do not arrive, or camera access is
   off, the screen says why with a Retry, and the event log records it (`preview`, `camera`).
+- Every `xcodegen generate` first runs `ios/stamp-build`, which bakes the git commit (`+dirty` when the tree has changes) and the build number (commits so far; it is the CFBundleVersion) into the app; the launch event in the diagnostics carries both, so builds can be told apart.
 - Diagnostics (Settings switch, on by default): the app keeps a rolling event log (JSON lines, about 2 MB, flushed per
   event so it survives a crash: scan phases, session errors with domain and code, renewals, hang-guard trips, upload
   results, launch with version/device/OS, thermal state, memory warnings; no names or scan content) and subscribes to
