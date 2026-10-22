@@ -69,6 +69,10 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    set the details (minimum dBm, whether it must be met, mounts and heights). "Equipment to plan with" in the house
    lists the catalogue (tap for radios, ports, price and where the numbers come from); tick the shortlist or use every
    mesh system, pick the router, the client device and how many extra nodes at most. It is kept on the phone.
+   **Plan a mesh** (in the house): it tells you what is missing (the internet entry, an allow zone, a demand zone), then
+   "Find the best arrangements" runs the plan with your shortlist and shows the progress. Results are ranked best first
+   with badges (best trade-off, misses a must-have, unstable ranking); open one for why it ranks there, where its nodes
+   go, how each zone fares and how the nodes connect, and "Show the signal on the plan" for the client-speed map by floor.
    Still later: placing scans is in the room details; planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.

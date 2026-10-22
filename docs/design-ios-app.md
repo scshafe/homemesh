@@ -288,6 +288,14 @@ as the gateway choice), with a detail page per item (radios, ports, price, notes
 says so). The shortlist, gateway, client device, K max and the "every system" switch are kept per house on the phone
 (`Shortlist`, UserDefaults) and become the plan request in P7 (`equipment`, `gateway_equipment`, `client`, `k_max`).
 
+### As built (P7a)
+
+`PlanRunView` checks what a plan needs, posts `plans` with the shortlist (`equipment`, `gateway_equipment`, `client`, `k_max`), polls the
+job every 1.5 s and lists the ranked arrangements (badges from `pareto`, `valid`, `must_ok`, `stable`). `ArrangementView` shows the
+explanation lines and stability note, node placements, per-zone utility, rate and limiter, and the backhaul per node;
+`RateMapView` draws the `ratemap` grids per floor under the walls with the nodes and the router marked (log colour scale as in the web
+app). `ratemap` now returns null for cells with no service (NaN is not JSON). Comparing two arrangements is P7b.
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the
