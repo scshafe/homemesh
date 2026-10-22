@@ -433,3 +433,14 @@ The save sheet's per-room name fields, per-story floor pickers (4c) and baromete
 voice results would land as *prefilled suggestions* (a name, a floor and "heard: 'going downstairs'" as the
 reason), and the owner still confirms before saving. Captures already carry per-room names, `room_levels` and
 `baro`, so a voice session needs no new storage.
+
+## Diagnostics from the phone (2026-10-22)
+
+So the owner never fetches logs from the phone: the app uploads (a) its own rolling event log (JSON lines: scan phase
+changes, session errors with domain and code, renewals, hang-guard trips, upload results, app version and commit,
+device, OS, thermal state, memory warnings; never names or scan content) and (b) MetricKit diagnostic payloads
+(crashes with call stacks, hangs, CPU and disk exceptions). `POST /api/diagnostics?device=<id>&kind=events|metrickit`
+behind the door stores them under `$HOMEMESH_DATA/diagnostics/<device>/` (the same content twice is stored once;
+30 days and 50 MB retention, the newest file always kept); `GET /api/diagnostics` lists and
+`GET /api/diagnostics/<device>/<name>` returns one. `./scripts/diagnostics latest-crash | events -n 100 | list`
+prints them from the data directory (needs `HOMEMESH_DATA`). A Settings switch (on by default) turns the upload off.

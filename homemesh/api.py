@@ -25,7 +25,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from . import blueprint, calibration, captures, jobs, place, roomplan, stack, store
+from . import blueprint, calibration, captures, diagnostics, jobs, place, roomplan, stack, store
 from . import catalogue as catalogue_mod
 from pydantic import BaseModel, ValidationError
 
@@ -183,6 +183,26 @@ def create_app() -> FastAPI:
             raise HTTPException(409, "changed elsewhere; reload") from None
         except (store.StoreError, stack.StackError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
+
+    @app.post("/api/diagnostics", dependencies=[api])
+    async def post_diagnostics(request: Request, device: str, kind: str = "events") -> dict:
+        """The app's rolling event log (`kind=events`, JSON lines) or a MetricKit payload (`kind=metrickit`)."""
+        raw = await request.body()
+        try:
+            return diagnostics.save(device, kind, raw)
+        except diagnostics.DiagnosticsError as e:
+            raise HTTPException(422, str(e)) from None
+
+    @app.get("/api/diagnostics", dependencies=[api])
+    def list_diagnostics() -> list[dict]:
+        return diagnostics.files()
+
+    @app.get("/api/diagnostics/{device}/{name}", dependencies=[api])
+    def get_diagnostics(device: str, name: str) -> Response:
+        try:
+            return Response(diagnostics.read(device, name), media_type="application/json")
+        except diagnostics.DiagnosticsError as e:
+            raise HTTPException(404, str(e)) from None
 
     @app.post("/api/houses/{house_id}/stairs", dependencies=[api], status_code=201)
     def add_stair(house_id: str, req: NewStair) -> dict:
