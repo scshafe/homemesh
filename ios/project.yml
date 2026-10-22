@@ -31,7 +31,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(HOMEMESH_BUNDLE_ID)
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: "homemesh capture"
+        INFOPLIST_KEY_CFBundleDisplayName: "homemesh"
         INFOPLIST_KEY_NSCameraUsageDescription: "The camera and LiDAR scan the rooms of your home."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
@@ -41,7 +41,10 @@ targets:
   HomemeshCaptureTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [HomemeshCaptureTests]
+    sources:
+      - HomemeshCaptureTests
+      - path: ../tests/fixtures      # the committed synthetic houses: the contract test decodes them
+        buildPhase: resources
     dependencies:
       - target: HomemeshCapture
     settings:
