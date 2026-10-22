@@ -155,3 +155,30 @@ final class HouseDocTests: XCTestCase {
         XCTAssertTrue(Accuracy(many).passes)
     }
 }
+
+final class PlanItemTests: XCTestCase {
+    func testAddingThingsGivesFreshIdsAndKeepsTheRest() throws {
+        var d = try HouseDoc(data: Data(#"{"id":"h","revision":1,"outlets":[{"id":"o1","position":[0,0],"level":"L0"}],"levels":[{"id":"L0","name":"G","elevation":0},{"id":"L1","name":"F","elevation":2.8}]}"#.utf8))
+        XCTAssertEqual(d.add("outlets", prefix: "o", ["position": [1.0, 2.0], "level": "L0"]), "o2")
+        XCTAssertEqual(d.add("jacks", prefix: "j", ["position": [1.0, 2.0], "level": "L0"]), "j1")
+        d.set("outlets", "o2", ["z": 0.5])
+        XCTAssertEqual(d.item("outlets", "o2")?["z"] as? Double, 0.5)
+        XCTAssertEqual((d.item("outlets", "o2")?["prov"] as? [String: Any])?["edited"] as? Bool, true)
+        d.remove("outlets", "o1")
+        XCTAssertNil(d.item("outlets", "o1"))
+        XCTAssertEqual(d.levels.map(\.id), ["L0", "L1"])
+    }
+
+    func testStairRectangleAndContains() {
+        let r = Geometry.stairRectangle(Pt(0, 0), Pt(0, 3), width: 1)
+        XCTAssertTrue(Geometry.contains(Pt(0, 1.5), polygon: r))
+        XCTAssertFalse(Geometry.contains(Pt(1, 1.5), polygon: r))
+        XCTAssertEqual(Geometry.bounds(r).width, 1, accuracy: 1e-9)
+        XCTAssertEqual(Geometry.bounds(r).height, 3, accuracy: 1e-9)
+    }
+
+    func testPlanHouseToleratesMissingLists() throws {
+        let h = try JSONDecoder().decode(PlanHouse.self, from: Data(#"{"id":"h","name":"H","revision":0,"levels":[]}"#.utf8))
+        XCTAssertTrue(h.outlets.isEmpty && h.stairs.isEmpty && h.walls.isEmpty)
+    }
+}

@@ -93,6 +93,48 @@ struct HouseDoc {
         return n
     }
 
+    // MARK: things on the plan (outlets, jacks, access points, stairs, zones): lists of objects with an `id`
+
+    /// Adds `fields` as a new element of `collection` with a fresh id (`prefix` + number); returns the id.
+    @discardableResult
+    mutating func add(_ collection: String, prefix: String, _ fields: [String: Any]) -> String {
+        var all = root[collection] as? [[String: Any]] ?? []
+        let used = Set(all.compactMap { $0["id"] as? String })
+        var n = all.count + 1
+        while used.contains("\(prefix)\(n)") { n += 1 }
+        var item = fields
+        item["id"] = "\(prefix)\(n)"
+        all.append(item)
+        root[collection] = all
+        return "\(prefix)\(n)"
+    }
+
+    func item(_ collection: String, _ id: String) -> [String: Any]? {
+        (root[collection] as? [[String: Any]])?.first { $0["id"] as? String == id }
+    }
+
+    /// Changes fields of one element; a `nil` value removes the field. Marks it edited.
+    mutating func set(_ collection: String, _ id: String, _ fields: [String: Any?]) {
+        var all = root[collection] as? [[String: Any]] ?? []
+        guard let i = all.firstIndex(where: { $0["id"] as? String == id }) else { return }
+        for (k, v) in fields { if let v { all[i][k] = v } else { all[i].removeValue(forKey: k) } }
+        var prov = all[i]["prov"] as? [String: Any] ?? ["source": "manual"]
+        prov["edited"] = true
+        all[i]["prov"] = prov
+        root[collection] = all
+    }
+
+    mutating func remove(_ collection: String, _ id: String) {
+        root[collection] = (root[collection] as? [[String: Any]] ?? []).filter { $0["id"] as? String != id }
+    }
+
+    var levels: [(id: String, name: String, elevation: Double)] {
+        (root["levels"] as? [[String: Any]] ?? []).compactMap {
+            guard let id = $0["id"] as? String else { return nil }
+            return (id, $0["name"] as? String ?? id, $0["elevation"] as? Double ?? 0)
+        }
+    }
+
     // MARK: measure checks (tape readings against the scan)
 
     struct Check: Hashable {

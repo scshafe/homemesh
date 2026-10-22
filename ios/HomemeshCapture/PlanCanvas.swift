@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// A point thing on the plan: an outlet, a jack or an access point.
+struct PlanMarker: Hashable, Identifiable {
+    enum Kind { case outlet, jack, accessPoint }
+    let id: String
+    let kind: Kind
+    let at: Pt
+}
+
 /// The plan of one level in 2D: rooms (named), walls, and optionally a ghost scan the owner can drag.
 /// Plan Y points up, the screen's Y points down; `bounds` is fixed by the caller so dragging does not re-fit the view.
 struct PlanCanvas: View {
@@ -9,6 +17,10 @@ struct PlanCanvas: View {
     let bounds: CGRect
     var zoom: CGFloat = 1
     var selected: String?
+    var markers: [PlanMarker] = []
+    var stairs: [[Pt]] = []
+    var draft: [Pt] = []                // points of a stair or zone being drawn
+    var selectedMarker: String?
     var onTapPlan: ((Pt, Double) -> Void)?    // a tap, in plan metres, with a tolerance of about 24 points in metres
     var onDrag: ((Pt) -> Void)?       // plan metres moved since the gesture began
     var onDragEnd: (() -> Void)?
@@ -46,6 +58,33 @@ struct PlanCanvas: View {
                             gap.addLine(to: map(Pt(w.a.x + (w.b.x - w.a.x) * t1, w.a.y + (w.b.y - w.a.y) * t1)))
                             ctx.stroke(gap, with: .color(o.kind == "window" ? .cyan : .orange), lineWidth: max(2, CGFloat(w.thickness) * scale))
                         }
+                    }
+                }
+                for poly in stairs where poly.count >= 3 {
+                    var path = Path()
+                    path.move(to: map(poly[0]))
+                    for p in poly.dropFirst() { path.addLine(to: map(p)) }
+                    path.closeSubpath()
+                    ctx.fill(path, with: .color(.purple.opacity(0.25)))
+                    ctx.stroke(path, with: .color(.purple), lineWidth: 1.5)
+                }
+                if draft.count >= 1 {
+                    var path = Path()
+                    path.move(to: map(draft[0]))
+                    for p in draft.dropFirst() { path.addLine(to: map(p)) }
+                    ctx.stroke(path, with: .color(.pink), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    for p in draft { ctx.fill(Path(ellipseIn: CGRect(x: map(p).x - 3, y: map(p).y - 3, width: 6, height: 6)), with: .color(.pink)) }
+                }
+                for m in markers {
+                    let c = map(m.at), sel = m.id == selectedMarker
+                    let r: CGFloat = sel ? 9 : 6
+                    let rect = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+                    switch m.kind {
+                    case .outlet: ctx.fill(Path(ellipseIn: rect), with: .color(.yellow)); ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
+                    case .jack: ctx.fill(Path(rect), with: .color(.green)); ctx.stroke(Path(rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
+                    case .accessPoint:
+                        ctx.fill(Path(ellipseIn: rect), with: .color(.blue))
+                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -4, dy: -4)), with: .color(sel ? .accentColor : .blue), lineWidth: 1.5)
                     }
                 }
                 for g in ghost {

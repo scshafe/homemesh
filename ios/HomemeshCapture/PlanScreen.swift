@@ -1,29 +1,54 @@
 import SwiftUI
 
-/// The plan of one floor: tap a wall to see and edit its thickness, material and openings.
+enum PlanTool: String, CaseIterable, Identifiable {
+    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", stair = "Stair"
+    var id: String { rawValue }
+}
+
+/// The plan of one floor: tap a wall or a thing to edit it, or pick a tool to put an outlet, jack, access point
+/// or staircase on the plan.
 struct PlanScreen: View {
     let houseId: String
     let level: String
     @EnvironmentObject var model: AppModel
     @State private var doc: HouseDoc?
     @State private var plan: PlanHouse?
-    @State private var selected: String?
+    @State private var tool = PlanTool.select
+    @State private var selectedWall: String?
+    @State private var selectedMarker: PlanMarker?
+    @State private var selectedStair: String?
+    @State private var draft: [Pt] = []
+    @State private var stairTarget = ""
     @State private var status = ""
     @State private var bounds = CGRect(x: -1, y: -1, width: 2, height: 2)
+
+    private var markers: [PlanMarker] {
+        guard let plan else { return [] }
+        return plan.outlets.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .outlet, at: $0.position) }
+            + plan.jacks.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .jack, at: $0.position) }
+            + plan.access_points.filter { $0.level == level }.map { PlanMarker(id: $0.id, kind: .accessPoint, at: $0.position) }
+    }
+
+    private var stairsHere: [PlanStair] { plan?.stairs.filter { $0.from_level == level || $0.to_level == level } ?? [] }
 
     var body: some View {
         VStack(spacing: 8) {
             if let plan {
-                PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
-                           bounds: bounds, selected: selected, onTapPlan: { p, tol in selected = nearestWall(p, tol: tol, plan: plan) })
-                    .background(Color(.secondarySystemBackground))
-                if let id = selected, let wall = plan.walls.first(where: { $0.id == id }), let doc {
-                    WallInspector(houseId: houseId, wall: wall, doc: doc, level: level,
-                                  onSaved: { new in Task { await save(new) } }, status: $status)
-                        .frame(maxHeight: 360)
-                } else {
-                    Text("Tap a wall.").font(.footnote).foregroundStyle(.secondary)
+                Picker("Tool", selection: $tool) { ForEach(PlanTool.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented)
+                    .onChange(of: tool) { draft = []; selectedWall = nil; selectedMarker = nil; selectedStair = nil }
+                if tool == .stair {
+                    HStack {
+                        Text("Leads to").font(.footnote)
+                        Picker("Leads to", selection: $stairTarget) { ForEach(plan.levels.filter { $0.id != level }, id: \.id) { Text($0.name).tag($0.id) } }
+                        Text(draft.isEmpty ? "Tap the bottom of the stairs, then the top." : "Now tap the top of the stairs.").font(.footnote)
+                    }
                 }
+                PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
+                           bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), draft: draft,
+                           selectedMarker: selectedMarker?.id, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
+                    .background(Color(.secondarySystemBackground))
+                inspector(plan)
             } else {
                 ProgressView()
             }
@@ -32,6 +57,65 @@ struct PlanScreen: View {
         .navigationTitle(plan?.levels.first { $0.id == level }?.name ?? "Plan")
         .task { await load() }
     }
+
+    @ViewBuilder
+    private func inspector(_ plan: PlanHouse) -> some View {
+        if let doc {
+            if let id = selectedWall, let wall = plan.walls.first(where: { $0.id == id }) {
+                WallInspector(houseId: houseId, wall: wall, doc: doc, level: level, onSaved: { new in Task { await save(new) } }, status: $status)
+                    .frame(maxHeight: 360)
+            } else if let m = selectedMarker {
+                MarkerInspector(marker: m, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedMarker = nil })
+                    .frame(maxHeight: 300)
+            } else if let id = selectedStair, let st = plan.stairs.first(where: { $0.id == id }) {
+                StairInspector(stair: st, doc: doc, here: level, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedStair = nil })
+                    .frame(maxHeight: 240)
+            } else if tool == .select {
+                Text("Tap a wall, a thing or a staircase.").font(.footnote).foregroundStyle(.secondary)
+            } else if tool != .stair {
+                Text("Tap the plan to put the \(tool.rawValue.lowercased()) there.").font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func tap(_ p: Pt, tol: Double, plan: PlanHouse) {
+        guard var d = doc else { return }
+        switch tool {
+        case .select:
+            selectedWall = nil; selectedMarker = nil; selectedStair = nil
+            if let m = markers.min(by: { dist($0.at, p) < dist($1.at, p) }), dist(m.at, p) <= tol {
+                selectedMarker = m
+            } else if let st = stairsHere.first(where: { Geometry.contains(p, polygon: $0.polygon) }) {
+                selectedStair = st.id
+            } else {
+                selectedWall = nearestWall(p, tol: tol, plan: plan)
+            }
+        case .outlet:
+            let id = d.add("outlets", prefix: "o", ["position": [p.x, p.y], "level": level, "z": 0.3])
+            selectedMarker = PlanMarker(id: id, kind: .outlet, at: p)
+            Task { await save(d) }
+        case .jack:
+            let id = d.add("jacks", prefix: "j", ["position": [p.x, p.y], "level": level, "z": 0.3, "type": "cat6", "state": "unknown", "poe": false])
+            selectedMarker = PlanMarker(id: id, kind: .jack, at: p)
+            Task { await save(d) }
+        case .accessPoint:
+            let id = d.add("access_points", prefix: "ap", ["position": [p.x, p.y], "level": level, "name": "Access point", "height": 1.5])
+            selectedMarker = PlanMarker(id: id, kind: .accessPoint, at: p)
+            Task { await save(d) }
+        case .stair:
+            draft.append(p)
+            guard draft.count == 2, !stairTarget.isEmpty else { if stairTarget.isEmpty { status = "Choose the floor it leads to first."; draft = [] }; return }
+            let poly = Geometry.stairRectangle(draft[0], draft[1], width: 1.0)
+            let ev = Dictionary(uniqueKeysWithValues: plan.levels.map { ($0.id, $0.elevation) })
+            let up = (ev[stairTarget] ?? 0) > (ev[level] ?? 0)
+            d.add("stairs", prefix: "s", ["from_level": up ? level : stairTarget, "to_level": up ? stairTarget : level,
+                                          "polygon": poly.map { [$0.x, $0.y] }, "void": true])
+            draft = []
+            Task { await save(d) }
+        }
+    }
+
+    private func dist(_ a: Pt, _ b: Pt) -> Double { hypot(a.x - b.x, a.y - b.y) }
 
     private func nearestWall(_ p: Pt, tol: Double, plan: PlanHouse) -> String? {
         var best: (String, Double)?
@@ -48,6 +132,7 @@ struct PlanScreen: View {
             doc = try HouseDoc(data: data)
             let p = try JSONDecoder().decode(PlanHouse.self, from: data)
             plan = p
+            if stairTarget.isEmpty { stairTarget = p.levels.first { $0.id != level }?.id ?? "" }
             let pts = p.walls.filter { $0.level == level }.flatMap { [$0.a, $0.b] }
             bounds = Geometry.bounds(pts)
         } catch {
@@ -63,6 +148,108 @@ struct PlanScreen: View {
         } catch {
             status = "Could not save: \(error.localizedDescription)"
         }
+    }
+}
+
+/// Edit or delete an outlet, a jack or an access point.
+struct MarkerInspector: View {
+    let marker: PlanMarker
+    let doc: HouseDoc
+    let onSaved: (HouseDoc) -> Void
+    let onRemoved: () -> Void
+    @State private var height = ""
+    @State private var name = ""
+    @State private var type = "cat6"
+    @State private var state = "unknown"
+    @State private var poe = false
+    @State private var eirp = ""
+
+    private var collection: String {
+        switch marker.kind { case .outlet: "outlets"; case .jack: "jacks"; case .accessPoint: "access_points" }
+    }
+
+    var body: some View {
+        Form {
+            Section(title) {
+                switch marker.kind {
+                case .outlet:
+                    field("Height above the floor (m)", $height)
+                case .jack:
+                    Picker("Type", selection: $type) { ForEach(["cat5e", "cat6", "cat6a", "coax_moca"], id: \.self) { Text($0).tag($0) } }
+                    Picker("Works?", selection: $state) { ForEach(["live", "dead", "unknown"], id: \.self) { Text($0).tag($0) } }
+                    Toggle("Power over Ethernet", isOn: $poe)
+                    field("Height above the floor (m)", $height)
+                case .accessPoint:
+                    TextField("Name", text: $name)
+                    field("Height (m)", $height)
+                    field("Transmit power + antenna gain (dBm)", $eirp)
+                }
+                Button("Save") { save() }
+                Button("Delete", role: .destructive) { var d = doc; d.remove(collection, marker.id); onSaved(d); onRemoved() }
+            }
+        }
+        .onAppear(perform: load)
+        .onChange(of: marker.id) { load() }
+    }
+
+    private var title: String {
+        switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)" }
+    }
+
+    private func field(_ label: String, _ text: Binding<String>) -> some View {
+        HStack { Text(label); TextField("", text: text).keyboardType(.decimalPad).multilineTextAlignment(.trailing) }
+    }
+
+    private func num(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: ".")) }
+
+    private func load() {
+        let it = doc.item(collection, marker.id) ?? [:]
+        height = String(format: "%.2f", (it["z"] as? Double) ?? (it["height"] as? Double) ?? 0.3)
+        name = it["name"] as? String ?? ""
+        type = it["type"] as? String ?? "cat6"
+        state = it["state"] as? String ?? "unknown"
+        poe = it["poe"] as? Bool ?? false
+        eirp = String(format: "%.0f", (it["eirp_dbm"] as? Double) ?? 23)
+    }
+
+    private func save() {
+        var d = doc
+        switch marker.kind {
+        case .outlet: d.set(collection, marker.id, ["z": num(height) ?? 0.3])
+        case .jack: d.set(collection, marker.id, ["type": type, "state": state, "poe": poe, "z": num(height) ?? 0.3])
+        case .accessPoint: d.set(collection, marker.id, ["name": name, "height": num(height) ?? 1.5, "eirp_dbm": num(eirp) ?? 23])
+        }
+        onSaved(d)
+    }
+}
+
+/// A staircase: which floor it leads to, or delete it.
+struct StairInspector: View {
+    let stair: PlanStair
+    let doc: HouseDoc
+    let here: String
+    let onSaved: (HouseDoc) -> Void
+    let onRemoved: () -> Void
+    @State private var other = ""
+
+    var body: some View {
+        Form {
+            Section("Staircase \(stair.id)") {
+                Picker("Joins this floor to", selection: $other) {
+                    ForEach(doc.levels.filter { $0.id != here }, id: \.id) { Text($0.name).tag($0.id) }
+                }
+                Button("Save") {
+                    var d = doc
+                    let ev = Dictionary(uniqueKeysWithValues: doc.levels.map { ($0.id, $0.elevation) })
+                    let up = (ev[other] ?? 0) > (ev[here] ?? 0)
+                    d.set("stairs", stair.id, ["from_level": up ? here : other, "to_level": up ? other : here])
+                    onSaved(d)
+                }
+                Button("Delete", role: .destructive) { var d = doc; d.remove("stairs", stair.id); onSaved(d); onRemoved() }
+            }
+        }
+        .onAppear { other = stair.from_level == here ? stair.to_level : stair.from_level }
+        .onChange(of: stair.id) { other = stair.from_level == here ? stair.to_level : stair.from_level }
     }
 }
 
