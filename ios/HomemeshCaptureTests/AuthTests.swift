@@ -567,7 +567,7 @@ final class StairStepsTests: XCTestCase {
         let l = try XCTUnwrap(StairGeometry.layout(polygon: poly, rise: 2.7, steps: nil, low: nil))
         XCTAssertEqual(l.steps, 15)
         XCTAssertEqual(l.treads.count, 14)
-        XCTAssertEqual(l.treads[0].a.x, 4.4 / 15, accuracy: 1e-9)
+        XCTAssertEqual(l.treads[0].a.x, 4.4 - 4.4 / 15, accuracy: 1e-9)   // no low end known: the flight starts at the first end of its polygon
         XCTAssertEqual(hypot(l.treads[0].b.x - l.treads[0].a.x, l.treads[0].b.y - l.treads[0].a.y), 1.2, accuracy: 1e-9)
         let alongY = try XCTUnwrap(StairGeometry.layout(polygon: polyAlongY, rise: 2.7, steps: nil, low: nil))
         XCTAssertEqual(alongY.treads[0].a.y, 4.4 / 15, accuracy: 1e-9)   // the longer side is the run, whichever way it lies
