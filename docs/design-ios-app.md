@@ -300,6 +300,15 @@ app). `ratemap` now returns null for cells with no service (NaN is not JSON). Co
 
 Tap the circle on two ranked rows, then "Compare": `CompareView` loads both `ratemap`s and shows A, B or the difference (blue where B is faster, red where A is, as in the web app) per floor, with a table of score, cost, worst zone, node count and each zone's utility.
 
+### As built (P8)
+
+The **Measure** tool puts a reading on the plan (position, band, dBm, optional speed, device) into the house's `measurements`; the
+**Calibrate** screen shows what is there, runs `POST .../calibrate` (the saved house), and shows per band the held-out error,
+the exponent, the materials the walks identified with their moved values, readings more than 6 dB off, the suggested next spots (drawn
+dashed on the plan) and the planning margin before and after (3 to 10 dB from the worst held-out error, 6 dB when never calibrated).
+Apply saves the returned house as a new revision. A regression test pins that `ratemap` stays valid JSON where a thick wall puts cells
+out of service (it was already null on the wire; the explicit conversion is kept). CSV import of measurements stays a web feature.
+
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
 1. **Swift model strategy.** Hand-written `Codable` structs for the parts the

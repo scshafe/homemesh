@@ -263,3 +263,31 @@ final class PlanResultTests: XCTestCase {
         XCTAssertEqual(h.rate[1], 120.5)
     }
 }
+
+final class CalibrateDecodeTests: XCTestCase {
+    func testAFitDecodesAndTheMarginFollowsTheHeldOutError() throws {
+        let json = #"""
+        {"fits":{"5":{"band":"5","n_meas":12,"n":{"mean":3.1,"sd":0.2,"prior_mean":3.5,"prior_sd":0.5,"identified":true},
+          "extra_loss":{"mean":2.0,"sd":1.0,"prior_mean":0,"prior_sd":8,"identified":true},
+          "materials":{"brick":{"mean":11.0,"sd":1.0,"prior_mean":9.0,"prior_sd":2.0,"identified":true},"glass":{"mean":2.0,"sd":2.0,"prior_mean":2.0,"prior_sd":2.0,"identified":false}},
+          "sigma":4.0,"rmse_train":3.2,"rmse_cv":4.4,"bias_cv":-0.3,"residuals":{"m1":-7.5,"m2":1.0},"note":""}},
+         "suggestions":{"5":[{"material":"glass","level":"L0","x":3.0,"y":4.0,"units":2.0}]},"calibrated":{"id":"h"},"access_points":1,"measurements":12}
+        """#
+        let r = try JSONDecoder().decode(FitResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(r.fits["5"]?.materials["brick"]?.identified, true)
+        XCTAssertEqual(r.suggestions["5"]?.first?.material, "glass")
+        XCTAssertEqual(Margin.db([4.4]), 4.4)
+        XCTAssertEqual(Margin.db([1.0]), 3)
+        XCTAssertEqual(Margin.db([14.0, 5.0]), 10)
+        XCTAssertEqual(Margin.db([nil]), 6)
+    }
+
+    func testAMeasurementIsAddedToTheHouseAndClearedWhenEmptied() throws {
+        var d = try HouseDoc(data: Data(#"{"id":"h","revision":2}"#.utf8))
+        let id = d.add("measurements", prefix: "m", ["position": [1.0, 2.0], "level": "L0", "device": "iPhone", "band": "5"])
+        d.set("measurements", id, ["rssi": -62.0 as Double?, "throughput": 300.0 as Double?])
+        XCTAssertEqual(d.item("measurements", id)?["rssi"] as? Double, -62)
+        d.set("measurements", id, ["throughput": nil])
+        XCTAssertNil(d.item("measurements", id)?["throughput"])
+    }
+}

@@ -75,6 +75,11 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    go, how each zone fares and how the nodes connect, and "Show the signal on the plan" for the client-speed map by floor.
    Tap the circle on two results to **compare** them: the signal maps (A, B, or where one is faster) and a table of
    score, cost, worst zone and each zone's utility.
+   **Calibrate**: put your existing access point on the plan, then walk the house: with the Measure tool tap where you
+   stand and type the signal you read (a negative number such as -62, and the speed if you ran a test). "Calibrate to my
+   measurements" fits the model, shows the typical error on readings it has not seen, which wall materials the walks pinned
+   down (and the values they moved to), readings that look wrong, good places to measure next, and the planning margin
+   before and after; Apply saves it so later plans use it.
    Still later: placing scans is in the room details; planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.

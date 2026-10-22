@@ -200,6 +200,20 @@ class PlanApiTest(_PlanBase):
         bad = self.c.post("/api/houses/synthetic-long/ratemap", json={"nodes": [{"equipment": "x", "position": [1, 1], "level": "L0", "height": 1}]}, headers=self.ok)
         self.assertEqual(bad.status_code, 422)
 
+    def test_ratemap_is_valid_json_where_cells_have_no_service(self):
+        # a thick interior wall puts grid cells inside it: those are NaN in the model and must be null on the wire
+        from homemesh.model import Wall
+        h = store.load("synthetic-long")
+        thick = Wall(id="wx", level="L0", a=(15.0, 0.5), b=(15.0, 3.5), thickness=1.0, height=2.5, material="brick")
+        store.save(h.model_copy(update={"walls": [*h.walls, thick]}), expect_revision=h.revision)
+        r = self.c.post("/api/houses/synthetic-long/ratemap", json={"nodes": [], "gateway_equipment": "generic-mesh-tri", "grid": 0.25}, headers=self.ok)
+        self.assertEqual(r.status_code, 200, r.text)
+        rates = r.json()["grids"][0]["rate"]
+        self.assertIn(None, rates)
+        self.assertTrue(any(v is not None and v > 0 for v in rates))
+        import json
+        json.loads(r.text, parse_constant=lambda c: self.fail(f"{c} in the response"))
+
     def test_unknown_equipment_is_an_error_state(self):
         r = self.c.post("/api/houses/synthetic-long/plans", json={"equipment": ["nope"]}, headers=self.ok)
         done = self.wait(r.json()["job"])
