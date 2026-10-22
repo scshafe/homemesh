@@ -14,8 +14,8 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
     required init?(coder: NSCoder) { fatalError("not used") }
     init() { super.init(nibName: nil, bundle: nil) }
 
-    static let log = Logger(subsystem: "homemesh.capture", category: "scan")
-    static let signposter = OSSignposter(subsystem: "homemesh.capture", category: "scan")
+    nonisolated static let log = Logger(subsystem: "homemesh.capture", category: "scan")
+    nonisolated static let signposter = OSSignposter(subsystem: "homemesh.capture", category: "scan")
 
     enum Phase: String { case idle, running, stopping }
 
