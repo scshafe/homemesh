@@ -127,6 +127,7 @@
       "source": "unsourced: spread of vendor/survey tables; see module docstring"
     }
   ],
+  "measure_checks": [],
   "measurements": [],
   "name": "Synthetic two floors",
   "outlets": [],
