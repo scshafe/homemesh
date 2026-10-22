@@ -649,7 +649,8 @@ final class LabelledPlacementTests: XCTestCase {
         let room = Pt(10, 3)
         for angle in [0.0, 90.0, 180.0, 270.0, 33.0] {
             let s = door(1, 1, angle)
-            let scanCentre = Pt(1, 3)   // the scan's room lies this way from its door in the scan's own frame
+            let a = angle * .pi / 180
+            let scanCentre = Pt(1 - 2 * sin(a), 1 + 2 * cos(a))   // the scan's room lies 2 m to one side of its door, in the scan's own frame
             for flip in [false, true] {
                 let t = DoorPairing.transform(scan: s, plan: q, scanCentre: scanCentre, planRoomCentre: room, flip: flip)
                 let c = Geometry.apply(t, scanCentre)
