@@ -20,12 +20,16 @@ struct ScanScreen: View {
     @State private var status = ""
     @State private var hint = ""
     @FocusState private var focused: String?
+    @Environment(\.dismiss) private var dismiss
 
     private var levels: [LevelRef] { model.summary(houseId)?.levels ?? [] }
 
     var body: some View {
         VStack(spacing: 0) {
-            ScanView(controller: controller).id(generation).frame(height: 360).clipped()
+            ScanView(controller: controller).id(generation)
+                .frame(height: focused == nil ? 400 : 160).clipped()   // the keyboard gets the room the preview gave up
+                .animation(.easeOut(duration: 0.2), value: focused == nil)
+                .overlay(alignment: .top) { floatingBar }
             Form {
                 Section("Scan") {
                     Picker("Floor", selection: $level) { ForEach(levels) { Text($0.name).tag($0.id) } }
@@ -40,19 +44,36 @@ struct ScanScreen: View {
                             .focused($focused, equals: id)
                             .submitLabel(.done)
                     }
-                    Button("Upload to \(model.summary(houseId)?.name ?? houseId)") { Task { await upload() } }
-                        .disabled(rooms.isEmpty || busy || phase != .idle || !allNamed)
-                    if !rooms.isEmpty { Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle) }
                 }
                 if !status.isEmpty { Section { Text(status) } }
+                if !rooms.isEmpty {   // last in the form: out of the way of the keyboard and of the room fields
+                    Section { Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle || busy) }
+                }
             }
         }
-        .navigationTitle("Scan")
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             bind()
             if level.isEmpty { level = levels.contains { $0.id == initialLevel } ? initialLevel : (levels.first?.id ?? "") }
         }
         .onDisappear { controller.shutdown() }
+    }
+
+    /// Back on the left, Save on the right, floating over the preview (no navigation bar row).
+    private var floatingBar: some View {
+        HStack {
+            Button { dismiss() } label: { Image(systemName: "chevron.backward").font(.headline).padding(12) }
+                .background(.regularMaterial, in: Circle())
+                .accessibilityLabel("Back")
+            Spacer()
+            if !rooms.isEmpty {
+                Button { Task { await upload() } } label: { Text("Save").font(.headline).padding(.horizontal, 18).padding(.vertical, 10) }
+                    .background(.regularMaterial, in: Capsule())
+                    .disabled(busy || phase != .idle || !allNamed)
+                    .accessibilityHint("Saves the scan to \(model.summary(houseId)?.name ?? houseId) and uploads it")
+            }
+        }
+        .padding(.horizontal, 12).padding(.top, 8)
     }
 
     private var allNamed: Bool { rooms.allSatisfy { !(names[$0.identifier.uuidString] ?? "").trimmed.isEmpty } }
