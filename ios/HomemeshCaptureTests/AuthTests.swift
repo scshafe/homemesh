@@ -291,3 +291,27 @@ final class CalibrateDecodeTests: XCTestCase {
         XCTAssertNil(d.item("measurements", id)?["throughput"])
     }
 }
+
+final class UploadQueueTests: XCTestCase {
+    override func setUp() {
+        UploadQueue.root = FileManager.default.temporaryDirectory.appendingPathComponent("queue-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    func testAQueuedScanSurvivesUntilRemoved() throws {
+        let usdz = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).usdz")
+        try Data("PK".utf8).write(to: usdz)
+        let p = try UploadQueue.enqueue(house: "h", name: "Kitchen", level: "L0", replaces: "", json: Data("{}".utf8), usdz: usdz)
+        _ = try UploadQueue.enqueue(house: "other", name: "x", level: "", replaces: "", json: Data("{}".utf8), usdz: nil)
+        XCTAssertEqual(UploadQueue.all(house: "h").map(\.name), ["Kitchen"])
+        XCTAssertEqual(UploadQueue.all().count, 2)
+        XCTAssertEqual(try UploadQueue.json(p), Data("{}".utf8))
+        XCTAssertNotNil(UploadQueue.usdz(p))
+        UploadQueue.remove(p)
+        XCTAssertTrue(UploadQueue.all(house: "h").isEmpty)
+    }
+
+    func testAFolderWithoutMetaIsNotAQueuedUpload() throws {
+        try FileManager.default.createDirectory(at: UploadQueue.root.appendingPathComponent("half"), withIntermediateDirectories: true)
+        XCTAssertTrue(UploadQueue.all().isEmpty)
+    }
+}
