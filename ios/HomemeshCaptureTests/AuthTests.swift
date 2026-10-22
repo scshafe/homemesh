@@ -598,3 +598,44 @@ final class PlanGestureTests: XCTestCase {
         XCTAssertEqual(Geometry.bounds([]).width, 2, accuracy: 1e-9)   // an empty floor still has a drawable default
     }
 }
+
+final class DoorPairingTests: XCTestCase {
+    private func door(_ x: Double, _ y: Double, _ angle: Double) -> DoorInfo { DoorInfo(id: "d1", kind: "door", room: 0, x: x, y: y, angle: angle, width: 0.9, number: 1, label: "") }
+
+    func testPairingLaysTheScanDoorOnThePlanDoor() {
+        let q = PlanDoor(id: "w1#0", at: Pt(10, 5), angle: 90, width: 0.9, ref: nil)
+        for flip in [false, true] {
+            let s = door(2, 1, 30)
+            let t = DoorPairing.transform(scan: s, plan: q, flip: flip)
+            let m = Geometry.apply(t, s.at)
+            XCTAssertEqual(m.x, 10, accuracy: 1e-9)
+            XCTAssertEqual(m.y, 5, accuracy: 1e-9)
+            XCTAssertEqual((t.rotation - (90 - 30) - (flip ? 180 : 0)).truncatingRemainder(dividingBy: 360), 0, accuracy: 1e-9)
+        }
+    }
+
+    func testTheOwnersNudgeReproducesThePairingTransform() {
+        let proposal = Transform2D(rotation: 20, tx: 3, ty: -2)
+        let target = Transform2D(rotation: 75, tx: 8, ty: 4)
+        let centre = Pt(5, 5)
+        let n = Geometry.nudge(from: proposal, to: target, centre: centre)
+        let c = Geometry.compose(proposal, centre: centre, delta: n.delta, d: n.d)
+        XCTAssertEqual(c.rotation, target.rotation, accuracy: 1e-9)
+        XCTAssertEqual(c.tx, target.tx, accuracy: 1e-9)
+        XCTAssertEqual(c.ty, target.ty, accuracy: 1e-9)
+    }
+
+    func testPlanDoorsComeFromTheWallsAndRememberTheirScan() throws {
+        let json = #"{"id":"h","name":"H","revision":1,"levels":[{"id":"L0","name":"G","elevation":0,"height":2.5}],"walls":[{"id":"w1","level":"L0","a":[0,0],"b":[6,0],"thickness":0.1,"openings":[{"kind":"door","offset":1,"width":1,"prov":{"ref":"abc#door/12345678"}},{"kind":"window","offset":3,"width":1}]}]}"#
+        let plan = try JSONDecoder().decode(PlanHouse.self, from: Data(json.utf8))
+        let doors = PlanDoor.all(plan.walls, level: "L0")
+        XCTAssertEqual(doors.count, 1)   // windows are not doors
+        XCTAssertEqual(doors[0].at.x, 1.5, accuracy: 1e-9)
+        XCTAssertEqual(doors[0].source?.door, "12345678")
+        XCTAssertEqual(doors[0].source?.blob, "abc")
+    }
+
+    func testLabelChoicesListEachNameOnceAndNotTheScansOwnRooms() {
+        XCTAssertEqual(DoorLabelChoices.names(house: ["Kitchen", "hall", " "], session: ["Hall", "Pantry"], excluding: ["pantry"]), ["Kitchen", "hall"])
+    }
+}

@@ -30,7 +30,7 @@ enum RateColor {
 
 /// A point thing on the plan: an outlet, a jack or an access point.
 struct PlanMarker: Hashable, Identifiable {
-    enum Kind { case outlet, jack, accessPoint, entry, measurement, suggestion }
+    enum Kind { case outlet, jack, accessPoint, entry, measurement, suggestion, door, planDoor }
     let id: String
     let kind: Kind
     let at: Pt
@@ -209,6 +209,13 @@ struct PlanCanvas: View {
                         d.move(to: CGPoint(x: c.x, y: c.y - r - 3)); d.addLine(to: CGPoint(x: c.x + r + 3, y: c.y))
                         d.addLine(to: CGPoint(x: c.x, y: c.y + r + 3)); d.addLine(to: CGPoint(x: c.x - r - 3, y: c.y)); d.closeSubpath()
                         ctx.fill(d, with: .color(.black)); ctx.stroke(d, with: .color(sel ? .accentColor : .white), lineWidth: 1.5)
+                    case .door:   // a door of the scan being labelled or paired: numbered
+                        let big = CGRect(x: c.x - 11, y: c.y - 11, width: 22, height: 22)
+                        ctx.fill(Path(ellipseIn: big), with: .color(.orange.opacity(sel ? 1 : 0.8)))
+                        ctx.stroke(Path(ellipseIn: big), with: .color(sel ? .accentColor : .black), lineWidth: sel ? 3 : 1)
+                        ctx.draw(Text(m.id.hasPrefix("s") ? String(m.id.dropFirst()) : m.id).font(.caption.bold()).foregroundStyle(.black), at: c)
+                    case .planDoor:   // a door already on the plan: a blue ring
+                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(sel ? .accentColor : .blue), lineWidth: sel ? 3 : 2)
                     case .accessPoint:
                         ctx.fill(Path(ellipseIn: rect), with: .color(.blue))
                         ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -4, dy: -4)), with: .color(sel ? .accentColor : .blue), lineWidth: 1.5)

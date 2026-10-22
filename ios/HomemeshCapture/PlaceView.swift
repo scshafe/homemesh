@@ -20,8 +20,77 @@ struct PlaceView: View {
     @State private var done = false
     @State private var stairs: [StairSuggestion] = []
     @State private var stairTarget = ""
+    @State private var scanDoors: ScanDoorsInfo?
+    @State private var pairing = false              // tap a door on the scan, then its partner on the plan
+    @State private var pickedScan: String?          // the scan door's id
+    @State private var pairedPlan: PlanDoor?
+    @State private var flip = false
     @State private var proposing = false
     @State private var proposalRun = 0         // the newest proposal wins; an older answer arriving late is dropped
+
+    /// Where the placement stands now: the scan-frame to plan transform with the owner's turn and shift included.
+    private var current: Transform2D { Geometry.compose(placement?.transform ?? Transform2D(rotation: 0, tx: 0, ty: 0), centre: centre, delta: delta, d: shift) }
+
+    private var planDoors: [PlanDoor] { house.map { PlanDoor.all($0.walls.filter { !$0.isFromCapture(capture.blob) }, level: level) } ?? [] }
+
+    private var pairMarkers: [PlanMarker] {
+        guard pairing, let sd = scanDoors else { return [] }
+        let t = current
+        return sd.doors.map { PlanMarker(id: "s\($0.number)", kind: .door, at: Geometry.apply(t, $0.at)) }
+            + planDoors.map { PlanMarker(id: $0.id, kind: .planDoor, at: $0.at) }
+    }
+
+    private func tapPair(_ p: Pt, tol: Double) {
+        let reach = max(tol, 0.5)
+        let sNear = scanDoors?.doors.min(by: { dist(Geometry.apply(current, $0.at), p) < dist(Geometry.apply(current, $1.at), p) })
+            .flatMap { dist(Geometry.apply(current, $0.at), p) <= reach ? $0 : nil }
+        let qNear = planDoors.min(by: { dist($0.at, p) < dist($1.at, p) }).flatMap { dist($0.at, p) <= reach ? $0 : nil }
+        if pickedScan != nil, pairedPlan == nil, let q = qNear {   // the second tap: the partner on the plan
+            pairedPlan = q
+            applyPair()
+        } else if let d = sNear {                                  // the first tap, or a different scan door
+            pickedScan = d.id; pairedPlan = nil; flip = false
+        } else if pickedScan != nil, let q = qNear {               // another plan door for the same scan door
+            pairedPlan = q
+            applyPair()
+        }
+    }
+
+    private func dist(_ a: Pt, _ b: Pt) -> Double { hypot(a.x - b.x, a.y - b.y) }
+
+    /// Lay the picked scan door on the picked plan door by setting the owner's turn and shift.
+    private func applyPair() {
+        guard let id = pickedScan, let d = scanDoors?.doors.first(where: { $0.id == id }), let q = pairedPlan, let p = placement else { return }
+        let target = DoorPairing.transform(scan: d, plan: q, flip: flip)
+        let n = Geometry.nudge(from: p.transform, to: target, centre: centre)
+        delta = n.delta
+        dragged = n.d
+        live = Pt(0, 0)
+    }
+
+    /// After a pairing is accepted: the scan's door leads to the room beside the plan door, and that door leads back.
+    private func saveLabels(house: PlanHouse) async {
+        guard let id = pickedScan, let sd = scanDoors, let d = sd.doors.first(where: { $0.id == id }), let q = pairedPlan else { return }
+        let client = model.client()
+        let rooms = house.rooms.filter { $0.level == level }
+        let near = rooms.min { roomGap(q.at, $0) < roomGap(q.at, $1) }
+        if let near, roomGap(q.at, near) <= 0.8 {
+            var labels = Dictionary(uniqueKeysWithValues: sd.doors.filter { !$0.label.isEmpty }.map { ($0.id, $0.label) })
+            labels[d.id] = near.name
+            _ = try? await client.setDoorLabels(house: houseId, blob: capture.blob, labels: labels)
+        }
+        if let src = q.source, d.room < sd.rooms.count, !sd.rooms[d.room].trimmed.isEmpty, let other = try? await client.doors(house: houseId, blob: src.blob) {
+            var labels = Dictionary(uniqueKeysWithValues: other.doors.filter { !$0.label.isEmpty }.map { ($0.id, $0.label) })
+            labels[src.door] = sd.rooms[d.room].trimmed
+            _ = try? await client.setDoorLabels(house: houseId, blob: src.blob, labels: labels)
+        }
+        Diagnostics.event("door-pair", ["flip": flip])
+    }
+
+    private func roomGap(_ p: Pt, _ r: PlanRoom) -> Double {
+        if Geometry.contains(p, polygon: r.polygon) { return 0 }
+        return r.polygon.indices.map { Geometry.distance(from: p, toSegment: r.polygon[$0], r.polygon[($0 + 1) % r.polygon.count]) }.min() ?? .infinity
+    }
 
     private var shift: Pt { Pt(dragged.x + live.x, dragged.y + live.y) }
     private var ghost: [Seg] { Geometry.adjust(base, centre: centre, delta: delta, d: shift) }
@@ -35,14 +104,27 @@ struct PlaceView: View {
                 .pickerStyle(.segmented)
                 PlanCanvas(walls: house.walls.filter { $0.level == level && !$0.isFromCapture(capture.blob) },
                            rooms: house.rooms.filter { $0.level == level },
-                           ghost: ghost, bounds: bounds,
+                           ghost: ghost, bounds: bounds, markers: pairMarkers,
+                           selectedMarker: pairing ? (pairedPlan?.id ?? pickedScan.flatMap { id in scanDoors?.doors.first { $0.id == id }.map { "s\($0.number)" } }) : nil,
+                           onTapPlan: pairing ? { p, tol in tapPair(p, tol: tol) } : nil,
                            onDrag: { live = $0 }, onDragEnd: { dragged = shift; live = Pt(0, 0) })
                     .background(Color(.secondarySystemBackground))
                 if proposing {
                     HStack(spacing: 8) { ProgressView(); Text("Finding where it fits…").font(.footnote) }
                 }
                 if let p = placement {
-                    Text("\(p.confidence.uppercased()): \(p.reason)").font(.footnote).foregroundStyle(p.confidence == "auto" ? .green : .orange)
+                    Text("\(p.confidence.uppercased()): \(p.reason)").font(.footnote).foregroundStyle(p.confidence == "auto" || p.confidence == "labelled" ? .green : .orange)
+                }
+                if let sd = scanDoors, !sd.doors.isEmpty, !planDoors.isEmpty {
+                    HStack {
+                        Toggle("Pair doors", isOn: $pairing.animation()).toggleStyle(.button).buttonStyle(.bordered)
+                        if pairing {
+                            Text(pairedPlan != nil ? "Paired. Flip turns the scan the other way." : pickedScan == nil ? "Tap a door on the red scan." : "Now tap the same door on the plan.")
+                                .font(.footnote)
+                            Spacer()
+                            if pairedPlan != nil { Button("Flip") { flip.toggle(); applyPair() }.buttonStyle(.bordered) }
+                        }
+                    }
                 }
                 HStack {
                     Button("-90°") { delta -= 90 }
@@ -84,6 +166,7 @@ struct PlaceView: View {
             let h: PlanHouse = try await model.client().get("/api/houses/\(houseId)")
             house = h
             level = h.levels.first { $0.id == capture.level }?.id ?? h.levels.first?.id ?? ""
+            scanDoors = try? await model.client().doors(house: houseId, blob: capture.blob)
             await propose()
         } catch {
             status = "Could not load the plan: \(error.localizedDescription)"
@@ -167,6 +250,7 @@ struct PlaceView: View {
             let result = try await model.client().importScan(house: houseId, blob: capture.blob, level: level, transform: t)
             try await model.client().saveHouse(house: houseId, json: result.house, expectRevision: house.revision)
             done = true
+            if pairedPlan != nil { await saveLabels(house: house) }
             stairs = capture.stair == nil ? result.stairs : []   // the floors were already given with the scan
             stairTarget = house.levels.first { $0.id != level }?.id ?? ""
             status = "Placed and saved. Walls and rooms are on the plan; set thickness and materials next." + (capture.stair != nil ? " The staircase is saved too." : "")

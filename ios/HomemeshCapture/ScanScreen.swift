@@ -30,6 +30,8 @@ struct ScanScreen: View {
     @State private var liveStairRise: Double?        // a staircase RoomPlan sees right now
     @State private var stairTo = ""                   // where the staircase found in this scan leads ("" = not a staircase)
     @State private var stairTouched = false
+    @State private var doorLabels: [String: String] = [:]   // by door id (the scan's own identifiers)
+    @State private var labellingDoors = false
     @State private var storyPicks: [Int: String] = [:]   // a floor the owner chose for a story of this scan
     @FocusState private var focused: String?
     @Environment(\.dismiss) private var dismiss
@@ -58,6 +60,20 @@ struct ScanScreen: View {
             .padding(.horizontal, 12)
         }
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $labellingDoors) {
+            NavigationStack {
+                ScrollView {
+                    DoorLabelsView(doors: ScanDoors.doors(allRooms), walls: ScanDoors.walls(allRooms),
+                                   roomNames: allRooms.map { names[$0.identifier.uuidString]?.trimmed ?? "" },
+                                   choices: DoorLabelChoices.names(house: earlierRooms.filter { $0.replaced_by == nil }.map(\.name), session: allRooms.map { names[$0.identifier.uuidString] ?? "" },
+                                                                   excluding: []),
+                                   labels: $doorLabels).padding()
+                }
+                .navigationTitle("Where do the doors lead?")
+                .toolbar { Button("Done") { labellingDoors = false } }
+            }
+            .presentationDetents([.large])
+        }
         .onAppear {
             BaroSampler.shared.start()
             suggestFloor()   // at once from what is known here; refined when the earlier rooms arrive
@@ -85,6 +101,11 @@ struct ScanScreen: View {
                         }
                         if !allRooms.isEmpty {
                             Text(ScanFindings.summary(allRooms) + (rises.isEmpty ? "" : " Staircase found: rises \(String(format: "%.1f", rises[0])) m.")).font(.footnote)
+                            if staircase == nil && !ScanDoors.doors(allRooms).isEmpty {
+                                Button { labellingDoors = true } label: {
+                                    Label(doorLabels.isEmpty ? "Doors: where do they lead? (optional)" : "Doors: \(doorLabels.count) labelled", systemImage: "door.left.hand.open")
+                                }.font(.footnote)
+                            }
                             if staircase == nil {
                                 Text("Floor").font(.footnote.weight(.semibold))
                                 floorPicker
@@ -230,6 +251,7 @@ struct ScanScreen: View {
         stairTouched = false
         stairTo = ""
         storyPicks = [:]
+        doorLabels = [:]
         names = [:]
         replaceController()
     }
@@ -275,7 +297,8 @@ struct ScanScreen: View {
             FloorSuggestion.remember(level, house: houseId)
             for (gi, g) in groups.enumerated() {   // one scan per session: each session has its own frame
                 let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed }, baro: gi < baros.count ? baros[gi] : nil,
-                                                                storyLevels: Dictionary(uniqueKeysWithValues: StoryFloors.stories(g).map { ($0, storyFloor($0)) }))
+                                                                storyLevels: Dictionary(uniqueKeysWithValues: StoryFloors.stories(g).map { ($0, storyFloor($0)) }),
+                                                                doorLabels: doorLabels.filter { l in ScanDoors.doors(g).contains { $0.id == l.key } })
                 var stair: (from: String, to: String)?
                 if let staircase { stair = (staircase.from, staircase.to) }
                 else if !ScanFindings.stairRises(g).isEmpty, !effectiveStairTo.isEmpty, !items.contains(where: { $0.0.stairFrom != nil }) { stair = (level, effectiveStairTo) }
@@ -328,7 +351,7 @@ extension View {
 enum ScanPayload {
     /// The capture JSON in the app's wrapper, each room carrying its name, and the exported USDZ.
     /// One room: that room. Several: combined by StructureBuilder so all share one coordinate frame.
-    nonisolated static func build(rooms: [CapturedRoom], names: [String: String], baro: BaroReading? = nil, storyLevels: [Int: String] = [:]) async throws -> (json: Data, usdz: URL) {
+    nonisolated static func build(rooms: [CapturedRoom], names: [String: String], baro: BaroReading? = nil, storyLevels: [Int: String] = [:], doorLabels: [String: String] = [:]) async throws -> (json: Data, usdz: URL) {
         try await Task.detached(priority: .userInitiated) {
             let log = ScanController.log, sp = ScanController.signposter
             let total = sp.beginInterval("build payload")
@@ -363,6 +386,7 @@ enum ScanPayload {
             // rooms on different stories get their own floor (the server imports each on it)
             let floors: [String?] = roomObjects.map { storyLevels[($0["story"] as? Int) ?? 0] }
             if Set(floors.compactMap { $0 }).count > 1 { wrapper["room_levels"] = floors.map { $0 ?? "" } }
+            if !doorLabels.isEmpty { wrapper["door_labels"] = doorLabels }
             if let baro {
                 wrapper["baro"] = ["session": baro.session, "rel_m": baro.rel_m, "kpa": baro.kpa, "at": baro.at]
             }

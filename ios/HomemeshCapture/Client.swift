@@ -73,6 +73,13 @@ struct Client: Sendable {
         try await send("PUT", "/api/houses/\(house)/captures/\(blob)/stair", StairFloorsBody(from_level: from, to_level: to))
     }
 
+    /// The doors of a scan (in its own frame) with where each was said to lead, and its walls.
+    func doors(house: String, blob: String) async throws -> ScanDoorsInfo { try await get("/api/houses/\(house)/captures/\(blob)/doors") }
+
+    func setDoorLabels(house: String, blob: String, labels: [String: String]) async throws -> CaptureMeta {
+        try await send("PUT", "/api/houses/\(house)/captures/\(blob)/doors", DoorLabelsBody(labels: labels))
+    }
+
     func captures(house: String) async throws -> [CaptureMeta] { try await get("/api/houses/\(house)/captures") }
 
     /// Imports the scan at `transform` and returns the resulting house as JSON (a preview: nothing is stored yet).
