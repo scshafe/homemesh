@@ -11,8 +11,8 @@ final class ScreenAwake {
     private let apply: (Bool) -> Void
     private(set) var held = false
     init(apply: @escaping (Bool) -> Void) { self.apply = apply }
-    func hold() { guard !held else { return }; held = true; apply(true) }
-    func release() { guard held else { return }; held = false; apply(false) }
+    func hold() { MainActor.assertIsolated("the idle timer is UIKit state: main actor only"); guard !held else { return }; held = true; apply(true) }
+    func release() { MainActor.assertIsolated("the idle timer is UIKit state: main actor only"); guard held else { return }; held = false; apply(false) }
 }
 
 /// When a RoomPlan session has had enough: the scene limit is not observable, so the signals are rooms and time.
@@ -144,6 +144,7 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
     }
 
     private func set(_ p: Phase) {
+        MainActor.assertIsolated("scan state is changed on the main actor only")
         Self.log.notice("scan phase \(self.phase.rawValue, privacy: .public) -> \(p.rawValue, privacy: .public)")
         phase = p
         onPhase?(p)
@@ -185,6 +186,7 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
 
     /// Gives up this session: stops everything, tries to keep what was scanned, tells the owner of the controller.
     private func lose(_ message: String, data: CapturedRoomData?) {
+        MainActor.assertIsolated("a lost session is handled on the main actor")
         guard !lost else { return }
         lost = true
         if let runSignpost { Self.signposter.endInterval("run", runSignpost) }
@@ -213,23 +215,52 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         armWatchdog(Self.stopTimeout, while: .stopping, expecting: "processing the room took too long") { true }
     }
 
-    // MARK: RoomCaptureSessionDelegate
+    // MARK: RoomCaptureSessionDelegate and RoomCaptureViewDelegate
+    //
+    // RoomPlan calls these on its own serial queue (com.apple.RoomPlan.FloorPlanCaptureSession), not on the main
+    // thread. Every one is `nonisolated`, touches no state, and hops to the main actor before doing anything, so
+    // the UIKit and view state work (idle timer, view teardown, SwiftUI callbacks) always runs on main.
 
-    func captureSession(_ session: RoomCaptureSession, didStartWith configuration: RoomCaptureSession.Configuration) {
+    nonisolated func captureSession(_ session: RoomCaptureSession, didStartWith configuration: RoomCaptureSession.Configuration) {
+        Task { @MainActor in self.sessionDidStart() }
+    }
+
+    nonisolated func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
+        let walls = room.walls.count
+        Task { @MainActor in self.wallsSeen = walls }
+    }
+
+    nonisolated func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: Error?) {
+        let box = Unchecked((data, error))
+        Task { @MainActor in self.sessionDidEnd(data: box.value.0, error: box.value.1) }
+    }
+
+    nonisolated func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
+        if let error {
+            Self.log.error("not presenting: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        return true
+    }
+
+    nonisolated func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
+        let box = Unchecked((processedResult, error))
+        Task { @MainActor in self.viewDidPresent(box.value.0, error: box.value.1) }
+    }
+
+    private func sessionDidStart() {
+        MainActor.assertIsolated("RoomPlan callbacks must be handled on the main actor")
         Self.log.notice("session started")
         sessionStarted = true
         watchdog?.cancel()
     }
 
-    func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
-        wallsSeen = room.walls.count
-    }
-
-    func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: Error?) {
+    private func sessionDidEnd(data: CapturedRoomData, error: Error?) {
         guard !lost else { return }
         if let error {
             let exceeded = (error as? RoomCaptureSession.CaptureError) == .exceedSceneSizeLimit
-            Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public) (size limit: \(exceeded))")
+            let ns = error as NSError
+            Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public) (\(ns.domain, privacy: .public) \(ns.code), size limit: \(exceeded))")
             lose(exceeded
                  ? "RoomPlan's scene size limit was reached. The next room starts a new session (a new frame) and is placed by the usual placement step."
                  : "The scan stopped: \(error.localizedDescription). The next room starts a new session.", data: data)
@@ -240,17 +271,7 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         Self.log.notice("session ended; the room is being processed")
     }
 
-    // MARK: RoomCaptureViewDelegate
-
-    func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
-        if let error {
-            Self.log.error("not presenting: \(error.localizedDescription, privacy: .public)")
-            return false
-        }
-        return true
-    }
-
-    func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
+    private func viewDidPresent(_ processedResult: CapturedRoom, error: Error?) {
         guard !lost else { return }
         watchdog?.cancel()
         if let stopSignpost { Self.signposter.endInterval("stop and process", stopSignpost) }
@@ -265,6 +286,13 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         Self.log.notice("room processed: \(processedResult.walls.count) wall(s); \(self.roomsDone) in this session, \(Int(self.scanSeconds)) s scanned")
         onProcessed?(processedResult)
     }
+}
+
+/// A value handed from RoomPlan's queue to the main actor. RoomPlan's result types are not declared Sendable; each
+/// value is used only after the hop and never touched on the queue again.
+struct Unchecked<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }
 
 struct ScanView: UIViewControllerRepresentable {
