@@ -61,7 +61,7 @@ struct CompareView: View {
     private func fmt(_ v: Double) -> String { String(format: "%.2f", v) }
 
     private func row(_ k: String, _ x: String, _ y: String) -> some View {
-        HStack { Text(k); Spacer(); Text(x).monospacedDigit().frame(width: 70, alignment: .trailing); Text(y).monospacedDigit().frame(width: 70, alignment: .trailing) }
+        HStack { Text(k); Spacer(); Text(x).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6).frame(minWidth: 60, alignment: .trailing); Text(y).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6).frame(minWidth: 60, alignment: .trailing) }
     }
 
     private func load() async {

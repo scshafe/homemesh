@@ -81,13 +81,17 @@ struct CatalogueView: View {
                 }
                 Section(list.allCatalogue ? "Catalogue (all will be tried)" : "Your shortlist: tick what you are considering") {
                     ForEach(data.equipment.filter { $0.kind != "router" }) { e in
-                        NavigationLink {
-                            EquipmentDetail(item: e)
-                        } label: {
-                            HStack {
-                                Image(systemName: list.equipment.contains(e.id) || list.allCatalogue ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(list.equipment.contains(e.id) || list.allCatalogue ? Color.accentColor : .secondary)
-                                    .onTapGesture { toggle(e.id) }
+                        let on = list.equipment.contains(e.id) || list.allCatalogue
+                        HStack {
+                            Button { toggle(e.id) } label: {
+                                Image(systemName: on ? "checkmark.circle.fill" : "circle").foregroundStyle(on ? Color.accentColor : .secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(list.allCatalogue)
+                            .accessibilityLabel(on ? "\(e.name) is on the shortlist" : "Add \(e.name) to the shortlist")
+                            NavigationLink {
+                                EquipmentDetail(item: e)
+                            } label: {
                                 VStack(alignment: .leading) {
                                     Text(e.name)
                                     Text([e.system, e.price.map { String(format: "$%.0f", $0) }, e.assumed ? "numbers assumed" : nil].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))

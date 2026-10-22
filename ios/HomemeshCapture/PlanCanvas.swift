@@ -57,6 +57,17 @@ struct PlanCanvas: View {
     var onDrag: ((Pt) -> Void)?       // plan metres moved since the gesture began
     var onDragEnd: (() -> Void)?
 
+    /// What the picture shows, in words, for VoiceOver.
+    private var summary: String {
+        var parts = ["Plan with \(walls.count) wall(s) and \(rooms.count) room(s)"]
+        let names = rooms.map(\.name).filter { !$0.isEmpty }
+        if !names.isEmpty { parts.append("rooms: " + names.joined(separator: ", ")) }
+        if !markers.isEmpty { parts.append("\(markers.count) marked thing(s)") }
+        if !zones.isEmpty { parts.append("\(zones.count) zone(s)") }
+        if heat != nil { parts.append("coloured by client speed") }
+        return parts.joined(separator: ", ")
+    }
+
     private func mapping(_ size: CGSize) -> (CGFloat, (Pt) -> CGPoint) {
         let s = min(size.width / bounds.width, size.height / bounds.height) * 0.85 * zoom
         let mx = bounds.midX, my = bounds.midY
@@ -174,6 +185,9 @@ struct PlanCanvas: View {
                 }
             }
             .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(summary)
+            .accessibilityHint(onTapPlan == nil ? "" : "The drawing cannot be explored by touch with VoiceOver; use the lists and menus around it")
             .onTapGesture(coordinateSpace: .local) { loc in
                 let mx = bounds.midX, my = bounds.midY
                 let p = Pt(mx + Double((loc.x - geo.size.width / 2) / scale), my - Double((loc.y - geo.size.height / 2) / scale))

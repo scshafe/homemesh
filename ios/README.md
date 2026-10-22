@@ -87,6 +87,8 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    back. Nothing is lost: the earlier versions stay in the house's history.
    **3D view of the house** (SceneKit): walls at their floor's height, a slab per floor and the staircases; drag to turn,
    pinch to zoom, and hide floors with the buttons below. Each room's own scanned model is in the room details.
+   **Accessibility**: the controls have VoiceOver labels; the plan drawing is described in words and a wall can be chosen
+   from a list as well as by tapping; text follows the system text size.
    Still later: placing scans is in the room details; planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.
