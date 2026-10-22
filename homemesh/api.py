@@ -422,7 +422,8 @@ def create_app() -> FastAPI:
                             "name": (names[i] if i < len(names) else "") or (r.name if r else ""),
                             "description": (about[i] if i < len(about) else "") or (r.description if r else ""),
                             "level": r.level if r else meta.get("level"), "placed": r.id if r else None,
-                            "usdz": meta.get("usdz"), "at": meta["at"], "replaced_by": replaced_by.get(f"{meta['blob']}:{i}")})
+                            "usdz": meta.get("usdz"), "at": meta["at"], "replaced_by": replaced_by.get(f"{meta['blob']}:{i}"),
+                            "baro": meta.get("baro")})
         return out
 
     @app.get("/api/houses/{house_id}/captures", dependencies=[api])

@@ -14,6 +14,10 @@ struct ScanScreen: View {
     @State private var generation = 0
     @State private var level = ""
     @State private var levelReason = ""
+    @State private var levelTouched = false          // the owner chose a floor: suggestions stop changing it
+    @State private var earlierRooms: [RoomItem] = []
+    @State private var baro: BaroReading?            // at the start of the running session's first room
+    @State private var earlierBaro: [BaroReading?] = []
     @State private var rooms: [CapturedRoom] = []          // the rooms of the running session (one frame)
     @State private var earlier: [[CapturedRoom]] = []      // sessions that ended: each is its own frame and its own scan
     @State private var names: [String: String] = [:]   // by the room's identifier
@@ -59,10 +63,15 @@ struct ScanScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
+            BaroSampler.shared.start()
+            suggestFloor()   // at once from what is known here; refined when the earlier rooms arrive
             bind()
         }
-        .task { suggestFloor() }
-        .onChange(of: level) { _, new in if !new.isEmpty { FloorSuggestion.remember(new, house: houseId) } }
+        .task {
+            earlierRooms = (try? await model.client().rooms(house: houseId)) ?? []
+            suggestFloor()
+        }
+
         .onDisappear { controller.shutdown() }
     }
 
@@ -85,17 +94,18 @@ struct ScanScreen: View {
 
     /// The floor to start the picker on, from the floor asked for, the rooms scanned at the same height, or the last used.
     private func suggestFloor() {
-        guard level.isEmpty else { return }
+        guard !levelTouched else { return }
+        let others = earlierRooms.compactMap { r in r.level.flatMap { l in r.baro.map { (room: r.name, level: l, baro: $0) } } }
         let asked = replacing?.level ?? (initialLevel.isEmpty ? nil : initialLevel)
         let why = replacing != nil ? "the floor of the room you are re-scanning" : "the floor you started from"
-        let s = FloorSuggestion.suggest(levels: levels, current: nil, others: [], preferred: asked, preferredReason: why,
+        let s = FloorSuggestion.suggest(levels: levels, current: baro, others: others, preferred: asked, preferredReason: why,
                                         lastUsed: FloorSuggestion.lastUsed(house: houseId))
         level = s?.level ?? levels.first?.id ?? ""
         levelReason = s?.reason ?? ""
     }
 
     @ViewBuilder private var floorPicker: some View {
-        let choice = Binding(get: { level }, set: { level = $0; levelReason = "" })
+        let choice = Binding(get: { level }, set: { level = $0; levelTouched = true; levelReason = "" })
         if levels.count <= 4 {
             Picker("Floor", selection: choice) { ForEach(levels.reversed()) { Text($0.name).tag($0.id) } }.pickerStyle(.segmented)
         } else {
@@ -116,6 +126,7 @@ struct ScanScreen: View {
     private func bind() {
         controller.onProcessed = { room in
             rooms.append(room)
+            suggestFloor()
             status = "Room added: name it below."
             if rooms.count == 1, let old = replacing, names[room.identifier.uuidString] == nil { names[room.identifier.uuidString] = old.name }
             focused = room.identifier.uuidString
@@ -140,6 +151,9 @@ struct ScanScreen: View {
     private func resetScan() {
         rooms = []
         earlier = []
+        earlierBaro = []
+        baro = nil
+        levelTouched = false
         names = [:]
         replaceController()
     }
@@ -155,7 +169,7 @@ struct ScanScreen: View {
     /// The running session is over (it hit RoomPlan's limits, failed, or is simply long): what it scanned is kept as
     /// its own scan, and the next room gets a brand-new session, camera view and world frame.
     private func newSession() {
-        if !rooms.isEmpty { earlier.append(rooms); rooms = [] }
+        if !rooms.isEmpty { earlier.append(rooms); earlierBaro.append(baro); rooms = []; baro = nil }
         replaceController()
     }
 
@@ -167,6 +181,7 @@ struct ScanScreen: View {
             status = "To stay under RoomPlan's size limit this room starts a new session: a new frame, placed by the usual placement step. Tap start again."
             return
         }
+        if baro == nil { baro = BaroSampler.shared.reading }
         controller.start()
     }
 
@@ -177,9 +192,11 @@ struct ScanScreen: View {
         do {
             status = "Preparing…"
             let groups = earlier + (rooms.isEmpty ? [] : [rooms])
+            let baros = earlierBaro + (rooms.isEmpty ? [] : [baro])
             var items: [(PendingUpload, [String])] = []
-            for g in groups {   // one scan per session: each session has its own frame
-                let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed })
+            FloorSuggestion.remember(level, house: houseId)
+            for (gi, g) in groups.enumerated() {   // one scan per session: each session has its own frame
+                let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed }, baro: gi < baros.count ? baros[gi] : nil)
                 let item = try UploadQueue.enqueue(house: houseId, name: scanTitle(g), level: level, replaces: items.isEmpty ? (replacing?.key ?? "") : "", json: json, usdz: usdz)
                 items.append((item, g.map { names[$0.identifier.uuidString]?.trimmed ?? "" }))
             }
@@ -212,7 +229,7 @@ struct ScanScreen: View {
 enum ScanPayload {
     /// The capture JSON in the app's wrapper, each room carrying its name, and the exported USDZ.
     /// One room: that room. Several: combined by StructureBuilder so all share one coordinate frame.
-    nonisolated static func build(rooms: [CapturedRoom], names: [String: String]) async throws -> (json: Data, usdz: URL) {
+    nonisolated static func build(rooms: [CapturedRoom], names: [String: String], baro: BaroReading? = nil) async throws -> (json: Data, usdz: URL) {
         try await Task.detached(priority: .userInitiated) {
             let log = ScanController.log, sp = ScanController.signposter
             let total = sp.beginInterval("build payload")
@@ -243,7 +260,10 @@ enum ScanPayload {
                 let key = byOrder ? rooms[i].identifier.uuidString : (roomObjects[i]["identifier"] as? String ?? "")
                 if let n = names[key], !n.isEmpty { roomObjects[i]["name"] = n }
             }
-            let wrapper: [String: Any] = ["format": "homemesh-capture-1", "rooms": roomObjects]
+            var wrapper: [String: Any] = ["format": "homemesh-capture-1", "rooms": roomObjects]
+            if let baro {
+                wrapper["baro"] = ["session": baro.session, "rel_m": baro.rel_m, "kpa": baro.kpa, "at": baro.at]
+            }
             let json = try JSONSerialization.data(withJSONObject: wrapper)
             log.notice("payload ready: \(json.count) bytes")
             return (json, usdz)

@@ -1,7 +1,7 @@
 """Stored scans: the capture JSON (and its USDZ) as blobs, with a small index.
 
     houses/<id>/blobs/<sha256>            the JSON as uploaded, and the USDZ
-    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, descriptions, level, replaces}  (derived; rebuildable from the blob)
+    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, descriptions, level, replaces, baro}  (derived; rebuildable from the blob)
 """
 
 from __future__ import annotations
@@ -39,6 +39,17 @@ def summarise(data: dict) -> dict:
     return counts
 
 
+def baro_of(data: dict) -> dict | None:
+    """The barometer reading the app took at scan start: {session, rel_m, kpa, at}; anything malformed is dropped."""
+    b = data.get("baro")
+    if not isinstance(b, dict):
+        return None
+    try:
+        return {"session": str(b["session"])[:64], "rel_m": float(b["rel_m"]), "kpa": float(b["kpa"]), "at": float(b["at"])}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", replaces: str = "") -> dict:
     if len(raw) > MAX_JSON:
         raise CaptureError("capture too large")
@@ -50,13 +61,14 @@ def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", rep
         raise CaptureError("not a capture")
     counts = summarise(data)
     digest = store.put_blob(house_id, raw)
-    meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None, "rooms": room_names(data), "level": level or None, "replaces": replaces or None}
+    meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None, "rooms": room_names(data), "level": level or None, "replaces": replaces or None, "baro": baro_of(data)}
     path = _dir(house_id) / f"{digest}.json"
     if path.exists():  # the same scan uploaded twice: keep what is known (the USDZ, the name)
         old = json.loads(path.read_text())
         meta.update({"usdz": old.get("usdz"), "name": old.get("name") or meta["name"], "at": old["at"],
                      "rooms": old.get("rooms") if any(old.get("rooms") or []) else meta["rooms"],
-                     "level": level or old.get("level"), "replaces": replaces or old.get("replaces")})
+                     "level": level or old.get("level"), "replaces": replaces or old.get("replaces"),
+                     "baro": meta["baro"] or old.get("baro")})
     store._write_atomic(path, json.dumps(meta).encode())
     return meta
 

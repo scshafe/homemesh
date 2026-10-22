@@ -33,6 +33,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: "homemesh"
         INFOPLIST_KEY_NSCameraUsageDescription: "The camera and LiDAR scan the rooms of your home."
+        INFOPLIST_KEY_NSMotionUsageDescription: "The barometer tells which floor of your home a room is on."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UIRequiredDeviceCapabilities: arkit
