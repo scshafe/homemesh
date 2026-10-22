@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum PlanTool: String, CaseIterable, Identifiable {
-    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", stair = "Stair"
+    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", stair = "Stair", zone = "Zone"
     var id: String { rawValue }
 }
 
@@ -17,6 +17,8 @@ struct PlanScreen: View {
     @State private var selectedWall: String?
     @State private var selectedMarker: PlanMarker?
     @State private var selectedStair: String?
+    @State private var selectedZone: String?
+    @State private var zoneKind = "allow"
     @State private var draft: [Pt] = []
     @State private var stairTarget = ""
     @State private var status = ""
@@ -36,7 +38,20 @@ struct PlanScreen: View {
             if let plan {
                 Picker("Tool", selection: $tool) { ForEach(PlanTool.allCases) { Text($0.rawValue).tag($0) } }
                     .pickerStyle(.segmented)
-                    .onChange(of: tool) { draft = []; selectedWall = nil; selectedMarker = nil; selectedStair = nil }
+                    .onChange(of: tool) { draft = []; selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil }
+                if tool == .zone {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("Kind", selection: $zoneKind) {
+                            Text("Where it may go").tag("allow"); Text("Where it must not").tag("forbid"); Text("Needs signal").tag("demand")
+                        }.pickerStyle(.segmented)
+                        HStack {
+                            Text(draft.isEmpty ? "Tap the corners of the area (one tap makes a single spot)." : "\(draft.count) point(s).").font(.footnote)
+                            Spacer()
+                            Button("Finish") { finishZone(plan) }.disabled(draft.isEmpty)
+                            Button("Cancel") { draft = [] }.disabled(draft.isEmpty)
+                        }
+                    }.padding(.horizontal)
+                }
                 if tool == .stair {
                     HStack {
                         Text("Leads to").font(.footnote)
@@ -46,7 +61,7 @@ struct PlanScreen: View {
                 }
                 PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
                            bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), draft: draft,
-                           selectedMarker: selectedMarker?.id, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
+                           selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
                     .background(Color(.secondarySystemBackground))
                 inspector(plan)
             } else {
@@ -70,9 +85,12 @@ struct PlanScreen: View {
             } else if let id = selectedStair, let st = plan.stairs.first(where: { $0.id == id }) {
                 StairInspector(stair: st, doc: doc, here: level, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedStair = nil })
                     .frame(maxHeight: 240)
+            } else if let id = selectedZone, let z = plan.zones.first(where: { $0.id == id }) {
+                ZoneInspector(zone: z, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedZone = nil })
+                    .frame(maxHeight: 420)
             } else if tool == .select {
-                Text("Tap a wall, a thing or a staircase.").font(.footnote).foregroundStyle(.secondary)
-            } else if tool != .stair {
+                Text("Tap a wall, a thing, a staircase or a zone.").font(.footnote).foregroundStyle(.secondary)
+            } else if tool != .stair && tool != .zone {
                 Text("Tap the plan to put the \(tool.rawValue.lowercased()) there.").font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -82,13 +100,15 @@ struct PlanScreen: View {
         guard var d = doc else { return }
         switch tool {
         case .select:
-            selectedWall = nil; selectedMarker = nil; selectedStair = nil
+            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil
             if let m = markers.min(by: { dist($0.at, p) < dist($1.at, p) }), dist(m.at, p) <= tol {
                 selectedMarker = m
             } else if let st = stairsHere.first(where: { Geometry.contains(p, polygon: $0.polygon) }) {
                 selectedStair = st.id
-            } else {
-                selectedWall = nearestWall(p, tol: tol, plan: plan)
+            } else if let w = nearestWall(p, tol: tol, plan: plan) {
+                selectedWall = w
+            } else if let z = plan.zones.first(where: { $0.level == level && ($0.polygon.count >= 3 ? Geometry.contains(p, polygon: $0.polygon) : dist($0.polygon[0], p) <= max(tol, 0.3)) }) {
+                selectedZone = z.id
             }
         case .outlet:
             let id = d.add("outlets", prefix: "o", ["position": [p.x, p.y], "level": level, "z": 0.3])
@@ -102,6 +122,8 @@ struct PlanScreen: View {
             let id = d.add("access_points", prefix: "ap", ["position": [p.x, p.y], "level": level, "name": "Access point", "height": 1.5])
             selectedMarker = PlanMarker(id: id, kind: .accessPoint, at: p)
             Task { await save(d) }
+        case .zone:
+            draft.append(p)
         case .stair:
             draft.append(p)
             guard draft.count == 2, !stairTarget.isEmpty else { if stairTarget.isEmpty { status = "Choose the floor it leads to first."; draft = [] }; return }
@@ -113,6 +135,20 @@ struct PlanScreen: View {
             draft = []
             Task { await save(d) }
         }
+    }
+
+    private func finishZone(_ plan: PlanHouse) {
+        guard var d = doc, !draft.isEmpty else { return }
+        var zone: [String: Any] = ["level": level, "polygon": draft.map { [$0.x, $0.y] }, "kind": zoneKind, "name": ""]
+        switch zoneKind {
+        case "demand": zone["weight"] = 1.0; zone["need"] = ["min_rssi": -65.0, "must": false, "rx_height": 1.0]
+        case "allow": zone["requires"] = "none"
+        default: break
+        }
+        let id = d.add("zones", prefix: "z", zone)
+        draft = []
+        selectedZone = id
+        Task { await save(d) }
     }
 
     private func dist(_ a: Pt, _ b: Pt) -> Double { hypot(a.x - b.x, a.y - b.y) }
