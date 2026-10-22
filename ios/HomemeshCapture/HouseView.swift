@@ -47,7 +47,7 @@ struct HouseView: View {
         }
         .navigationTitle(model.summary(houseId)?.name ?? houseId)
         .navigationDestination(isPresented: $scanning) {
-            ScanScreen(houseId: houseId, initialLevel: scanLevel, onUploaded: { Task { await load() } })
+            ScanScreen(houseId: houseId, initialLevel: scanLevel, replacing: nil, onUploaded: { Task { await load() } })
         }
         .alert("New floor", isPresented: $addingLevel) {
             TextField("Name (for example First floor)", text: $newLevel)
@@ -75,7 +75,9 @@ struct HouseView: View {
         do {
             async let r = model.client().rooms(house: houseId)
             async let c = model.client().captures(house: houseId)
-            (rooms, captures) = try await (r, c)
+            let all = try await r
+            rooms = all.filter { $0.replaced_by == nil }   // earlier scans of re-scanned rooms stay stored as history
+            captures = try await c
             note = ""
         } catch {
             note = "Could not load the rooms: \(error.localizedDescription)"
@@ -124,6 +126,9 @@ struct RoomDetailView: View {
                     Button("View the 3D model", systemImage: "cube") { Task { await show3D() } }.disabled(busy)
                 } else {
                     Text("No 3D model was uploaded for this scan.").font(.footnote)
+                }
+                NavigationLink("Re-scan this room") {
+                    ScanScreen(houseId: houseId, initialLevel: room.level ?? "", replacing: room, onUploaded: { onChanged() })
                 }
                 if let capture {
                     NavigationLink("Place on the plan") { PlaceView(houseId: houseId, capture: capture) }

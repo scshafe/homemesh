@@ -193,6 +193,8 @@ same stair. Rotation between floors is taken from the stair's long axis.
 
 **As built (P4b-1):** `Room.description`; capture meta `descriptions` and `level`; `PUT .../captures/<blob>/rooms` takes `names` and optional `descriptions`; `PUT .../captures/<blob>/level` (moves an imported scan's walls and rooms in one revision); `GET /api/houses/<id>/rooms` as above (without `walls` and `replaced_by`, which arrive with re-scan). The USDZ is `GET .../blobs/<capture meta usdz>`.
 
+**As built (P4b-3):** `POST captures?replaces=<capture>:<room index>`; `place` leaves the replaced room's own walls out of the plan (falls back to the whole plan when nothing else is on the level); `import` removes the replaced room and the walls whose source surfaces all belong to it (`roomplan.retire_room`; a wall paired with another room's face stays, and the new scan brings its own copy of it, so a doorway shared with a neighbour may appear twice until P5's editor); the room list has `replaced_by` and the app hides replaced rooms; the new room's description is copied from the old.
+
 Sub-milestones (small PRs): **P4b-1** server room list, descriptions, floor change, scan `level`
 (backend); **P4b-2** app: one name field, "Add room scan" button, rooms grouped by floor, room detail with the
 3D model (QuickLook) and rename/description/floor; **P4b-3** re-scan (`replaces`); **P4b-4** stairs
