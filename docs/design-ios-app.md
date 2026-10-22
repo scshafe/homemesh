@@ -444,3 +444,16 @@ behind the door stores them under `$HOMEMESH_DATA/diagnostics/<device>/` (the sa
 30 days and 50 MB retention, the newest file always kept); `GET /api/diagnostics` lists and
 `GET /api/diagnostics/<device>/<name>` returns one. `./scripts/diagnostics latest-crash | events -n 100 | list`
 prints them from the data directory (needs `HOMEMESH_DATA`). A Settings switch (on by default) turns the upload off.
+
+## Staircases from the save sheet (2026-10-22)
+
+A staircase RoomPlan finds is asked about where it is found, not after placement. The capture meta carries
+`stairs_found` (`[{rise, width, run}]`, computed on upload, and once from the stored JSON for older captures) and
+`stair` (`{from_level, to_level}`, set by `PUT .../captures/<blob>/stair`, or by `stair_from`/`stair_to` on upload).
+Importing a scan with `stair` set adds the Stair to the preview house (footprint of the biggest stairs object, `void`,
+`prov.ref = <blob>#stair`, replaced on re-import), so placing the scan saves the staircase with no second prompt. The
+measured rise is the floor-to-floor distance when the two floors are neighbours in the stack: the lower level's height
+becomes rise minus the slab (`Level.height_source = "stair"`, kept when the stack is re-derived from wall heights).
+"Scan a staircase" uploads with `purpose=stairs`: the scan is listed as a staircase, not a room, makes no `Room` on
+import (its walls are imported), and if RoomPlan found no stairs object its footprint stands in for the staircase, with
+a note in the import report. Drawing a stair on the plan remains the last resort.

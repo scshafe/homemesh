@@ -1,7 +1,7 @@
 """Stored scans: the capture JSON (and its USDZ) as blobs, with a small index.
 
     houses/<id>/blobs/<sha256>            the JSON as uploaded, and the USDZ
-    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, descriptions, level, replaces, baro}  (derived; rebuildable from the blob)
+    houses/<id>/captures/<sha256>.json    {name, at, counts, usdz, rooms, descriptions, level, replaces, baro, stairs_found, stair, purpose}  (derived; rebuildable from the blob)
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import json
 import time
 
 from . import store
-from .roomplan import ImportError_, _rooms, _surfaces, room_names
+from .roomplan import ImportError_, _rooms, _surfaces, room_names, stair_footprints
 
 MAX_JSON = 30 * 1024 * 1024
 MAX_USDZ = 200 * 1024 * 1024
@@ -50,7 +50,13 @@ def baro_of(data: dict) -> dict | None:
         return None
 
 
-def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", replaces: str = "") -> dict:
+def stairs_found(data: dict) -> list[dict]:
+    """What RoomPlan found of staircases: [{rise, width, run}] (metres)."""
+    return [{k: f[k] for k in ("rise", "width", "run")} for f in stair_footprints(data)]
+
+
+def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", replaces: str = "", purpose: str = "",
+                 stair: dict | None = None) -> dict:
     if len(raw) > MAX_JSON:
         raise CaptureError("capture too large")
     try:
@@ -61,14 +67,16 @@ def save_capture(house_id: str, raw: bytes, name: str = "", level: str = "", rep
         raise CaptureError("not a capture")
     counts = summarise(data)
     digest = store.put_blob(house_id, raw)
-    meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None, "rooms": room_names(data), "level": level or None, "replaces": replaces or None, "baro": baro_of(data)}
+    meta = {"blob": digest, "name": name[:80], "at": int(time.time()), "counts": counts, "usdz": None, "rooms": room_names(data), "level": level or None, "replaces": replaces or None, "baro": baro_of(data),
+            "stairs_found": stairs_found(data), "stair": stair or None, "purpose": purpose or None}
     path = _dir(house_id) / f"{digest}.json"
     if path.exists():  # the same scan uploaded twice: keep what is known (the USDZ, the name)
         old = json.loads(path.read_text())
         meta.update({"usdz": old.get("usdz"), "name": old.get("name") or meta["name"], "at": old["at"],
                      "rooms": old.get("rooms") if any(old.get("rooms") or []) else meta["rooms"],
                      "level": level or old.get("level"), "replaces": replaces or old.get("replaces"),
-                     "baro": meta["baro"] or old.get("baro")})
+                     "baro": meta["baro"] or old.get("baro"), "stair": stair or old.get("stair"),
+                     "purpose": purpose or old.get("purpose")})
     store._write_atomic(path, json.dumps(meta).encode())
     return meta
 
@@ -104,18 +112,38 @@ def set_level(house_id: str, digest: str, level: str) -> dict:
     return meta
 
 
+def set_stair(house_id: str, digest: str, stair: dict | None) -> dict:
+    """The floors the capture's staircase joins ({from_level, to_level}), or None to clear."""
+    meta = get_meta(house_id, digest)
+    meta["stair"] = stair
+    store._write_atomic(_dir(house_id) / f"{digest}.json", json.dumps(meta).encode())
+    return meta
+
+
 def get_meta(house_id: str, digest: str) -> dict:
     if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
         raise CaptureError("invalid capture id")
     try:
-        return json.loads((_dir(house_id) / f"{digest}.json").read_text())
+        meta = json.loads((_dir(house_id) / f"{digest}.json").read_text())
     except FileNotFoundError:
         raise CaptureError("no such capture") from None
+    return _with_stairs(house_id, meta)
+
+
+def _with_stairs(house_id: str, meta: dict) -> dict:
+    """Captures stored before staircases were summarised get theirs from the stored JSON, once."""
+    if "stairs_found" not in meta:
+        try:
+            meta["stairs_found"] = stairs_found(json.loads(store.get_blob(house_id, meta["blob"])))
+        except (ValueError, KeyError, OSError, ImportError_, store.StoreError):
+            meta["stairs_found"] = []
+        store._write_atomic(_dir(house_id) / f"{meta['blob']}.json", json.dumps(meta).encode())
+    return meta
 
 
 def list_captures(house_id: str) -> list[dict]:
     d = _dir(house_id)
-    out = [json.loads(p.read_text()) for p in d.glob("*.json")] if d.is_dir() else []
+    out = [_with_stairs(house_id, json.loads(p.read_text())) for p in d.glob("*.json")] if d.is_dir() else []
     return sorted(out, key=lambda m: m["at"], reverse=True)
 
 

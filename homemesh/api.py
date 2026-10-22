@@ -69,6 +69,11 @@ class CaptureLevel(BaseModel):
     level: str
 
 
+class CaptureStair(BaseModel):
+    from_level: str | None = None   # both None clears
+    to_level: str | None = None
+
+
 class NewHouse(BaseModel):
     id: str
     name: str
@@ -336,7 +341,8 @@ def create_app() -> FastAPI:
                 "access_points": len(h.access_points), "measurements": len(h.measurements)}
 
     @app.post("/api/houses/{house_id}/captures", dependencies=[api])
-    async def upload_capture(house_id: str, request: Request, name: str = "", level: str = "", replaces: str = "") -> dict:
+    async def upload_capture(house_id: str, request: Request, name: str = "", level: str = "", replaces: str = "",
+                             purpose: str = "", stair_from: str = "", stair_to: str = "") -> dict:
         """The capture JSON (CapturedRoom / CapturedStructure, or the app's {"rooms": [...]} wrapper).
         `level` is the level the owner said it was scanned on (kept with the capture, preselected when placing)."""
         h = get_house(house_id)
@@ -349,8 +355,16 @@ def create_app() -> FastAPI:
                 int(idx)
             except (captures.CaptureError, ValueError):
                 raise HTTPException(422, "replaces must be <capture>:<room index> of a stored scan") from None
+        if purpose not in ("", "stairs"):
+            raise HTTPException(422, "unknown purpose")
+        stair = None
+        if stair_from or stair_to:
+            ids = {lv.id for lv in h.levels}
+            if stair_from not in ids or stair_to not in ids or stair_from == stair_to:
+                raise HTTPException(422, "a staircase joins two different, existing levels")
+            stair = {"from_level": stair_from, "to_level": stair_to}
         try:
-            return captures.save_capture(house_id, await request.body(), name, level, replaces)
+            return captures.save_capture(house_id, await request.body(), name, level, replaces, purpose, stair)
         except captures.CaptureError as e:
             raise HTTPException(422, str(e)) from None
 
@@ -395,6 +409,21 @@ def create_app() -> FastAPI:
         except (store.StoreError, ValueError) as e:
             raise HTTPException(422, str(e)) from None
 
+    @app.put("/api/houses/{house_id}/captures/{digest}/stair", dependencies=[api])
+    def set_capture_stair(house_id: str, digest: str, req: CaptureStair) -> dict:
+        """Which two floors the staircase in this scan joins; applied when the scan is imported. Both null clears it."""
+        h = get_house(house_id)
+        stair = None
+        if req.from_level or req.to_level:
+            ids = {lv.id for lv in h.levels}
+            if req.from_level not in ids or req.to_level not in ids or req.from_level == req.to_level:
+                raise HTTPException(422, "a staircase joins two different, existing levels")
+            stair = {"from_level": req.from_level, "to_level": req.to_level}
+        try:
+            return captures.set_stair(house_id, digest, stair)
+        except captures.CaptureError as e:
+            raise HTTPException(422, str(e)) from None
+
     @app.get("/api/houses/{house_id}/rooms", dependencies=[api])
     def room_list(house_id: str) -> list[dict]:
         """Every room of every scan, joined with the house room its import made (unplaced when none)."""
@@ -414,6 +443,8 @@ def create_app() -> FastAPI:
                     if want in names_:
                         replaced_by[meta["replaces"]] = f"{meta['blob']}:{names_.index(want)}"
         for meta in metas:
+            if meta.get("purpose") == "stairs":   # a staircase scan is a staircase, not a room
+                continue
             names = meta.get("rooms") or []
             about = meta.get("descriptions") or []
             for i in range(meta["counts"]["rooms"]):
@@ -478,7 +509,9 @@ def create_app() -> FastAPI:
                 sim = roomplan.Similarity2D(1.0, float(t["rotation"]), float(t["tx"]), float(t["ty"]))
             data = captures.load_capture(house_id, digest)
             meta = captures.get_meta(house_id, digest)
-            new, rep = roomplan.import_capture(h, data, level, digest, sim, names=meta.get("rooms"), descriptions=meta.get("descriptions"))
+            new, rep = roomplan.import_capture(h, data, level, digest, sim, names=meta.get("rooms"), descriptions=meta.get("descriptions"),
+                                               make_rooms=meta.get("purpose") != "stairs")
+            new = roomplan.apply_stair(new, data, digest, meta, sim, rep.stairs, rep.notes)
             if (args := retire_args(house_id, meta)):
                 new, gone = roomplan.retire_room(new, *args)
                 rep.replaced += gone

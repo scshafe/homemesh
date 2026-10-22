@@ -59,6 +59,7 @@ class Level(_Base):
     elevation: float  # Z of the top of the finished floor
     height: float = Field(gt=0)  # floor to ceiling
     slab: Slab | None = None  # structure below this level; None for the lowest
+    height_source: Literal["default", "walls", "stair"] = "default"  # where `height` came from (stack.py)
     below_ground: bool = False  # a basement; `House.levels` is the stack, bottom to top (homemesh/stack.py)
 
 

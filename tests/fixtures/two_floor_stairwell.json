@@ -27,6 +27,7 @@
       "below_ground": false,
       "elevation": 0.0,
       "height": 2.6,
+      "height_source": "default",
       "id": "L0",
       "name": "Ground",
       "slab": null
@@ -35,6 +36,7 @@
       "below_ground": false,
       "elevation": 2.9,
       "height": 2.6,
+      "height_source": "default",
       "id": "L1",
       "name": "First",
       "slab": {

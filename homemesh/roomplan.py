@@ -231,8 +231,56 @@ def stair_footprints(data: dict, sim: Similarity2D | None = None) -> list[dict]:
             a0, a2, c = a0 / n0, a2 / n2, t[3][:3]
             corners = [c + a0 * sx * w / 2 + a2 * sz * d / 2 for sx, sz in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
             poly = [sim.apply(tuple(map(float, _plan(p)))) for p in corners]
-            out.append({"room": i, "polygon": [[round(x, 4), round(y, 4)] for x, y in poly], "rise": round(h, 3)})
+            out.append({"room": i, "polygon": [[round(x, 4), round(y, 4)] for x, y in poly], "rise": round(h, 3), "width": round(w, 3), "run": round(d, 3)})
     return out
+
+
+def scan_footprint(data: dict, sim: Similarity2D | None = None) -> list[list[float]]:
+    """The convex hull of all the scan's wall ends in plan coordinates: a staircase's footprint when RoomPlan found no
+    stairs object in a scan made for the stairs."""
+    sim = sim or Similarity2D()
+    ends = []
+    for r in _rooms(data):
+        for sf in _surfaces(r):
+            if sf.kind == "wall":
+                half = sf.axis * sf.w / 2
+                ends += [sim.apply(tuple(map(float, _plan(sf.centre - half)))), sim.apply(tuple(map(float, _plan(sf.centre + half))))]
+    return [[round(x, 4), round(y, 4)] for x, y in _hull(ends)]
+
+
+def apply_stair(house: House, data: dict, blob: str, meta: dict, sim: Similarity2D | None, found: list[dict], notes: list[str]) -> House:
+    """The staircase the owner said this scan holds (`meta["stair"]` = from/to floors), added to `house` as a Stair
+    (replacing the one an earlier import of this scan made). Its footprint is the biggest stairs object RoomPlan found
+    (`found`, already in placed coordinates), else, for a scan made for the stairs, the scan's footprint. The measured
+    rise refines the floor-to-floor height."""
+    from . import stack
+    from .model import Stair
+    st = meta.get("stair")
+    if not st:
+        return house
+    ids = {lv.id for lv in house.levels}
+    a, b = st.get("from_level"), st.get("to_level")
+    if a not in ids or b not in ids or a == b:
+        return house
+    rise = None
+    if found:
+        best = max(found, key=lambda f: f.get("width", 0) * f.get("run", 0))
+        poly, rise = best["polygon"], best.get("rise")
+        notes.append(f"staircase from the stairs object RoomPlan found (rises {rise:.2f} m)")
+    elif meta.get("purpose") == "stairs":
+        poly = scan_footprint(data, sim)
+        notes.append("RoomPlan found no stairs object in this scan: the scan's footprint is used as the staircase")
+    else:
+        return house
+    if len(poly) < 3:
+        return house
+    keep = [s for s in house.stairs if not (s.prov.ref or "").startswith(f"{blob}#stair")]
+    n = len(keep)
+    while f"s{n + 1}" in {s.id for s in keep}:
+        n += 1
+    new = Stair(id=f"s{n + 1}", from_level=a, to_level=b, polygon=[tuple(p) for p in poly], void=True, prov=Prov(source="scan", ref=f"{blob}#stair"))
+    house = house.model_copy(update={"stairs": [*keep, new]})
+    return stack.with_rise(house, a, b, rise) if rise else house
 
 
 def retire_room(house: House, data: dict, blob: str, index: int) -> tuple[House, int]:
@@ -282,7 +330,7 @@ def _area(poly: list[tuple[float, float]]) -> float:
 
 def import_capture(house: House, data: dict, level: str, blob: str, transform: Similarity2D | None = None,
                    defaults: Defaults = Defaults(), names: list[str] | None = None,
-                   descriptions: list[str] | None = None) -> tuple[House, Report]:
+                   descriptions: list[str] | None = None, make_rooms: bool = True) -> tuple[House, Report]:
     """A copy of `house` with the scan's walls and openings on `level`.
 
     Importing the same blob again replaces what it added before (walls whose
@@ -368,7 +416,7 @@ def import_capture(house: House, data: dict, level: str, blob: str, transform: S
     new_rooms: list[Room] = []
     carried = room_names(data)
     n = 0
-    for i, r in enumerate(_rooms(data)):
+    for i, r in enumerate(_rooms(data) if make_rooms else []):
         ends = []
         for sf in _surfaces(r):
             if sf.kind == "wall":
