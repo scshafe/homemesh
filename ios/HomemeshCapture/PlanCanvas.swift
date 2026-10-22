@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A point thing on the plan: an outlet, a jack or an access point.
 struct PlanMarker: Hashable, Identifiable {
-    enum Kind { case outlet, jack, accessPoint }
+    enum Kind { case outlet, jack, accessPoint, entry }
     let id: String
     let kind: Kind
     let at: Pt
@@ -107,6 +107,11 @@ struct PlanCanvas: View {
                     switch m.kind {
                     case .outlet: ctx.fill(Path(ellipseIn: rect), with: .color(.yellow)); ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
                     case .jack: ctx.fill(Path(rect), with: .color(.green)); ctx.stroke(Path(rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
+                    case .entry:
+                        var d = Path()
+                        d.move(to: CGPoint(x: c.x, y: c.y - r - 3)); d.addLine(to: CGPoint(x: c.x + r + 3, y: c.y))
+                        d.addLine(to: CGPoint(x: c.x, y: c.y + r + 3)); d.addLine(to: CGPoint(x: c.x - r - 3, y: c.y)); d.closeSubpath()
+                        ctx.fill(d, with: .color(.black)); ctx.stroke(d, with: .color(sel ? .accentColor : .white), lineWidth: 1.5)
                     case .accessPoint:
                         ctx.fill(Path(ellipseIn: rect), with: .color(.blue))
                         ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -4, dy: -4)), with: .color(sel ? .accentColor : .blue), lineWidth: 1.5)
