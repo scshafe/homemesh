@@ -95,6 +95,13 @@ class CaptureApiTest(Base):
         walls = [w for w in r["house"]["walls"] if (w["prov"].get("ref") or "").startswith(m["blob"])]
         self.assertTrue(all(w["a"][0] >= 10 - 4.5 and w["a"][1] >= 20 for w in walls))
 
+    def test_level_is_kept_with_the_capture(self):
+        r = self.c.post(self.url + "?name=Basement&level=L0", content=json.dumps(two_rooms()), headers=self.ok)
+        self.assertEqual((r.status_code, r.json()["level"], r.json()["name"]), (200, "L0", "Basement"))
+        self.assertEqual(self.c.post(self.url + "?level=nope", content=json.dumps(two_rooms()), headers=self.ok).status_code, 422)
+        self.assertEqual(self.upload().json()["level"], "L0")  # the same scan again keeps what is known
+        self.assertEqual(self.c.get(self.url, headers=self.ok).json()[0]["level"], "L0")
+
     def test_place_endpoint(self):
         self.c.post("/api/houses", json={"id": "fresh", "name": "Fresh"}, headers=self.ok)
         url = "/api/houses/fresh/captures"

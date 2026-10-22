@@ -41,6 +41,7 @@ struct CaptureMeta: Codable, Hashable, Identifiable, Sendable {
     let counts: [String: Int]
     let usdz: String?
     let rooms: [String]?
+    let level: String?
     var id: String { blob }
 
     var roomCount: Int { counts["rooms"] ?? 0 }

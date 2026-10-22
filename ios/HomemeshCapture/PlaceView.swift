@@ -63,7 +63,7 @@ struct PlaceView: View {
         do {
             let h: PlanHouse = try await model.client().get("/api/houses/\(houseId)")
             house = h
-            level = h.levels.first?.id ?? ""
+            level = h.levels.first { $0.id == capture.level }?.id ?? h.levels.first?.id ?? ""
             await propose()
         } catch {
             status = "Could not load the plan: \(error.localizedDescription)"

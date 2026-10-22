@@ -1,3 +1,4 @@
+import ARKit
 import os
 import RoomPlan
 import SwiftUI
@@ -24,6 +25,12 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
     var onProcessed: ((CapturedRoom) -> Void)?
     var onError: ((String) -> Void)?
     var onPhase: ((Phase) -> Void)?
+    /// A visible message while scanning ("" clears it): limited tracking, or no walls detected after a while.
+    var onHint: ((String) -> Void)?
+
+    private var monitor: Task<Void, Never>?
+    private var runStarted = Date()
+    private var wallsSeen = 0
 
     private var runSignpost: OSSignpostIntervalState?
     private var stopSignpost: OSSignpostIntervalState?
@@ -39,9 +46,54 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if phase == .running {
-            Self.log.notice("view disappeared while running: stopping and pausing the AR session")
-            captureView.captureSession.stop(pauseARSession: true)
+        shutdown()
+    }
+
+    /// Ends the scan for good: stops the session and pauses the AR session, which releases the camera. A new scan
+    /// gets a new controller (and so a new RoomCaptureView, session and world frame), never a paused one.
+    func shutdown() {
+        monitor?.cancel()
+        monitor = nil
+        Self.log.notice("shutdown from phase \(self.phase.rawValue, privacy: .public): pausing the AR session")
+        captureView.captureSession.stop(pauseARSession: true)
+        phase = .idle
+    }
+
+    private func startMonitor() {
+        monitor?.cancel()
+        monitor = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                self?.tick()
+            }
+        }
+    }
+
+    private func tick() {
+        guard phase == .running else { return }
+        switch captureView.captureSession.arSession.currentFrame?.camera.trackingState {
+        case .limited(let reason)?:
+            Self.log.notice("tracking limited: \(String(describing: reason), privacy: .public)")
+            onHint?("Tracking is limited (\(Self.describe(reason))). Move slowly and keep walls and furniture in view.")
+        case .notAvailable?:
+            onHint?("The camera has no tracking. Check that nothing covers it and that the room is lit.")
+        default:
+            if wallsSeen == 0 && Date().timeIntervalSince(runStarted) > 15 {
+                Self.log.error("no walls detected after 15 s")
+                onHint?("No walls detected yet. Move closer to a wall and sweep slowly along it; if it stays empty, stop and start again.")
+            } else {
+                onHint?("")
+            }
+        }
+    }
+
+    private static func describe(_ r: ARCamera.TrackingState.Reason) -> String {
+        switch r {
+        case .excessiveMotion: return "moving too fast"
+        case .insufficientFeatures: return "too few features: dim light or a blank wall"
+        case .initializing: return "starting up"
+        case .relocalizing: return "relocalizing"
+        @unknown default: return "unknown"
         }
     }
 
@@ -58,7 +110,10 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
             return
         }
         runSignpost = Self.signposter.beginInterval("run")
+        wallsSeen = 0
+        runStarted = Date()
         set(.running)
+        startMonitor()
         captureView.captureSession.run(configuration: RoomCaptureSession.Configuration())
     }
 
@@ -67,6 +122,8 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         guard phase == .running else { return }
         stopSignpost = Self.signposter.beginInterval("stop and process")
         set(.stopping)
+        monitor?.cancel()
+        onHint?("")
         captureView.captureSession.stop(pauseARSession: false)
     }
 
@@ -76,11 +133,16 @@ final class ScanController: UIViewController, @preconcurrency RoomCaptureViewDel
         Self.log.notice("session started")
     }
 
+    func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
+        wallsSeen = room.walls.count
+    }
+
     func captureSession(_ session: RoomCaptureSession, didEndWith data: CapturedRoomData, error: Error?) {
         if let runSignpost { Self.signposter.endInterval("run", runSignpost) }
         runSignpost = nil
         if let error {
             Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public)")
+            monitor?.cancel()
             set(.idle)
             onError?("The scan stopped: \(error.localizedDescription)")
         } else {
