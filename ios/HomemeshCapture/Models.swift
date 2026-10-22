@@ -68,6 +68,7 @@ struct RoomItem: Codable, Hashable, Identifiable, Sendable {
     let usdz: String?
     let at: Double
     let replaced_by: String?
+    let baro: BaroReading?
     var id: String { key }
     var title: String { name.isEmpty ? "Unnamed room" : name }
 }

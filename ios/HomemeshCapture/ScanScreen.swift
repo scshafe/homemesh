@@ -13,6 +13,7 @@ struct ScanScreen: View {
     @State private var controller = ScanController()
     @State private var generation = 0
     @State private var level = ""
+    @State private var levelReason = ""
     @State private var rooms: [CapturedRoom] = []          // the rooms of the running session (one frame)
     @State private var earlier: [[CapturedRoom]] = []      // sessions that ended: each is its own frame and its own scan
     @State private var names: [String: String] = [:]   // by the room's identifier
@@ -33,8 +34,6 @@ struct ScanScreen: View {
                 .overlay(alignment: .top) { floatingBar }
             Form {
                 Section("Scan") {
-                    Picker("Floor", selection: $level) { ForEach(levels) { Text($0.name).tag($0.id) } }
-                        .disabled(phase != .idle)
                     Button(phase == .running ? "Done with this room" : phase == .stopping ? "Processing the room…" : "Start scanning a room") { toggle() }
                         .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy)
                     if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").foregroundStyle(.red) }
@@ -46,6 +45,15 @@ struct ScanScreen: View {
                             .submitLabel(.done)
                     }
                 }
+                if !allRooms.isEmpty {   // chosen with the name, after the scan, starting from a suggestion
+                    Section {
+                        Picker("Floor", selection: $level) {
+                            ForEach(levels.reversed()) { Text($0.name).tag($0.id) }
+                        }
+                        .pickerStyle(levels.count <= 4 ? .segmented : .menu)
+                        if !levelReason.isEmpty { Text("Suggested: \(levelReason).").font(.footnote).foregroundStyle(.secondary) }
+                    } header: { Text("Floor") }
+                }
                 if !status.isEmpty { Section { Text(status) } }
                 if !allRooms.isEmpty {   // last in the form: out of the way of the keyboard and of the room fields
                     Section { Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle || busy) }
@@ -55,8 +63,9 @@ struct ScanScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             bind()
-            if level.isEmpty { level = levels.contains { $0.id == initialLevel } ? initialLevel : (levels.first?.id ?? "") }
         }
+        .task { suggestFloor() }
+        .onChange(of: level) { _, new in if !new.isEmpty { FloorSuggestion.remember(new, house: houseId) } }
         .onDisappear { controller.shutdown() }
     }
 
@@ -75,6 +84,17 @@ struct ScanScreen: View {
             }
         }
         .padding(.horizontal, 12).padding(.top, 8)
+    }
+
+    /// The floor to start the picker on, from the floor asked for, the rooms scanned at the same height, or the last used.
+    private func suggestFloor() {
+        guard level.isEmpty else { return }
+        let asked = replacing?.level ?? (initialLevel.isEmpty ? nil : initialLevel)
+        let why = replacing != nil ? "the floor of the room you are re-scanning" : "the floor you started from"
+        let s = FloorSuggestion.suggest(levels: levels, current: nil, others: [], preferred: asked, preferredReason: why,
+                                        lastUsed: FloorSuggestion.lastUsed(house: houseId))
+        level = s?.level ?? levels.first?.id ?? ""
+        levelReason = s?.reason ?? ""
     }
 
     private var allRooms: [CapturedRoom] { earlier.flatMap { $0 } + rooms }
