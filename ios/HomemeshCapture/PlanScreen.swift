@@ -15,7 +15,7 @@ struct PlanScreen: View {
         VStack(spacing: 8) {
             if let plan {
                 PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
-                           selected: selected, bounds: bounds, onTapPlan: { p, tol in selected = nearestWall(p, tol: tol, plan: plan) })
+                           bounds: bounds, selected: selected, onTapPlan: { p, tol in selected = nearestWall(p, tol: tol, plan: plan) })
                     .background(Color(.secondarySystemBackground))
                 if let id = selected, let wall = plan.walls.first(where: { $0.id == id }), let doc {
                     WallInspector(houseId: houseId, wall: wall, doc: doc, level: level,
