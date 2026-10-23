@@ -158,6 +158,29 @@ struct DoorsScreen: View {
 
 /// Tap-to-pair in the placement view: a door on the scan and the door on the plan it meets.
 enum DoorPairing {
+    /// Whether the scan has to be turned the other way for its room to lie on the opposite side of the wall from `planRoom`
+    /// (the rooms of a connection are on opposite sides, so there is no half-turn ambiguity). `scanCentre` is the scan room's
+    /// centre in the scan's frame.
+    static func needsFlip(scan s: DoorInfo, plan q: PlanDoor, scanCentre: Pt, planRoomCentre: Pt) -> Bool {
+        let n = Pt(-sin(q.angle * .pi / 180), cos(q.angle * .pi / 180))
+        func side(_ p: Pt) -> Double { (p.x - q.at.x) * n.x + (p.y - q.at.y) * n.y }
+        let sidePlan = side(planRoomCentre)
+        let t = transform(scan: s, plan: q, flip: false)
+        let sideScan = side(Geometry.apply(t, scanCentre))
+        return sidePlan * sideScan > 0   // the same side: turn it over
+    }
+
+    /// The pairing transform with the rooms on opposite sides and the scan's door set off the plan's by the wall thickness.
+    static func transform(scan s: DoorInfo, plan q: PlanDoor, scanCentre: Pt, planRoomCentre: Pt, flip: Bool) -> Transform2D {
+        let turn = needsFlip(scan: s, plan: q, scanCentre: scanCentre, planRoomCentre: planRoomCentre) != flip
+        var t = transform(scan: s, plan: q, flip: turn)
+        let n = Pt(-sin(q.angle * .pi / 180), cos(q.angle * .pi / 180))
+        let away = ((planRoomCentre.x - q.at.x) * n.x + (planRoomCentre.y - q.at.y) * n.y) > 0 ? -1.0 : 1.0
+        t.tx += n.x * away * q.thickness
+        t.ty += n.y * away * q.thickness
+        return t
+    }
+
     /// The scan-frame to plan transform that lays scan door `s` on plan door `q`; `flip` turns the scan half a turn the other way.
     static func transform(scan s: DoorInfo, plan q: PlanDoor, flip: Bool) -> Transform2D {
         let rot = q.angle - s.angle + (flip ? 180 : 0)
@@ -173,6 +196,7 @@ struct PlanDoor: Hashable, Identifiable {
     let angle: Double
     let width: Double
     let ref: String?        // prov ref "<blob>#door/<id8>"
+    var thickness: Double = 0.1
 
     static func all(_ walls: [PlanWall], level: String) -> [PlanDoor] {
         var out: [PlanDoor] = []
@@ -182,7 +206,7 @@ struct PlanDoor: Hashable, Identifiable {
             let dx = (w.b.x - w.a.x) / len, dy = (w.b.y - w.a.y) / len
             for (k, o) in w.openings.enumerated() where o.kind != "window" {
                 let m = o.offset + o.width / 2
-                out.append(PlanDoor(id: "\(w.id)#\(k)", at: Pt(w.a.x + dx * m, w.a.y + dy * m), angle: atan2(dy, dx) * 180 / .pi, width: o.width, ref: o.prov?.ref))
+                out.append(PlanDoor(id: "\(w.id)#\(k)", at: Pt(w.a.x + dx * m, w.a.y + dy * m), angle: atan2(dy, dx) * 180 / .pi, width: o.width, ref: o.prov?.ref, thickness: w.thickness))
             }
         }
         return out
@@ -194,3 +218,84 @@ struct PlanDoor: Hashable, Identifiable {
         return (String(ref[..<hash.lowerBound]), String(ref[hash.upperBound...]))
     }
 }
+
+
+/// `GET /api/houses/<id>/doors`: one scan's doors with where each leads and whether the other side says so too.
+struct ChecklistDoor: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let kind: String
+    let room: Int
+    let number: Int
+    let room_name: String
+    let label: String
+    let status: String   // unlabelled, outside, ok, missing
+}
+
+struct ChecklistRow: Codable, Hashable, Identifiable, Sendable {
+    let capture: String
+    let name: String
+    let level: String?
+    let rooms: [String]
+    let doors: [ChecklistDoor]
+    let issues: [String]
+    let complete: Bool
+    var id: String { capture }
+}
+
+/// The doors of one floor, scan by scan: label everything first, then place.
+struct DoorsChecklistView: View {
+    let houseId: String
+    let level: String
+    let levelName: String
+    @EnvironmentObject var model: AppModel
+    @State private var rows: [ChecklistRow] = []
+    @State private var captures: [CaptureMeta] = []
+    @State private var note = ""
+
+    var body: some View {
+        List {
+            if !note.isEmpty { Text(note).font(.footnote) }
+            Section {
+                Text("Placing a scan needs a door of it labelled with the room it leads to, and a door of that room labelled back. Label everything first, then place.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            ForEach(rows) { r in
+                Section {
+                    NavigationLink {
+                        if let c = captures.first(where: { $0.blob == r.capture }) { DoorsScreen(houseId: houseId, capture: c).onDisappear { Task { await load() } } }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: r.complete ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(r.complete ? .green : .orange)
+                                Text(r.rooms.filter { !$0.isEmpty }.joined(separator: ", ").nonEmpty ?? r.name)
+                            }
+                            ForEach(r.doors) { d in
+                                Text("\(symbol(d.status)) \(d.number). \(d.room_name.isEmpty ? "door" : d.room_name)\(d.label.isEmpty ? "" : " → \(d.label)")")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    ForEach(r.issues, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                }
+            }
+            if rows.isEmpty { Text("No scans on \(levelName) yet.").font(.footnote) }
+        }
+        .navigationTitle("Doors on \(levelName)")
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    private func symbol(_ status: String) -> String {
+        switch status { case "ok": "✓"; case "outside": "↗"; case "missing": "✗"; default: "○" }
+    }
+
+    private func load() async {
+        do {
+            rows = try await model.client().get("/api/houses/\(houseId)/doors?level=\(level)")
+            captures = try await model.client().captures(house: houseId)
+            note = ""
+        } catch { note = "Could not load the doors: \(error.localizedDescription)" }
+    }
+}
+
+private extension String { var nonEmpty: String? { isEmpty ? nil : self } }

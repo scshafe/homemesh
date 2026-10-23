@@ -218,6 +218,12 @@ struct Placement: Codable, Sendable {
     let transform: Transform2D
     let alternatives: [Alternative]
     let preview: [Seg]
+    var evidence: PlacementEvidence? = nil
+}
+
+/// The part of the server's evidence the app reads: what is not labelled yet (the rest is ignored).
+struct PlacementEvidence: Codable, Sendable {
+    var missing: [String]?
 }
 
 enum Geometry {

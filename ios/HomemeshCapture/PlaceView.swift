@@ -61,7 +61,11 @@ struct PlaceView: View {
     /// Lay the picked scan door on the picked plan door by setting the owner's turn and shift.
     private func applyPair() {
         guard let id = pickedScan, let d = scanDoors?.doors.first(where: { $0.id == id }), let q = pairedPlan, let p = placement else { return }
-        let target = DoorPairing.transform(scan: d, plan: q, flip: flip)
+        // the scan's centre in its own frame: undo the proposal's transform on the centre of the preview
+        let t0 = p.transform
+        let back = Geometry.rotate(Pt(centre.x - t0.tx, centre.y - t0.ty), degrees: -t0.rotation)
+        let roomCentre = (planRoomNear(q.at)).map { r in Pt(r.polygon.map(\.x).reduce(0, +) / Double(r.polygon.count), r.polygon.map(\.y).reduce(0, +) / Double(r.polygon.count)) } ?? q.at
+        let target = DoorPairing.transform(scan: d, plan: q, scanCentre: back, planRoomCentre: roomCentre, flip: flip)
         let n = Geometry.nudge(from: p.transform, to: target, centre: centre)
         delta = n.delta
         dragged = n.d
@@ -85,6 +89,10 @@ struct PlaceView: View {
             _ = try? await client.setDoorLabels(house: houseId, blob: src.blob, labels: labels)
         }
         Diagnostics.event("door-pair", ["flip": flip])
+    }
+
+    private func planRoomNear(_ p: Pt) -> PlanRoom? {
+        house?.rooms.filter { $0.level == level && $0.polygon.count >= 3 }.min { roomGap(p, $0) < roomGap(p, $1) }
     }
 
     private func roomGap(_ p: Pt, _ r: PlanRoom) -> Double {
@@ -133,6 +141,9 @@ struct PlaceView: View {
                     Button("+1°") { delta += 1 }
                     Button("+90°") { delta += 90 }
                 }.buttonStyle(.bordered)
+                if placement?.confidence == "unlabelled" || placement?.confidence == "manual" {
+                    Button("Guess for me") { Task { await propose(guess: true) } }.font(.footnote).buttonStyle(.bordered).disabled(proposing)
+                }
                 HStack {
                     Button("Reset to proposal") { dragged = Pt(0, 0); live = Pt(0, 0); delta = 0 }
                     Spacer()
@@ -176,7 +187,7 @@ struct PlaceView: View {
     /// Asks the server where the scan fits. One request at a time (the newest wins); if the server fails or takes more than
     /// ten seconds, the scan is put in the middle of the floor's walls as a manual placement so it can always be dragged,
     /// turned and accepted. Every outcome goes to the event log.
-    private func propose() async {
+    private func propose(guess: Bool = false) async {
         guard let house, !level.isEmpty else { return }
         proposalRun += 1
         let run = proposalRun
@@ -186,7 +197,7 @@ struct PlaceView: View {
         let lvl = level, blob = capture.blob
         let client = model.client()
         let request = Task { () -> Placement in
-            try await client.send("POST", "/api/houses/\(houseId)/captures/\(blob)/place?level=\(lvl)", [String: String]())
+            try await client.send("POST", "/api/houses/\(houseId)/captures/\(blob)/place?level=\(lvl)\(guess ? "&guess=true" : "")", [String: String]())
         }
         let timer = Task { try? await Task.sleep(for: .seconds(10)); request.cancel() }
         defer { timer.cancel() }
@@ -196,6 +207,12 @@ struct PlaceView: View {
             Diagnostics.event("place", ["capture": String(blob.prefix(8)), "level": lvl, "ms": Int(Date().timeIntervalSince(started) * 1000), "outcome": p.confidence])
             apply(p, house: house)
             status = ""
+            if p.confidence == "unlabelled" {   // no connection to go by: the scan waits in the middle of the floor to be paired
+                let missing = (p.evidence?.missing ?? []).joined(separator: " ")
+                status = "Label a door that connects to a placed room: tap Pair doors, tap a door on the red scan, then its door on the plan." + (missing.isEmpty ? "" : " (\(missing))")
+                pairing = true
+                await manualPlacement(house: house, level: lvl, blob: blob)
+            }
         } catch {
             guard run == proposalRun else { return }
             let ms = Int(Date().timeIntervalSince(started) * 1000)

@@ -639,3 +639,26 @@ final class DoorPairingTests: XCTestCase {
         XCTAssertEqual(DoorLabelChoices.names(house: ["Kitchen", "hall", " "], session: ["Hall", "Pantry"], excluding: ["pantry"]), ["Kitchen", "hall"])
     }
 }
+
+final class LabelledPlacementTests: XCTestCase {
+    private func door(_ x: Double, _ y: Double, _ angle: Double) -> DoorInfo { DoorInfo(id: "d1", kind: "door", room: 0, x: x, y: y, angle: angle, width: 0.9, number: 1, label: "") }
+
+    func testTheScanLandsOnTheFarSideOfTheWallWhicheverWayItStartedFacing() {
+        // a plan door on the line y = 5 running along x, the placed room below it (y < 5)
+        let q = PlanDoor(id: "w#0", at: Pt(10, 5), angle: 0, width: 0.9, ref: nil, thickness: 0.2)
+        let room = Pt(10, 3)
+        for angle in [0.0, 90.0, 180.0, 270.0, 33.0] {
+            let s = door(1, 1, angle)
+            let a = angle * .pi / 180
+            let scanCentre = Pt(1 - 2 * sin(a), 1 + 2 * cos(a))   // the scan's room lies 2 m to one side of its door, in the scan's own frame
+            for flip in [false, true] {
+                let t = DoorPairing.transform(scan: s, plan: q, scanCentre: scanCentre, planRoomCentre: room, flip: flip)
+                let c = Geometry.apply(t, scanCentre)
+                XCTAssertEqual(flip ? c.y < 5 : c.y > 5, true, "angle \(angle) flip \(flip): the scan room is \(flip ? "on the placed room's side" : "across the wall")")
+                let door = Geometry.apply(t, s.at)
+                XCTAssertEqual(door.x, 10, accuracy: 1e-6)
+                XCTAssertEqual(door.y, 5.2, accuracy: 1e-6)   // set off by the wall's thickness, away from the placed room
+            }
+        }
+    }
+}
