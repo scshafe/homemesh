@@ -519,3 +519,26 @@ door on the plan; the scan snaps (rooms on opposite sides; a Flip button overrid
 scans. A **Doors checklist** per floor (`GET /api/houses/<id>/doors?level=`) lists each scan's doors as unlabelled, outside,
 ok or missing and the issues in words ("Kitchen says door 2 leads to Pantry but Pantry has no door labelled Kitchen"), so
 everything can be labelled first and placed after.
+
+## Look and feedback (owner decisions, 2026-10-30, from a UI review)
+
+iOS 26 minimum; appearance follows the system (light and dark both correct); no custom bar backgrounds. Done in five PRs
+(#81 to #85):
+
+- **Colour (`ios/HomemeshCapture/Sui/SuiTokens.swift`).** Accent is the scshafe-ui 0.9.0 pair (#0a4f99 light, #6cb6ff dark; also
+  the `AccentColor` asset). Five status tones (info, success, warning, danger, neutral), each with its own SF Symbol, so a
+  status is never colour alone: `SuiNote` (a footnote), `SuiChip` (a capsule). Colours of things drawn on plans are
+  `SuiPlanColor` (what a thing is, not how it is doing); the outline is adaptive, which fixes black strokes in dark mode.
+- **Feedback (`Sui/SuiFeedback.swift`).** A screen sets one `SuiMessage`: success is a toast (Undo where the action can be
+  undone: saving on the plan), everything else a dismissible banner in a top safe-area inset, with a haptic by tone. Upload
+  progress is real bytes. `ContentUnavailableView` (`SuiEmpty`) for empty lists.
+- **House screen.** Grouped rows with icons and chips; Plan a mesh is the prominent row; new house and floor are small
+  sheets that validate while typed (`SuiNameSheet`).
+- **Plan screen.** Bottom toolbar of symbol buttons plus a Put-on-the-plan menu; the inspector is a sheet with detents and the
+  plan stays tappable above it. Pinch, two-finger pan and Fit are UIKit recognizers (they must not reach the placement
+  drag).
+- **Scan screen.** Glass only on what floats over the camera (system glass button styles and note pills); the fields sit on
+  a plain surface.
+- **Shared library.** Everything in `Sui/` is written to move unchanged into the `scshafe-ios` package (Sui-prefixed
+  tokens and components); when its 0.1 lands, switch to the package and delete the folder.
+- **App icon** is a draft (layers in `ios/icon/`, flattened by `ios/icon/build`), awaiting the owner's review.
