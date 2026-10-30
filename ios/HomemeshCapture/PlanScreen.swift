@@ -42,6 +42,8 @@ struct PlanScreen: View {
     @State private var status: SuiMessage?
     @State private var bounds = CGRect(x: -1, y: -1, width: 2, height: 2)
     @State private var detent = PresentationDetent.height(220)
+    @State private var zoneForm = false
+    @State private var stairForm = false
 
     private var markers: [PlanMarker] {
         guard let plan else { return [] }
@@ -91,13 +93,9 @@ struct PlanScreen: View {
                            selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone,
                            furniture: plan.furniture.filter { $0.level == level }, selectedFurniture: selectedFurniture, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
                     .background(Color(.secondarySystemBackground))
-                if tool == .select {
-                    Menu("Choose a wall from a list") {
-                        ForEach(plan.walls.filter { $0.level == level }) { w in
-                            Button(String(format: "Wall %@, %.1f m", w.id, w.length)) { selectedWall = w.id; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil }
-                        }
-                    }.font(.footnote)
-                }
+                    .accessibilityAction(named: "Add a zone from rooms, walls or corners") { zoneForm = true }
+                    .accessibilityAction(named: "Add a staircase by floors and room") { stairForm = true }
+                if tool == .select { chooser(plan) }
                 hint
             } else {
                 ProgressView()
@@ -136,12 +134,63 @@ struct PlanScreen: View {
                 toolButton(.zone)
             }
             ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { zoneForm = true } label: { Label("Zone from rooms, walls or corners", systemImage: "square.dashed") }
+                    Button { stairForm = true } label: { Label("Staircase by floors and room", systemImage: "figure.stairs") }
+                } label: { Label("Add without drawing", systemImage: "list.bullet.rectangle") }
+                    .accessibilityHint("Adds a zone or a staircase from lists and fields, without touching the plan")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button("Undo", systemImage: "arrow.uturn.backward") { Task { await undo() } }
                     .disabled(undoTarget == nil)
                     .accessibilityHint("Goes back to the plan as it was before the last change")
             }
         }
+        .sheet(isPresented: $zoneForm) {
+            if let plan {
+                ZoneFormSheet(rooms: plan.rooms.filter { $0.level == level }, walls: plan.walls.filter { $0.level == level }) { kind, poly in makeZone(kind: kind, polygon: poly) }
+            }
+        }
+        .sheet(isPresented: $stairForm) {
+            if let plan {
+                StairFormSheet(levels: plan.levels, here: level, rooms: plan.rooms.filter { $0.level == level }) { target, bottom, top, width in
+                    makeStair(target: target, bottom: bottom, top: top, width: width, plan: plan)
+                }
+            }
+        }
         .task { await load() }
+    }
+
+    /// Everything on this floor that can be selected, as a list: the alternative to tapping the drawing.
+    private func chooser(_ plan: PlanHouse) -> some View {
+        Menu("Choose from a list") {
+            Menu("Walls") {
+                ForEach(plan.walls.filter { $0.level == level }) { w in
+                    Button(String(format: "Wall %@, %.1f m", w.id, w.length)) { clearSelection(); selectedWall = w.id }
+                }
+            }
+            Menu("Zones") {
+                ForEach(plan.zones.filter { $0.level == level }) { z in
+                    Button(z.name.isEmpty ? "Zone \(z.id), \(z.kind)" : z.name) { clearSelection(); selectedZone = z.id }
+                }
+            }
+            Menu("Staircases") {
+                ForEach(stairsHere) { s in
+                    Button("Staircase \(s.id)") { clearSelection(); selectedStair = s.id }
+                }
+            }
+            Menu("Furniture") {
+                ForEach(plan.furniture.filter { $0.level == level }) { f in
+                    Button(f.title) { clearSelection(); selectedFurniture = f.id }
+                }
+            }
+            Menu("Outlets, jacks, access points and readings") {
+                ForEach(markers) { m in
+                    Button("\(PlanScreen.markerTitle(m.kind)) \(m.id)") { clearSelection(); selectedMarker = m }
+                }
+            }
+        }
+        .font(.footnote)
     }
 
     private func toolButton(_ t: PlanTool) -> some View {
@@ -243,27 +292,38 @@ struct PlanScreen: View {
         case .stair:
             draft.append(p)
             guard draft.count == 2, !stairTarget.isEmpty else { if stairTarget.isEmpty { status = .warning("Choose the floor it leads to first."); draft = [] }; return }
-            let poly = Geometry.stairRectangle(draft[0], draft[1], width: 1.0)
-            let ev = Dictionary(uniqueKeysWithValues: plan.levels.map { ($0.id, $0.elevation) })
-            let up = (ev[stairTarget] ?? 0) > (ev[level] ?? 0)
-            d.add("stairs", prefix: "s", ["from_level": up ? level : stairTarget, "to_level": up ? stairTarget : level,
-                                          "polygon": poly.map { [$0.x, $0.y] }, "void": true])
+            makeStair(target: stairTarget, bottom: draft[0], top: draft[1], width: 1.0, plan: plan)
             draft = []
-            Task { await save(d) }
         }
     }
 
     private func finishZone(_ plan: PlanHouse) {
-        guard var d = doc, !draft.isEmpty else { return }
-        var zone: [String: Any] = ["level": level, "polygon": draft.map { [$0.x, $0.y] }, "kind": zoneKind, "name": ""]
-        switch zoneKind {
+        makeZone(kind: zoneKind, polygon: draft)
+        draft = []
+    }
+
+    /// A zone from a drawn outline or from the form.
+    private func makeZone(kind: String, polygon: [Pt]) {
+        guard var d = doc, !polygon.isEmpty else { return }
+        var zone: [String: Any] = ["level": level, "polygon": polygon.map { [$0.x, $0.y] }, "kind": kind, "name": ""]
+        switch kind {
         case "demand": zone["weight"] = 1.0; zone["need"] = ["min_rssi": -65.0, "must": false, "rx_height": 1.0]
         case "allow": zone["requires"] = "none"
         default: break
         }
         let id = d.add("zones", prefix: "z", zone)
-        draft = []
         selectedZone = id
+        Task { await save(d) }
+    }
+
+    /// A staircase from two tapped points or from the form: the lower floor is the start of the flight.
+    private func makeStair(target: String, bottom: Pt, top: Pt, width: Double, plan: PlanHouse) {
+        guard var d = doc else { return }
+        let ev = Dictionary(uniqueKeysWithValues: plan.levels.map { ($0.id, $0.elevation) })
+        let up = (ev[target] ?? 0) > (ev[level] ?? 0)
+        let id = d.add("stairs", prefix: "s", ["from_level": up ? level : target, "to_level": up ? target : level,
+                                               "polygon": Geometry.stairRectangle(bottom, top, width: width).map { [$0.x, $0.y] }, "void": true])
+        selectedStair = id
         Task { await save(d) }
     }
 

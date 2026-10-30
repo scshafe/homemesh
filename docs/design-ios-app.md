@@ -410,8 +410,11 @@ furniture and the scanned meshes are not drawn (a room's own USDZ opens in Quick
 
 Accessibility: the shortlist and comparison tick-circles are real buttons with labels (they were tap gestures VoiceOver could not
 find); the plan canvas has a spoken summary and the Select tool a "Choose a wall from a list" menu as an alternative to tapping;
-fixed widths in the comparison table became minimum widths that scale with the text size. Not done: drawing zones or stairs without
-touching the canvas (the tap targets there have no list alternative yet).
+fixed widths in the comparison table became minimum widths that scale with the text size. Drawing zones and placing stairs without
+touching the canvas (2026-10-30): the plan's "Add without drawing" menu (also VoiceOver actions on the plan) opens a zone form (from chosen
+rooms, chosen walls or typed corners, with a spoken summary of the result) and a staircase form (floor it leads to, room, which wall it runs
+along, length, width); "Choose from a list" now lists walls, zones, staircases, furniture and marked things, so every selection and
+edit has a non-canvas route. Placing outlets, jacks and access points still goes by tapping the plan.
 
 ## 6. Open questions (answered; kept for the record, recommendation first)
 
