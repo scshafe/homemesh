@@ -133,22 +133,23 @@ struct ScanScreen: View {
                 }
                 .frame(maxHeight: 280)
                 .scrollBounceBehavior(.basedOnSize)
+                .padding(14)   // the fields sit on a plain surface: glass is for the controls floating over the camera
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
             }
             if allRooms.isEmpty && phase == .idle {
                 Text(staircase == nil ? "Tip: go slowly at corners and keep the line where the wall meets the ceiling in view."
                      : "Tip: walk the flight slowly, bottom to top, with the walls beside it in view. RoomPlan shows stairs as one block, not as steps; a banner tells you when it has found them.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).multilineTextAlignment(.center).padding(10).glass()
             }
-            if !RoomCaptureSession.isSupported { SuiNote(.danger, "This device has no LiDAR scanner.") }
+            if !RoomCaptureSession.isSupported { SuiNote(.danger, "This device has no LiDAR scanner.").padding(10).glass() }
             Button { toggle() } label: {
                 Text(phase == .running ? (staircase == nil ? "Done with this room" : "Done with the staircase") : phase == .stopping ? "Processing…" : (staircase == nil ? "Start scanning a room" : "Start scanning the staircase"))
                     .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
             .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy)
         }
-        .padding(14)
-        .glass(26)
         .padding(.bottom, 6)
     }
 
@@ -156,12 +157,13 @@ struct ScanScreen: View {
     private var floatingBar: some View {
         HStack {
             Button { dismiss() } label: { Image(systemName: "chevron.backward").font(.headline).frame(width: 44, height: 44) }
-                .glass(22)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
                 .accessibilityLabel("Back")
             Spacer()
             if !allRooms.isEmpty {
-                Button { Task { await upload() } } label: { Text("Save").font(.headline).padding(.horizontal, 20).frame(height: 44) }
-                    .glass(22)
+                Button { Task { await upload() } } label: { Text("Save").font(.headline).padding(.horizontal, 12).frame(height: 44) }
+                    .buttonStyle(.glassProminent)
                     .disabled(busy || phase != .idle || !allNamed)
                     .accessibilityHint("Saves the scan to \(model.summary(houseId)?.name ?? houseId) and uploads it")
             }
@@ -335,7 +337,7 @@ struct ScanScreen: View {
     }
 }
 
-/// The system's Liquid Glass.
+/// The system's Liquid Glass, for text and notes floating over the camera (buttons use the system glass button styles).
 struct GlassBackground: ViewModifier {
     let radius: CGFloat
     func body(content: Content) -> some View {
