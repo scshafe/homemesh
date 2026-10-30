@@ -723,3 +723,38 @@ final class PlanToolTests: XCTestCase {
         XCTAssertFalse(PlanTool.placing.contains(.select))
     }
 }
+
+final class PlanFormTests: XCTestCase {
+    private let square = [Pt(0, 0), Pt(4, 0), Pt(4, 3), Pt(0, 3)]
+
+    func testHullDropsInteriorPoints() {
+        let h = Geometry.convexHull(square + [Pt(2, 1)])
+        XCTAssertEqual(Set(h), Set(square))
+    }
+
+    func testOneRoomIsItsOwnOutlineAndTwoRoomsAreWrapped() {
+        let a = PlanRoom(id: "r1", level: "L", name: "A", polygon: square)
+        let b = PlanRoom(id: "r2", level: "L", name: "B", polygon: square.map { Pt($0.x + 4, $0.y) })
+        XCTAssertEqual(Geometry.zoneOutline(rooms: [a], walls: []), square)
+        let both = Geometry.bounds(Geometry.zoneOutline(rooms: [a, b], walls: []))
+        XCTAssertEqual(both.width, 8, accuracy: 1e-9)
+        XCTAssertEqual(both.height, 3, accuracy: 1e-9)
+    }
+
+    func testLoneCornerIsASpotAndTwoCornersAStrip() {
+        XCTAssertEqual(Geometry.zoneOutline(rooms: [], walls: [], corners: [Pt(1, 1)]).count, 1)
+        XCTAssertEqual(Geometry.zoneOutline(rooms: [], walls: [], corners: [Pt(0, 0), Pt(2, 0)]).count, 4)
+    }
+
+    func testStairAgainstTheNorthWallRunsWestToEast() throws {
+        let s = try XCTUnwrap(Geometry.stairInRoom(square, side: .north, length: 3, width: 1))
+        XCTAssertEqual(s.bottom, Pt(0, 2.5))
+        XCTAssertEqual(s.top, Pt(3, 2.5))
+    }
+
+    func testStairIsClampedToTheRoom() throws {
+        let s = try XCTUnwrap(Geometry.stairInRoom(square, side: .east, length: 10, width: 9))
+        XCTAssertEqual(s.top.y - s.bottom.y, 3, accuracy: 1e-9)   // the room is 3 m deep
+        XCTAssertEqual(s.bottom.x, 2.5, accuracy: 1e-9)          // width clamped to 3 m: centre line 1.5 m in from the east wall
+    }
+}
