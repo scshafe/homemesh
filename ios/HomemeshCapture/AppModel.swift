@@ -45,27 +45,28 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Creates a house from a display name; returns its id, or nil with `message` set.
+    /// Creates a house from a display name; returns what went wrong, or nil when it worked.
     func createHouse(named name: String) async -> String? {
         let id = Naming.slug(name)
-        guard !name.trimmed.isEmpty, !id.isEmpty else { message = "Give the house a name."; return nil }
+        guard !name.trimmed.isEmpty, !id.isEmpty else { return "Give the house a name." }
         do {
             _ = try await client().createHouse(id: id, name: name.trimmed)
             await refresh()
-            return id
-        } catch {
-            message = "Could not create the house: \(error.localizedDescription)"
             return nil
+        } catch {
+            return "Could not create the house: \(error.localizedDescription)"
         }
     }
 
-    func addLevel(house: String, name: String, below: Bool = false) async {
-        guard !name.trimmed.isEmpty else { message = "Give the level a name."; return }
+    /// Adds a floor; returns what went wrong, or nil when it worked.
+    func addLevel(house: String, name: String, below: Bool = false) async -> String? {
+        guard !name.trimmed.isEmpty else { return "Give the floor a name." }
         do {
             _ = try await client().addLevel(house: house, name: name.trimmed, below: below)
             await refresh()
+            return nil
         } catch {
-            message = "Could not add the level: \(error.localizedDescription)"
+            return "Could not add the floor: \(error.localizedDescription)"
         }
     }
 }

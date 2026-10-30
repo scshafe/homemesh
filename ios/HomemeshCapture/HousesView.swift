@@ -40,10 +40,10 @@ struct HousesView: View {
             ToolbarItem(placement: .topBarTrailing) { Button("New house", systemImage: "plus") { newName = ""; creating = true }.disabled(!model.configured) }
         }
         .sheet(isPresented: $showSettings, onDismiss: { Task { await model.refresh() } }) { SettingsView() }
-        .alert("New house", isPresented: $creating) {
-            TextField("Name", text: $newName)
-            Button("Create") { Task { _ = await model.createHouse(named: newName) } }
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $creating) {
+            SuiNameSheet(title: "New house", prompt: "Name (for example Home)", confirm: "Create", noun: "house",
+                         isTaken: { n in model.houses.contains { $0.id == Naming.slug(n) || $0.name.lowercased() == n.lowercased() } },
+                         save: { await model.createHouse(named: $0) })
         }
         .task { await model.refresh() }
         .refreshable { await model.refresh() }

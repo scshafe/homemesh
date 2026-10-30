@@ -14,15 +14,21 @@ struct HouseView: View {
     @State private var choosingStaircase = false
     @State private var staircase: StairPair?
     @State private var askStairs: CaptureMeta?
-    @State private var note = ""
+    @State private var note: SuiMessage?
     @State private var waiting: [PendingUpload] = []
     @State private var sending = false
+    @State private var sendingId = ""
+    @State private var sendFraction: Double?
 
     private var levels: [LevelRef] { model.summary(houseId)?.levels ?? [] }
+    private var unplaced: Int { rooms.filter { $0.placed == nil }.count }
+    private var meshChip: (SuiTone, String)? {
+        if rooms.isEmpty { return nil }
+        return unplaced == 0 ? (.success, "all rooms on the plan") : (.warning, "\(unplaced) not on the plan")
+    }
 
     var body: some View {
         List {
-            if !note.isEmpty { Section { Text(note).font(.footnote) } }
             Section {
                 Button { scanLevel = ""; scanning = true } label: {
                     Label("Add room scan", systemImage: "camera.viewfinder").frame(maxWidth: .infinity)
@@ -37,6 +43,14 @@ struct HouseView: View {
                 .controlSize(.large)
                 .listRowBackground(Color.clear)
                 .disabled(levels.count < 2)
+            }
+            Section {
+                NavigationLink { PlanRunView(houseId: houseId) } label: {
+                    SuiRow(symbol: "wifi.router", title: "Plan a mesh", detail: "Rank where to put the access points",
+                           chip: meshChip,
+                           prominent: true)
+                }
+                .listRowBackground(SuiColor.accent.opacity(0.12))
             }
             let stairScans = captures.filter(\.isStairsScan)
             let unasked = captures.filter { $0.needsStairFloors && !$0.isStairsScan }
@@ -65,11 +79,14 @@ struct HouseView: View {
             if !waiting.isEmpty {
                 Section("Waiting to upload (saved on this phone)") {
                     ForEach(waiting) { p in
-                        HStack {
-                            VStack(alignment: .leading) { Text(p.name); Text(p.created, style: .relative).font(.caption).foregroundStyle(.secondary) }
-                            Spacer()
-                            Button("Upload") { Task { await sendWaiting() } }.buttonStyle(.borderless).disabled(sending)
-                            Button("Delete", role: .destructive) { UploadQueue.remove(p); waiting = UploadQueue.all(house: houseId) }.buttonStyle(.borderless)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                VStack(alignment: .leading) { Text(p.name); Text(p.created, style: .relative).font(.caption).foregroundStyle(.secondary) }
+                                Spacer()
+                                Button("Upload") { Task { await sendWaiting() } }.buttonStyle(.borderless).disabled(sending)
+                                Button("Delete", role: .destructive) { UploadQueue.remove(p); waiting = UploadQueue.all(house: houseId) }.buttonStyle(.borderless).disabled(sending)
+                            }
+                            if sending, p.id == sendingId { ProgressView(value: sendFraction ?? 0) }
                         }
                     }
                 }
@@ -77,8 +94,12 @@ struct HouseView: View {
             ForEach(levels.reversed()) { lv in   // the top floor first
                 Section {
                     let here = rooms.filter { $0.level == lv.id }
-                    NavigationLink("Doors on \(lv.name): label before placing") { DoorsChecklistView(houseId: houseId, level: lv.id, levelName: lv.name) }
-                    NavigationLink("Plan of \(lv.name): walls and materials") { PlanScreen(houseId: houseId, level: lv.id) }
+                    NavigationLink { DoorsChecklistView(houseId: houseId, level: lv.id, levelName: lv.name) } label: {
+                        SuiRow(symbol: "door.left.hand.open", title: "Doors", detail: "Label them before placing")
+                    }
+                    NavigationLink { PlanScreen(houseId: houseId, level: lv.id) } label: {
+                        SuiRow(symbol: "square.dashed", title: "Plan", detail: "Walls, materials, jacks and zones")
+                    }
                     ForEach(here) { r in row(r) }
                     if here.isEmpty { SuiNote(.neutral, "No rooms on this floor yet.") }
                 } header: {
@@ -93,16 +114,20 @@ struct HouseView: View {
             if !loose.isEmpty {
                 Section("No floor") { ForEach(loose) { r in row(r) } }
             }
-            Section {
-                NavigationLink("Floors: order and ground level") { FloorsView(houseId: houseId) }
-                Button("Add a floor") { newLevel = ""; addingLevel = true }
-                NavigationLink("3D view of the house") { House3DView(houseId: houseId) }
-                NavigationLink("Calibrate to my measurements") { CalibrateView(houseId: houseId) }
-                NavigationLink("Plan a mesh") { PlanRunView(houseId: houseId) }
-                NavigationLink("Equipment to plan with") { CatalogueView(houseId: houseId) }
-                NavigationLink("Accuracy: scan against tape") { AccuracyView(houseId: houseId) }
+            Section("House") {
+                NavigationLink { FloorsView(houseId: houseId) } label: {
+                    SuiRow(symbol: "square.stack.3d.up", title: "Floors", detail: "Order and ground level", chip: (.neutral, "\(levels.count)"))
+                }
+                Button { newLevel = ""; addingLevel = true } label: { SuiRow(symbol: "plus.square", title: "Add a floor") }.foregroundStyle(.primary)
+                NavigationLink { House3DView(houseId: houseId) } label: { SuiRow(symbol: "cube.transparent", title: "3D view", detail: "Walk around what you have scanned") }
+            }
+            Section("Tune the plan") {
+                NavigationLink { CatalogueView(houseId: houseId) } label: { SuiRow(symbol: "shippingbox", title: "Equipment", detail: "Mesh systems to plan with") }
+                NavigationLink { CalibrateView(houseId: houseId) } label: { SuiRow(symbol: "waveform.path.ecg", title: "Calibrate", detail: "Fit the walls to your signal readings") }
+                NavigationLink { AccuracyView(houseId: houseId) } label: { SuiRow(symbol: "ruler", title: "Accuracy", detail: "Scan against tape") }
             }
         }
+        .suiMessage($note)
         .navigationTitle(model.summary(houseId)?.name ?? houseId)
         .sheet(isPresented: $choosingStaircase) {
             ScanStaircaseSheet(levels: levels) { from, to in staircase = StairPair(from: from, to: to) }
@@ -116,10 +141,10 @@ struct HouseView: View {
         .navigationDestination(isPresented: $scanning) {
             ScanScreen(houseId: houseId, initialLevel: scanLevel, replacing: nil, onUploaded: { Task { await load() } })
         }
-        .alert("New floor", isPresented: $addingLevel) {
-            TextField("Name (for example First floor)", text: $newLevel)
-            Button("Add") { Task { await model.addLevel(house: houseId, name: newLevel) } }
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $addingLevel) {
+            SuiNameSheet(title: "New floor", prompt: "Name (for example First floor)", confirm: "Add", noun: "floor",
+                         isTaken: { n in levels.contains { $0.name.lowercased() == n.lowercased() } },
+                         save: { await model.addLevel(house: houseId, name: $0) })
         }
         .task { waiting = UploadQueue.all(house: houseId); await sendWaiting(); await load() }
         .refreshable { await model.refresh(); await sendWaiting(); await load() }
@@ -132,7 +157,13 @@ struct HouseView: View {
         sending = true
         defer { sending = false }
         for p in waiting {
-            do { _ = try await UploadQueue.send(p, with: model.uploader(house: houseId)) } catch { note = "A saved scan is not uploaded yet: \(error.localizedDescription)"; break }
+            sendingId = p.id; sendFraction = 0
+            let (fractions, report) = AsyncStream.makeStream(of: Double.self)
+            let watcher = Task { for await f in fractions { sendFraction = f } }
+            defer { report.finish(); watcher.cancel() }
+            do { _ = try await UploadQueue.send(p, with: model.uploader(house: houseId), progress: { report.yield($0) }) }
+            catch { note = .danger("A saved scan is not uploaded yet: \(error.localizedDescription)"); break }
+            note = .success("Uploaded \(p.name).")
         }
         waiting = UploadQueue.all(house: houseId)
     }
@@ -157,9 +188,9 @@ struct HouseView: View {
             let all = try await r
             rooms = all.filter { $0.replaced_by == nil }   // earlier scans of re-scanned rooms stay stored as history
             captures = try await c
-            note = ""
+            note = .info("")
         } catch {
-            note = "Could not load the rooms: \(error.localizedDescription)"
+            note = .danger("Could not load the rooms: \(error.localizedDescription)")
         }
     }
 }

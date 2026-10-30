@@ -706,3 +706,12 @@ final class SuiMessageTests: XCTestCase {
         XCTAssertEqual(SuiMessage.danger("x").tone, .danger)
     }
 }
+
+final class NameSheetTests: XCTestCase {
+    func testNameProblems() {
+        let taken: (String) -> Bool = { $0.lowercased() == "ground" }
+        XCTAssertEqual(SuiNameSheet.problem("  ", noun: "floor", isTaken: taken), "Give the floor a name.")
+        XCTAssertEqual(SuiNameSheet.problem(" Ground ", noun: "floor", isTaken: taken), "There is already a floor called \"Ground\".")
+        XCTAssertNil(SuiNameSheet.problem("Attic", noun: "floor", isTaken: taken))
+    }
+}
