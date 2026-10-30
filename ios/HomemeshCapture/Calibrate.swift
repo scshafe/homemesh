@@ -86,8 +86,8 @@ struct CalibrateView: View {
             Section("What you have") {
                 Text("\(plan?.access_points.count ?? 0) access point(s) on the plan, \(plan?.measurements.count ?? 0) measurement(s).").font(.footnote)
                 ForEach(perBand, id: \.0) { Text("\($0.0) GHz: \($0.1) reading(s)").font(.footnote) }
-                if (plan?.access_points.isEmpty ?? true) { Text("Put your existing access point on the plan first (the Access point tool), then walk the house and use the Measure tool: tap where you stand and type the signal you read.").font(.footnote).foregroundStyle(.orange) }
-                else if perBand.allSatisfy({ $0.1 < 8 }) { Text("Take at least 8 readings per band, in different rooms and behind different walls.").font(.footnote).foregroundStyle(.orange) }
+                if (plan?.access_points.isEmpty ?? true) { SuiNote(.warning, "Put your existing access point on the plan first (the Access point tool), then walk the house and use the Measure tool: tap where you stand and type the signal you read.") }
+                else if perBand.allSatisfy({ $0.1 < 8 }) { SuiNote(.warning, "Take at least 8 readings per band, in different rooms and behind different walls.") }
             }
             if let plan, !plan.levels.isEmpty {
                 Section {
@@ -129,12 +129,12 @@ struct CalibrateView: View {
                 .font(.footnote)
             Text(String(format: "Fits its own readings to %.1f dB. Distance exponent %.2f (was %.2f).", f.rmse_train, f.n.mean, f.n.prior_mean)).font(.footnote)
             let found = f.materials.filter { $0.value.identified }.sorted { $0.key < $1.key }
-            if found.isEmpty { Text("No wall material is pinned down yet: measure on both sides of more walls.").font(.footnote).foregroundStyle(.orange) }
+            if found.isEmpty { SuiNote(.warning, "No wall material is pinned down yet: measure on both sides of more walls.") }
             ForEach(found, id: \.key) { k, p in
                 Text(String(format: "%@: %.1f dB (was %.1f)", k, p.mean, p.prior_mean)).font(.footnote)
             }
             let worst = f.residuals.sorted { abs($0.value) > abs($1.value) }.prefix(3).filter { abs($0.value) > 6 }
-            ForEach(Array(worst), id: \.key) { Text("Reading \($0.key) is \(String(format: "%+.0f", $0.value)) dB off: check it.").font(.footnote).foregroundStyle(.orange) }
+            ForEach(Array(worst), id: \.key) { SuiNote(.warning, "Reading \($0.key) is \(String(format: "%+.0f", $0.value)) dB off: check it.") }
             if !f.note.isEmpty { Text(f.note).font(.footnote).foregroundStyle(.secondary) }
         }
     }

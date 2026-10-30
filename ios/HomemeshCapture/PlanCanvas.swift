@@ -104,7 +104,7 @@ struct PlanCanvas: View {
                     path.move(to: map(r.polygon[0]))
                     for p in r.polygon.dropFirst() { path.addLine(to: map(p)) }
                     path.closeSubpath()
-                    ctx.fill(path, with: .color(.blue.opacity(0.08)))
+                    ctx.fill(path, with: .color(SuiPlanColor.roomTint.opacity(0.08)))
                     let c = Pt(r.polygon.map(\.x).reduce(0, +) / Double(r.polygon.count), r.polygon.map(\.y).reduce(0, +) / Double(r.polygon.count))
                     ctx.draw(Text(r.name).font(.caption).foregroundStyle(.secondary), at: map(c))
                 }
@@ -115,8 +115,8 @@ struct PlanCanvas: View {
                     for p in corners.dropFirst() { path.addLine(to: map(p)) }
                     path.closeSubpath()
                     let sel = f.id == selectedFurniture
-                    ctx.fill(path, with: .color((f.movable ? Color.orange : Color.brown).opacity(sel ? 0.45 : 0.22)))
-                    ctx.stroke(path, with: .color(sel ? .accentColor : (f.movable ? .orange : .brown)), style: StrokeStyle(lineWidth: sel ? 3 : 1, dash: f.movable ? [4, 2] : []))
+                    ctx.fill(path, with: .color((f.movable ? SuiPlanColor.movable : SuiPlanColor.fixed).opacity(sel ? 0.45 : 0.22)))
+                    ctx.stroke(path, with: .color(sel ? SuiColor.accent : (f.movable ? SuiPlanColor.movable : SuiPlanColor.fixed)), style: StrokeStyle(lineWidth: sel ? 3 : 1, dash: f.movable ? [4, 2] : []))
                     if scale * CGFloat(min(f.width, f.depth)) > 26 {
                         ctx.draw(Text(f.title).font(.system(size: 9)).foregroundStyle(.secondary), at: map(f.center))
                     }
@@ -125,7 +125,7 @@ struct PlanCanvas: View {
                     var path = Path()
                     path.move(to: map(w.a))
                     path.addLine(to: map(w.b))
-                    ctx.stroke(path, with: .color(w.id == selected ? .accentColor : .primary), lineWidth: max(w.id == selected ? 4 : 1.5, CGFloat(w.thickness) * scale))
+                    ctx.stroke(path, with: .color(w.id == selected ? SuiColor.accent : Color.primary), lineWidth: max(w.id == selected ? 4 : 1.5, CGFloat(w.thickness) * scale))
                     let ln = hypot(w.b.x - w.a.x, w.b.y - w.a.y)
                     if ln > 0 {
                         for o in w.openings {   // openings drawn as gaps in the wall's colour of the background
@@ -133,12 +133,12 @@ struct PlanCanvas: View {
                             var gap = Path()
                             gap.move(to: map(Pt(w.a.x + (w.b.x - w.a.x) * t0, w.a.y + (w.b.y - w.a.y) * t0)))
                             gap.addLine(to: map(Pt(w.a.x + (w.b.x - w.a.x) * t1, w.a.y + (w.b.y - w.a.y) * t1)))
-                            ctx.stroke(gap, with: .color(o.kind == "window" ? .cyan : .orange), lineWidth: max(2, CGFloat(w.thickness) * scale))
+                            ctx.stroke(gap, with: .color(o.kind == "window" ? SuiPlanColor.window : SuiPlanColor.opening), lineWidth: max(2, CGFloat(w.thickness) * scale))
                         }
                     }
                 }
                 for z in zones {
-                    let color: Color = z.kind == "allow" ? .green : z.kind == "forbid" ? .red : .orange
+                    let color: Color = z.kind == "allow" ? SuiPlanColor.allow : z.kind == "forbid" ? SuiPlanColor.forbid : SuiPlanColor.prefer
                     let sel = z.id == selectedZone
                     if z.polygon.count >= 3 {
                         var path = Path()
@@ -146,12 +146,12 @@ struct PlanCanvas: View {
                         for p in z.polygon.dropFirst() { path.addLine(to: map(p)) }
                         path.closeSubpath()
                         ctx.fill(path, with: .color(color.opacity(sel ? 0.35 : 0.18)))
-                        ctx.stroke(path, with: .color(sel ? .accentColor : color), style: StrokeStyle(lineWidth: sel ? 3 : 1.5, dash: [5, 3]))
+                        ctx.stroke(path, with: .color(sel ? SuiColor.accent : color), style: StrokeStyle(lineWidth: sel ? 3 : 1.5, dash: [5, 3]))
                     } else if let p = z.polygon.first {
                         let c = map(p), r: CGFloat = sel ? 9 : 7
                         let rect = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
                         ctx.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.5)))
-                        ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? .accentColor : color), lineWidth: 2)
+                        ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? SuiColor.accent : color), lineWidth: 2)
                     }
                     if !z.name.isEmpty, let c = z.polygon.first {
                         let n = Double(z.polygon.count)
@@ -165,16 +165,16 @@ struct PlanCanvas: View {
                     path.move(to: map(poly[0]))
                     for p in poly.dropFirst() { path.addLine(to: map(p)) }
                     path.closeSubpath()
-                    ctx.fill(path, with: .color(.purple.opacity(0.25)))
-                    ctx.stroke(path, with: .color(.purple), lineWidth: 1.5)
+                    ctx.fill(path, with: .color(SuiPlanColor.stair.opacity(0.25)))
+                    ctx.stroke(path, with: .color(SuiPlanColor.stair), lineWidth: 1.5)
                 }
                 for l in stairLayouts {
                     var steps = Path()
                     for t in l.treads { steps.move(to: map(t.a)); steps.addLine(to: map(t.b)) }
-                    ctx.stroke(steps, with: .color(.purple.opacity(0.8)), lineWidth: 1)
+                    ctx.stroke(steps, with: .color(SuiPlanColor.stair.opacity(0.8)), lineWidth: 1)
                     var arrow = Path()   // from the bottom to the top of the flight
                     arrow.move(to: map(l.low)); arrow.addLine(to: map(l.high))
-                    ctx.stroke(arrow, with: .color(.purple), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    ctx.stroke(arrow, with: .color(SuiPlanColor.stair), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     let h = map(l.high), lo = map(l.low)
                     let ang = atan2(h.y - lo.y, h.x - lo.x)
                     var head = Path()
@@ -182,50 +182,50 @@ struct PlanCanvas: View {
                     head.addLine(to: CGPoint(x: h.x - 9 * cos(ang - 0.45), y: h.y - 9 * sin(ang - 0.45)))
                     head.addLine(to: CGPoint(x: h.x - 9 * cos(ang + 0.45), y: h.y - 9 * sin(ang + 0.45)))
                     head.closeSubpath()
-                    ctx.fill(head, with: .color(.purple))
+                    ctx.fill(head, with: .color(SuiPlanColor.stair))
                 }
                 if draft.count >= 1 {
                     var path = Path()
                     path.move(to: map(draft[0]))
                     for p in draft.dropFirst() { path.addLine(to: map(p)) }
-                    ctx.stroke(path, with: .color(.pink), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                    for p in draft { ctx.fill(Path(ellipseIn: CGRect(x: map(p).x - 3, y: map(p).y - 3, width: 6, height: 6)), with: .color(.pink)) }
+                    ctx.stroke(path, with: .color(SuiPlanColor.draft), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    for p in draft { ctx.fill(Path(ellipseIn: CGRect(x: map(p).x - 3, y: map(p).y - 3, width: 6, height: 6)), with: .color(SuiPlanColor.draft)) }
                 }
                 for m in markers {
                     let c = map(m.at), sel = m.id == selectedMarker
                     let r: CGFloat = sel ? 9 : 6
                     let rect = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
                     switch m.kind {
-                    case .outlet: ctx.fill(Path(ellipseIn: rect), with: .color(.yellow)); ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
-                    case .jack: ctx.fill(Path(rect), with: .color(.green)); ctx.stroke(Path(rect), with: .color(sel ? .accentColor : .black), lineWidth: 1.5)
+                    case .outlet: ctx.fill(Path(ellipseIn: rect), with: .color(SuiPlanColor.outlet)); ctx.stroke(Path(ellipseIn: rect), with: .color(sel ? SuiColor.accent : SuiPlanColor.outline), lineWidth: 1.5)
+                    case .jack: ctx.fill(Path(rect), with: .color(SuiPlanColor.jack)); ctx.stroke(Path(rect), with: .color(sel ? SuiColor.accent : SuiPlanColor.outline), lineWidth: 1.5)
                     case .measurement, .suggestion:
                         var d = Path()
                         d.move(to: CGPoint(x: c.x, y: c.y - r - 2)); d.addLine(to: CGPoint(x: c.x + r + 2, y: c.y))
                         d.addLine(to: CGPoint(x: c.x, y: c.y + r + 2)); d.addLine(to: CGPoint(x: c.x - r - 2, y: c.y)); d.closeSubpath()
-                        if m.kind == .measurement { ctx.fill(d, with: .color(.pink)); ctx.stroke(d, with: .color(sel ? .accentColor : .black), lineWidth: 1.2) }
-                        else { ctx.stroke(d, with: .color(.purple), style: StrokeStyle(lineWidth: 2, dash: [3, 2])) }
+                        if m.kind == .measurement { ctx.fill(d, with: .color(SuiPlanColor.draft)); ctx.stroke(d, with: .color(sel ? SuiColor.accent : SuiPlanColor.outline), lineWidth: 1.2) }
+                        else { ctx.stroke(d, with: .color(SuiPlanColor.stair), style: StrokeStyle(lineWidth: 2, dash: [3, 2])) }
                     case .entry:
                         var d = Path()
                         d.move(to: CGPoint(x: c.x, y: c.y - r - 3)); d.addLine(to: CGPoint(x: c.x + r + 3, y: c.y))
                         d.addLine(to: CGPoint(x: c.x, y: c.y + r + 3)); d.addLine(to: CGPoint(x: c.x - r - 3, y: c.y)); d.closeSubpath()
-                        ctx.fill(d, with: .color(.black)); ctx.stroke(d, with: .color(sel ? .accentColor : .white), lineWidth: 1.5)
+                        ctx.fill(d, with: .color(SuiPlanColor.outline)); ctx.stroke(d, with: .color(sel ? SuiColor.accent : SuiPlanColor.onMarker), lineWidth: 1.5)
                     case .door:   // a door of the scan being labelled or paired: numbered
                         let big = CGRect(x: c.x - 11, y: c.y - 11, width: 22, height: 22)
-                        ctx.fill(Path(ellipseIn: big), with: .color(.orange.opacity(sel ? 1 : 0.8)))
-                        ctx.stroke(Path(ellipseIn: big), with: .color(sel ? .accentColor : .black), lineWidth: sel ? 3 : 1)
-                        ctx.draw(Text(m.id.hasPrefix("s") ? String(m.id.dropFirst()) : m.id).font(.caption.bold()).foregroundStyle(.black), at: c)
+                        ctx.fill(Path(ellipseIn: big), with: .color(SuiPlanColor.doorMarker.opacity(sel ? 1 : 0.85)))
+                        ctx.stroke(Path(ellipseIn: big), with: .color(sel ? SuiColor.accent : SuiPlanColor.outline), lineWidth: sel ? 3 : 1)
+                        ctx.draw(Text(m.id.hasPrefix("s") ? String(m.id.dropFirst()) : m.id).font(.caption.bold()).foregroundStyle(SuiPlanColor.onMarker), at: c)
                     case .planDoor:   // a door already on the plan: a blue ring
-                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(sel ? .accentColor : .blue), lineWidth: sel ? 3 : 2)
+                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -3, dy: -3)), with: .color(sel ? SuiColor.accent : SuiPlanColor.accessPoint), lineWidth: sel ? 3 : 2)
                     case .accessPoint:
-                        ctx.fill(Path(ellipseIn: rect), with: .color(.blue))
-                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -4, dy: -4)), with: .color(sel ? .accentColor : .blue), lineWidth: 1.5)
+                        ctx.fill(Path(ellipseIn: rect), with: .color(SuiPlanColor.accessPoint))
+                        ctx.stroke(Path(ellipseIn: rect.insetBy(dx: -4, dy: -4)), with: .color(sel ? SuiColor.accent : SuiPlanColor.accessPoint), lineWidth: 1.5)
                     }
                 }
                 for g in ghost {
                     var path = Path()
                     path.move(to: map(g.a))
                     path.addLine(to: map(g.b))
-                    ctx.stroke(path, with: .color(.red.opacity(0.8)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    ctx.stroke(path, with: .color(SuiColor.danger.opacity(0.8)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 }
             }
             .contentShape(Rectangle())

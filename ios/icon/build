@@ -1,0 +1,13 @@
+#!/bin/sh
+# Flattens the icon layers (opaque PNGs, as the app icon set wants) into the asset catalog. Needs rsvg-convert.
+# The layers stay separate SVGs so the icon can become a layered Icon Composer file.
+set -e
+cd "$(dirname "$0")"
+out=../HomemeshCapture/Assets.xcassets/AppIcon.appiconset
+for v in "" "-dark"; do
+  { echo '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024">'
+    echo "<image href=\"background$v.svg\" width=\"1024\" height=\"1024\"/><image href=\"glyph$v.svg\" width=\"1024\" height=\"1024\"/></svg>"; } > "/tmp/icon$v.svg"
+  cp "/tmp/icon$v.svg" "./.flat$v.svg"
+  rsvg-convert -w 1024 -h 1024 "./.flat$v.svg" -o "$out/icon-1024$v.png"
+  rm "./.flat$v.svg" "/tmp/icon$v.svg"
+done

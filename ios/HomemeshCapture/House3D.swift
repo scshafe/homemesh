@@ -51,7 +51,7 @@ enum House3D {
         }
         for f in plan.furniture where visible?.contains(f.level) ?? true {
             let box = SCNBox(width: f.width, height: f.height, length: f.depth, chamferRadius: 0)
-            box.firstMaterial?.diffuse.contents = (f.movable ? UIColor.systemOrange : UIColor.brown).withAlphaComponent(0.7)
+            box.firstMaterial?.diffuse.contents = UIColor(f.movable ? SuiPlanColor.movable : SuiPlanColor.fixed).withAlphaComponent(0.7)
             let n = SCNNode(geometry: box)
             n.name = "furniture:\(f.id)"
             n.position = SCNVector3(Float(f.center.x), Float((elevation[f.level] ?? 0) + (f.base_z ?? 0) + f.height / 2), Float(-f.center.y))

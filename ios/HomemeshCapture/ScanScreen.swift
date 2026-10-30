@@ -138,7 +138,7 @@ struct ScanScreen: View {
                      : "Tip: walk the flight slowly, bottom to top, with the walls beside it in view. RoomPlan shows stairs as one block, not as steps; a banner tells you when it has found them.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            if !RoomCaptureSession.isSupported { Text("This device has no LiDAR scanner.").font(.footnote).foregroundStyle(.red) }
+            if !RoomCaptureSession.isSupported { SuiNote(.danger, "This device has no LiDAR scanner.") }
             Button { toggle() } label: {
                 Text(phase == .running ? (staircase == nil ? "Done with this room" : "Done with the staircase") : phase == .stopping ? "Processing…" : (staircase == nil ? "Start scanning a room" : "Start scanning the staircase"))
                     .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)

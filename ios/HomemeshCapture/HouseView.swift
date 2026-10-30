@@ -46,7 +46,7 @@ struct HouseView: View {
                         Button { askStairs = c } label: {
                             VStack(alignment: .leading) {
                                 Text("Staircase found in \(c.name)").foregroundStyle(.primary)
-                                Text("Rises \(String(format: "%.1f", c.stairs_found?.first?.rise ?? 0)) m. Tap to say which floors it joins.").font(.caption).foregroundStyle(.orange)
+                                SuiNote(.info, "Rises \(String(format: "%.1f", c.stairs_found?.first?.rise ?? 0)) m. Tap to say which floors it joins.")
                             }
                         }
                     }
@@ -145,7 +145,7 @@ struct HouseView: View {
             VStack(alignment: .leading) {
                 Text(r.title).foregroundStyle(r.name.isEmpty ? .secondary : .primary)
                 if !r.description.isEmpty { Text(r.description).font(.footnote).foregroundStyle(.secondary) }
-                Text(r.placed == nil ? "not on the plan yet" : "on the plan").font(.caption).foregroundStyle(r.placed == nil ? .orange : .green)
+                SuiChip(r.placed == nil ? .warning : .success, r.placed == nil ? "not on the plan yet" : "on the plan")
             }
         }
     }

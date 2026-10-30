@@ -118,7 +118,7 @@ struct PlanRunView: View {
     var body: some View {
         List {
             Section("Plan") {
-                ForEach(problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                ForEach(problems, id: \.self) { SuiNote(.warning, $0) }
                 Text(summary).font(.footnote).foregroundStyle(.secondary)
                 Button(running ? "Planning…" : "Find the best arrangements") { Task { await start() } }
                     .disabled(running || !problems.isEmpty || catalogue == nil)
@@ -216,18 +216,16 @@ struct ArrangementRow: View {
                 Text(String(format: "score %.2f", a.score)).monospacedDigit().foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                if a.pareto == true { badge("best trade-off", .green) }
-                if !a.valid { badge("invalid", .red) } else if a.must_ok == false { badge("misses a must-have", .orange) }
-                if a.stable == false { badge("unstable ranking", .yellow) }
+                if a.pareto == true { badge("best trade-off", .success) }
+                if !a.valid { badge("invalid", .danger) } else if a.must_ok == false { badge("misses a must-have", .warning) }
+                if a.stable == false { badge("unstable ranking", .warning) }
                 if let c = a.cost { Text(String(format: "$%.0f", c)).font(.footnote).foregroundStyle(.secondary) }
                 if let w = a.worst { Text(String(format: "worst zone %.2f", w)).font(.footnote).foregroundStyle(.secondary) }
             }
         }
     }
 
-    private func badge(_ t: String, _ c: Color) -> some View {
-        Text(t).font(.caption2).padding(.horizontal, 6).padding(.vertical, 2).background(c.opacity(0.2)).clipShape(Capsule())
-    }
+    private func badge(_ t: String, _ tone: SuiTone) -> some View { SuiChip(tone, t) }
 }
 
 /// One arrangement: why it ranks where it does, where its nodes go, how each zone fares, how nodes connect.
@@ -249,7 +247,7 @@ struct ArrangementView: View {
                 } else {
                     Text("No explanation was computed for this one (only the top few get one).").font(.footnote)
                 }
-                ForEach(a.problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                ForEach(a.problems, id: \.self) { SuiNote(.warning, $0) }
             }
             Section("Where the nodes go") {
                 Text("Router at the internet entry (\(gateway.equipment), \(levelName(gateway.level)))").font(.footnote)
@@ -264,7 +262,7 @@ struct ArrangementView: View {
                         Text(zoneName(z.zone))
                         Text([String(format: "utility %.2f", z.utility), z.mean_rate.map { String(format: "%.0f Mbit/s typical", $0) },
                               z.must_met == false ? "must-have not met" : nil].compactMap { $0 }.joined(separator: " · "))
-                            .font(.footnote).foregroundStyle(z.must_met == false ? .orange : .secondary)
+                            .font(.footnote).foregroundStyle(z.must_met == false ? SuiColor.warning : .secondary)
                         if let lim = a.explanation?.zones.first(where: { $0.zone == z.zone }) {
                             Text("\(lim.limiter): \(lim.detail)").font(.footnote).foregroundStyle(.secondary)
                         }

@@ -418,7 +418,7 @@ struct WallInspector: View {
                     Text("Thickness (m)")
                     TextField("0.12", text: $thickness).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                 }
-                if doc.thicknessDefaulted(wall.id) { Text("The scan gave no thickness: this is a guess.").font(.footnote).foregroundStyle(.orange) }
+                if doc.thicknessDefaulted(wall.id) { SuiNote(.warning, "The scan gave no thickness: this is a guess.") }
                 Picker("Material", selection: $material) { ForEach(doc.materials, id: \.id) { Text($0.name).tag($0.id) } }
                 Button("Save this wall") { apply(all: false) }
                 Button("Use for every wall on this floor still on the defaults") { apply(all: true) }

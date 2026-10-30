@@ -92,7 +92,7 @@ struct DoorLabelsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             ForEach(doors) { d in
                 HStack {
-                    Text("\(d.number)").font(.caption.bold()).frame(width: 22, height: 22).background(Circle().fill(Color.orange))
+                    Text("\(d.number)").font(.caption.bold()).frame(width: 22, height: 22).background(Circle().fill(SuiPlanColor.doorMarker)).foregroundStyle(SuiPlanColor.onMarker)
                     VStack(alignment: .leading) {
                         Text(d.kind == "door" ? "Door" : "Opening").font(.footnote)
                         Text(d.room < roomNames.count && !roomNames[d.room].isEmpty ? "in \(roomNames[d.room])" : "").font(.caption2).foregroundStyle(.secondary)
@@ -266,7 +266,7 @@ struct DoorsChecklistView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Image(systemName: r.complete ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(r.complete ? .green : .orange)
+                                Image(systemName: SuiTone.tone(complete: r.complete).symbol).foregroundStyle(SuiTone.tone(complete: r.complete).color)
                                 Text(r.rooms.filter { !$0.isEmpty }.joined(separator: ", ").nonEmpty ?? r.name)
                             }
                             ForEach(r.doors) { d in
@@ -275,7 +275,7 @@ struct DoorsChecklistView: View {
                             }
                         }
                     }
-                    ForEach(r.issues, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                    ForEach(r.issues, id: \.self) { SuiNote(.warning, $0) }
                 }
             }
             if rows.isEmpty { Text("No scans on \(levelName) yet.").font(.footnote) }
