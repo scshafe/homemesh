@@ -37,7 +37,7 @@ struct RateMapView: View {
                            markers: nodeMarkers(), heat: map.grids.first { $0.level == level })
                     .background(Color(.secondarySystemBackground))
                 legend
-                ForEach(map.problems, id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                ForEach(map.problems, id: \.self) { SuiNote(.warning, $0) }
             } else {
                 ProgressView()
             }

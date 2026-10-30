@@ -121,7 +121,7 @@ struct PlaceView: View {
                     HStack(spacing: 8) { ProgressView(); Text("Finding where it fits…").font(.footnote) }
                 }
                 if let p = placement {
-                    Text("\(p.confidence.uppercased()): \(p.reason)").font(.footnote).foregroundStyle(p.confidence == "auto" || p.confidence == "labelled" ? .green : .orange)
+                    SuiNote(p.confidence == "auto" || p.confidence == "labelled" ? .success : .warning, "\(p.confidence.uppercased()): \(p.reason)")
                 }
                 if let sd = scanDoors, !sd.doors.isEmpty, !planDoors.isEmpty {
                     HStack {

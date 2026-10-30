@@ -662,3 +662,29 @@ final class LabelledPlacementTests: XCTestCase {
         }
     }
 }
+
+final class SuiToneTests: XCTestCase {
+    func testEveryToneHasItsOwnSymbolSoColourIsNeverAlone() {
+        XCTAssertEqual(Set(SuiTone.allCases.map(\.symbol)).count, SuiTone.allCases.count)
+    }
+
+    func testAccentIsTheBrandPairInBothAppearances() {
+        func rgb(_ c: Color, _ style: UIUserInterfaceStyle) -> [Int] {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(c).resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
+            return [r, g, b].map { Int(($0 * 255).rounded()) }
+        }
+        XCTAssertEqual(rgb(SuiColor.accent, .light), [0x0a, 0x4f, 0x99])
+        XCTAssertEqual(rgb(SuiColor.accent, .dark), [0x6c, 0xb6, 0xff])
+    }
+
+    func testOutlineContrastsWithEachCanvas() {
+        func luma(_ style: UIUserInterfaceStyle) -> CGFloat {
+            var w: CGFloat = 0, a: CGFloat = 0
+            UIColor(SuiPlanColor.outline).resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getWhite(&w, alpha: &a)
+            return w
+        }
+        XCTAssertLessThan(luma(.light), 0.3)   // dark stroke on the light canvas
+        XCTAssertGreaterThan(luma(.dark), 0.7) // light stroke on the dark canvas
+    }
+}

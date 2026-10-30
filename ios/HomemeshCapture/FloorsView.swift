@@ -50,7 +50,7 @@ struct FloorsView: View {
                             if let e = level(id)?.elevation { Text(String(format: "floor at %+.2f m", e)).font(.caption).foregroundStyle(.secondary) }
                         }
                         Spacer()
-                        if id == ground { Text("Ground floor").font(.footnote).foregroundStyle(.green) }
+                        if id == ground { SuiChip(.success, "Ground floor") }
                         else if FloorStack.belowGround(order: order, ground: ground).contains(id) { Text("Below ground").font(.footnote).foregroundStyle(.secondary) }
                         else { Button("Ground") { ground = id }.buttonStyle(.borderless).font(.footnote) }
                     }
