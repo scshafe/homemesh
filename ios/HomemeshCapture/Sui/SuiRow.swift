@@ -47,7 +47,7 @@ struct SuiNameSheet: View {
     /// What is wrong with the name now, or nil.
     var problem: String? { Self.problem(name, noun: noun, isTaken: isTaken) }
 
-    static func problem(_ name: String, noun: String, isTaken: (String) -> Bool) -> String? {
+    nonisolated static func problem(_ name: String, noun: String, isTaken: (String) -> Bool) -> String? {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if n.isEmpty { return "Give the \(noun) a name." }
         if isTaken(n) { return "There is already a \(noun) called \"\(n)\"." }
