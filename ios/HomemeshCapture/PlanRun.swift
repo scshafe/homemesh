@@ -103,7 +103,7 @@ struct PlanRunView: View {
     @State private var running = false
     @State private var progress: [String] = []
     @State private var result: PlanResult?
-    @State private var status = ""
+    @State private var status: SuiMessage?
     @State private var picks: [String] = []          // ids of the two arrangements chosen to compare
 
     private var problems: [String] {
@@ -127,7 +127,6 @@ struct PlanRunView: View {
             if running || !progress.isEmpty {
                 Section("Progress") { ForEach(Array(progress.enumerated()), id: \.offset) { Text($0.element).font(.footnote) } }
             }
-            if !status.isEmpty { Section { Text(status).font(.footnote) } }
             if let result {
                 Section("Ranked: best first") {
                     Text("Tap the circle on two rows to compare them.").font(.footnote).foregroundStyle(.secondary)
@@ -152,6 +151,7 @@ struct PlanRunView: View {
                 }
             }
         }
+        .suiMessage($status)
         .navigationTitle("Plan a mesh")
         .task { await load() }
     }
@@ -177,7 +177,7 @@ struct PlanRunView: View {
             plan = try JSONDecoder().decode(PlanHouse.self, from: data)
             catalogue = try await model.client().get("/api/catalogue")
         } catch {
-            status = "Could not load: \(error.localizedDescription)"
+            status = .danger("Could not load: \(error.localizedDescription)")
         }
     }
 
@@ -185,7 +185,7 @@ struct PlanRunView: View {
         running = true
         progress = []
         result = nil
-        status = ""
+        status = nil
         defer { running = false }
         do {
             let c = model.client()
@@ -194,11 +194,11 @@ struct PlanRunView: View {
                 try await Task.sleep(for: .seconds(1.5))
                 let s = try await c.job(id)
                 progress = s.progress
-                if s.state == "error" { status = "The plan failed: \(s.error ?? "unknown error")"; return }
+                if s.state == "error" { status = .danger("The plan failed: \(s.error ?? "unknown error")"); return }
                 if s.state == "done" { result = s.result; return }
             }
         } catch {
-            status = "Could not plan: \(error.localizedDescription)"
+            status = .danger("Could not plan: \(error.localizedDescription)")
         }
     }
 }

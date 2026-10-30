@@ -27,7 +27,7 @@ struct RateMapView: View {
     @EnvironmentObject var model: AppModel
     @State private var map: RateMapResult?
     @State private var level = ""
-    @State private var status = ""
+    @State private var status: SuiMessage?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -41,9 +41,9 @@ struct RateMapView: View {
             } else {
                 ProgressView()
             }
-            if !status.isEmpty { Text(status).font(.footnote) }
         }
         .padding()
+        .suiMessage($status)
         .navigationTitle("Signal: \(arrangement.title)")
         .task { await load() }
     }
@@ -73,7 +73,7 @@ struct RateMapView: View {
             map = try await model.client().rateMap(house: houseId, nodes: arrangement.nodes, request: request)
             level = plan?.levels.first { l in map?.grids.contains { $0.level == l.id } ?? false }?.id ?? plan?.levels.first?.id ?? ""
         } catch {
-            status = "Could not draw the signal: \(error.localizedDescription)"
+            status = .danger("Could not draw the signal: \(error.localizedDescription)")
         }
     }
 }

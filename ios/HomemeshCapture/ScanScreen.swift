@@ -24,7 +24,7 @@ struct ScanScreen: View {
     @State private var names: [String: String] = [:]   // by the room's identifier
     @State private var phase = ScanController.Phase.idle
     @State private var busy = false
-    @State private var status = ""
+    @State private var status: SuiMessage?
     @State private var hint = ""
     @State private var cameraProblem = ""
     @State private var liveStairRise: Double?        // a staircase RoomPlan sees right now
@@ -84,14 +84,16 @@ struct ScanScreen: View {
             suggestFloor()
         }
         .onDisappear { controller.shutdown() }
+        .suiHaptics(status)
     }
 
     /// Start or finish a room, the rooms' names, the floor, messages and Discard, in one glass panel over the camera.
     private var controls: some View {
         VStack(spacing: 10) {
-            if !allRooms.isEmpty || !status.isEmpty {
+            if !allRooms.isEmpty || status != nil {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
+                        if let status { SuiBanner(message: status) { self.status = nil } }
                         ForEach(staircase == nil ? Array(allRooms.indices) : [], id: \.self) { i in
                             let id = allRooms[i].identifier.uuidString
                             TextField("Name room \(i + 1) (required)", text: Binding(get: { names[id] ?? "" }, set: { names[id] = $0 }))
@@ -123,9 +125,8 @@ struct ScanScreen: View {
                                 }
                             }
                         }
-                        if !status.isEmpty { Text(status).font(.footnote) }
                         if !allRooms.isEmpty {
-                            Button("Discard scan", role: .destructive) { resetScan(); status = "" }.disabled(phase != .idle || busy).font(.footnote)
+                            Button("Discard scan", role: .destructive) { resetScan(); status = nil }.disabled(phase != .idle || busy).font(.footnote)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -219,18 +220,18 @@ struct ScanScreen: View {
         controller.onProcessed = { room in
             rooms.append(room)
             suggestFloor()
-            status = "Room added: name it below."
+            status = .success("Room added: name it below.")
             if rooms.count == 1, let old = replacing, names[room.identifier.uuidString] == nil { names[room.identifier.uuidString] = old.name }
             focused = room.identifier.uuidString
         }
-        controller.onError = { msg in status = "Scan failed: \(msg)" }
+        controller.onError = { msg in status = .danger("Scan failed: \(msg)") }
         controller.onSessionLost = { message, salvaged in
             if let salvaged {
                 rooms.append(salvaged)
-                status = message + " The room scanned so far was kept: name it below."
+                status = .warning(message + " The room scanned so far was kept: name it below.")
                 focused = salvaged.identifier.uuidString
             } else {
-                status = message
+                status = .warning(message)
             }
             newSession()
         }
@@ -278,7 +279,7 @@ struct ScanScreen: View {
         if controller.wantsFreshSession {   // before RoomPlan's scene size limit, not after it
             Diagnostics.event("renewal", ["rooms": controller.roomsDone, "seconds": Int(controller.scanSeconds)])
             newSession()
-            status = "To stay under RoomPlan's size limit this room starts a new session: a new frame, placed by the usual placement step. Tap start again."
+            status = .info("To stay under RoomPlan's size limit this room starts a new session: a new frame, placed by the usual placement step. Tap start again.")
             return
         }
         if baro == nil { baro = BaroSampler.shared.reading }
@@ -290,7 +291,7 @@ struct ScanScreen: View {
         busy = true
         defer { busy = false }
         do {
-            status = "Preparing…"
+            status = .busy("Preparing…")
             let groups = earlier + (rooms.isEmpty ? [] : [rooms])
             let baros = earlierBaro + (rooms.isEmpty ? [] : [baro])
             var items: [(PendingUpload, [String])] = []
@@ -308,24 +309,28 @@ struct ScanScreen: View {
             }
             let first = replacing.flatMap { $0.description.isEmpty ? nil : $0.description }
             resetScan()
-            status = "Saved on this phone. Uploading…"
+            status = .busy("Saved on this phone. Uploading…")
             var last = ""
             for (n, (item, roomNames)) in items.enumerated() {
-                let id = try await UploadQueue.send(item, with: model.uploader(house: houseId))
+                let (fractions, report) = AsyncStream.makeStream(of: Double.self)
+                let count = items.count
+                let watcher = Task { for await f in fractions { status?.progress = (Double(n) + f) / Double(count) } }
+                defer { report.finish(); watcher.cancel() }
+                let id = try await UploadQueue.send(item, with: model.uploader(house: houseId), progress: { report.yield($0) })
                 last = id
                 if n == 0, let first {   // the description carries over to the new scan's room
                     _ = try? await model.client().nameRooms(house: houseId, blob: id, names: roomNames, descriptions: roomNames.indices.map { $0 == 0 ? first : "" })
                 }
             }
-            status = items.count > 1
+            status = .success(items.count > 1
                 ? "Uploaded \(items.count) scans (they are separate frames). Place each on the plan next."
-                : "Uploaded (scan \(last.prefix(8))). Place the rooms on the plan next."
+                : "Uploaded (scan \(last.prefix(8))). Place the rooms on the plan next.")
             Diagnostics.event("upload", ["ok": true, "scans": items.count])
             await DiagnosticsUploader.shared.flush()
             onUploaded()
         } catch {
             Diagnostics.event("upload", ["ok": false, "error": (error as NSError).domain + " " + String((error as NSError).code)])
-            status = "Not uploaded yet: \(error.localizedDescription). The scan is saved on this phone; the house screen has it under \"Waiting to upload\"."
+            status = .danger("Not uploaded yet: \(error.localizedDescription). The scan is saved on this phone; the house screen has it under \"Waiting to upload\".")
         }
     }
 }

@@ -23,7 +23,7 @@ struct PlanScreen: View {
     @State private var undoCursor: Int?        // the revision the last undo restored; the next undo goes one before it
     @State private var draft: [Pt] = []
     @State private var stairTarget = ""
-    @State private var status = ""
+    @State private var status: SuiMessage?
     @State private var bounds = CGRect(x: -1, y: -1, width: 2, height: 2)
 
     private var markers: [PlanMarker] {
@@ -88,8 +88,8 @@ struct PlanScreen: View {
             } else {
                 ProgressView()
             }
-            if !status.isEmpty { Text(status).font(.footnote).padding(.horizontal) }
         }
+        .suiMessage($status, undo: { Task { await undo() } })
         .navigationTitle(plan?.levels.first { $0.id == level }?.name ?? "Plan")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -167,7 +167,7 @@ struct PlanScreen: View {
             Task { await save(d) }
         case .stair:
             draft.append(p)
-            guard draft.count == 2, !stairTarget.isEmpty else { if stairTarget.isEmpty { status = "Choose the floor it leads to first."; draft = [] }; return }
+            guard draft.count == 2, !stairTarget.isEmpty else { if stairTarget.isEmpty { status = .warning("Choose the floor it leads to first."); draft = [] }; return }
             let poly = Geometry.stairRectangle(draft[0], draft[1], width: 1.0)
             let ev = Dictionary(uniqueKeysWithValues: plan.levels.map { ($0.id, $0.elevation) })
             let up = (ev[stairTarget] ?? 0) > (ev[level] ?? 0)
@@ -213,7 +213,7 @@ struct PlanScreen: View {
             let pts = p.walls.filter { $0.level == level }.flatMap { [$0.a, $0.b] }
             bounds = Geometry.bounds(pts)
         } catch {
-            status = "Could not load the plan: \(error.localizedDescription)"
+            status = .danger("Could not load the plan: \(error.localizedDescription)")
         }
     }
 
@@ -229,10 +229,10 @@ struct PlanScreen: View {
             try await model.client().restore(house: houseId, revision: t, expect: plan.revision)
             undoCursor = t
             selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil
-            status = "Back to the plan as it was at revision \(t)."
+            status = .success("Back to the plan as it was at revision \(t).")
             await load()
         } catch {
-            status = "Could not undo: \(error.localizedDescription)"
+            status = .danger("Could not undo: \(error.localizedDescription)")
         }
     }
 
@@ -240,10 +240,10 @@ struct PlanScreen: View {
         undoCursor = nil
         do {
             try await model.client().saveHouse(house: houseId, json: try new.data(), expectRevision: new.revision)
-            status = "Saved."
+            status = .success("Saved.", undoable: true)
             await load()
         } catch {
-            status = "Could not save: \(error.localizedDescription)"
+            status = .danger("Could not save: \(error.localizedDescription)")
         }
     }
 }
@@ -403,7 +403,7 @@ struct WallInspector: View {
     let doc: HouseDoc
     let level: String
     let onSaved: (HouseDoc) -> Void
-    @Binding var status: String
+    @Binding var status: SuiMessage?
     @State private var thickness = ""
     @State private var material = ""
     @State private var kinds: [String] = []
@@ -454,7 +454,7 @@ struct WallInspector: View {
         let t = Double(thickness.replacingOccurrences(of: ",", with: "."))
         if all {
             let n = d.applyToDefaults(level: level, thickness: t, material: material)
-            status = "\(n) wall(s) updated."
+            status = .success("\(n) wall(s) updated.")
         } else {
             d.update(wall: wall.id, thickness: t, material: material)
         }
@@ -463,7 +463,7 @@ struct WallInspector: View {
 
     private func saveOpening(_ i: Int) {
         var d = doc
-        guard let w = Double(widths[i].replacingOccurrences(of: ",", with: ".")), w > 0 else { status = "Give the width in metres."; return }
+        guard let w = Double(widths[i].replacingOccurrences(of: ",", with: ".")), w > 0 else { status = .warning("Give the width in metres."); return }
         d.setOpening(wall: wall.id, index: i, kind: kinds[i], width: w)
         onSaved(d)
     }

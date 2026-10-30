@@ -80,7 +80,7 @@ struct HouseView: View {
                     NavigationLink("Doors on \(lv.name): label before placing") { DoorsChecklistView(houseId: houseId, level: lv.id, levelName: lv.name) }
                     NavigationLink("Plan of \(lv.name): walls and materials") { PlanScreen(houseId: houseId, level: lv.id) }
                     ForEach(here) { r in row(r) }
-                    if here.isEmpty { Text("No rooms on this floor yet.").font(.footnote).foregroundStyle(.secondary) }
+                    if here.isEmpty { SuiNote(.neutral, "No rooms on this floor yet.") }
                 } header: {
                     HStack {
                         Text(lv.name)
@@ -175,7 +175,7 @@ struct RoomDetailView: View {
     @State private var name = ""
     @State private var about = ""
     @State private var level = ""
-    @State private var status = ""
+    @State private var status: SuiMessage?
     @State private var preview: URL?
     @State private var busy = false
 
@@ -216,8 +216,8 @@ struct RoomDetailView: View {
                 }
             }
             RoomFurnitureSection(houseId: houseId, roomId: room.placed)
-            if !status.isEmpty { Text(status).font(.footnote) }
         }
+        .suiMessage($status)
         .navigationTitle(room.title)
         .quickLookPreview($preview)
         .onAppear {
@@ -237,10 +237,10 @@ struct RoomDetailView: View {
         }
         do {
             _ = try await model.client().nameRooms(house: houseId, blob: room.capture, names: names, descriptions: about_)
-            status = room.placed == nil ? "Saved." : "Saved. The plan picks the new name up the next time the scan is placed."
+            status = .success(room.placed == nil ? "Saved." : "Saved. The plan picks the new name up the next time the scan is placed.")
             onChanged()
         } catch {
-            status = "Could not save: \(error.localizedDescription)"
+            status = .danger("Could not save: \(error.localizedDescription)")
         }
     }
 
@@ -250,10 +250,10 @@ struct RoomDetailView: View {
         defer { busy = false }
         do {
             _ = try await model.client().moveScan(house: houseId, blob: room.capture, level: level)
-            status = "Moved to the new floor."
+            status = .success("Moved to the new floor.")
             onChanged()
         } catch {
-            status = "Could not change the floor: \(error.localizedDescription)"
+            status = .danger("Could not change the floor: \(error.localizedDescription)")
         }
     }
 
@@ -262,11 +262,11 @@ struct RoomDetailView: View {
         busy = true
         defer { busy = false }
         do {
-            status = "Downloading the model…"
+            status = .busy("Downloading the model…")
             preview = try await model.client().download(house: houseId, blob: blob, suffix: "usdz")
-            status = ""
+            status = nil
         } catch {
-            status = "Could not load the model: \(error.localizedDescription)"
+            status = .danger("Could not load the model: \(error.localizedDescription)")
         }
     }
 }

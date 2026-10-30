@@ -110,7 +110,7 @@ struct House3DView: View {
     @EnvironmentObject var model: AppModel
     @State private var plan: PlanHouse?
     @State private var hidden: Set<String> = []
-    @State private var status = ""
+    @State private var status: SuiMessage?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -127,13 +127,13 @@ struct House3DView: View {
             } else {
                 ProgressView()
             }
-            if !status.isEmpty { Text(status).font(.footnote) }
         }
         .padding(.bottom)
+        .suiMessage($status)
         .navigationTitle("3D view")
         .task {
             do { plan = try JSONDecoder().decode(PlanHouse.self, from: try await model.client().call("GET", "/api/houses/\(houseId)")) }
-            catch { status = "Could not load the house: \(error.localizedDescription)" }
+            catch { status = .danger("Could not load the house: \(error.localizedDescription)") }
         }
     }
 }

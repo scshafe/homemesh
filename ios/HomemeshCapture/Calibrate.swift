@@ -75,7 +75,7 @@ struct CalibrateView: View {
     @State private var applied: Data?
     @State private var revision = 0
     @State private var busy = false
-    @State private var status = ""
+    @State private var status: SuiMessage?
 
     private var perBand: [(String, Int)] {
         Dictionary(grouping: (plan?.measurements ?? []).filter { $0.rssi != nil }, by: \.band).map { ($0.key, $0.value.count) }.sorted { $0.0 < $1.0 }
@@ -116,8 +116,8 @@ struct CalibrateView: View {
                     Button("Apply to the house") { Task { await apply() } }.disabled(applied == nil || busy)
                 }
             }
-            if !status.isEmpty { Section { Text(status).font(.footnote) } }
         }
+        .suiMessage($status)
         .navigationTitle("Calibrate")
         .task { await load() }
     }
@@ -161,20 +161,20 @@ struct CalibrateView: View {
             revision = p.revision
             if level.isEmpty { level = p.levels.first?.id ?? "" }
         } catch {
-            status = "Could not load: \(error.localizedDescription)"
+            status = .danger("Could not load: \(error.localizedDescription)")
         }
     }
 
     private func run() async {
         busy = true
         defer { busy = false }
-        status = ""
+        status = nil
         do {
             let r = try await model.client().calibrate(house: houseId).run()
             fit = r.fit
             applied = r.applied
         } catch {
-            status = "Could not fit: \(error.localizedDescription)"
+            status = .danger("Could not fit: \(error.localizedDescription)")
         }
     }
 
@@ -184,11 +184,11 @@ struct CalibrateView: View {
         defer { busy = false }
         do {
             try await model.client().saveHouse(house: houseId, json: applied, expectRevision: revision)
-            status = "Applied: the walls' losses and the planning margin now follow your readings. Plans you run from now on use them."
+            status = .success("Applied: the walls' losses and the planning margin now follow your readings. Plans you run from now on use them.")
             self.applied = nil
             await load()
         } catch {
-            status = "Could not apply: \(error.localizedDescription)"
+            status = .danger("Could not apply: \(error.localizedDescription)")
         }
     }
 }

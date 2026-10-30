@@ -688,3 +688,21 @@ final class SuiToneTests: XCTestCase {
         XCTAssertGreaterThan(luma(.dark), 0.7) // light stroke on the dark canvas
     }
 }
+
+final class SuiMessageTests: XCTestCase {
+    func testProgressUpdatesKeepTheMessageIdentitySoTheToastAndHapticDoNotRepeat() {
+        var m = SuiMessage.busy("Uploading")
+        let id = m.id
+        m.progress = 0.4
+        XCTAssertEqual(m.id, id)
+        XCTAssertEqual(m, m)
+        XCTAssertNotEqual(m, SuiMessage.busy("Uploading"))
+    }
+
+    func testOnlySuccessIsAToastAndUndoIsOptIn() {
+        XCTAssertEqual(SuiMessage.success("Saved.").tone, .success)
+        XCTAssertFalse(SuiMessage.success("Saved.").undoable)
+        XCTAssertTrue(SuiMessage.success("Saved.", undoable: true).undoable)
+        XCTAssertEqual(SuiMessage.danger("x").tone, .danger)
+    }
+}

@@ -15,7 +15,7 @@ struct PlaceView: View {
     @State private var dragged = Pt(0, 0)      // total shift so far
     @State private var live = Pt(0, 0)         // shift of the gesture in progress
     @State private var delta = 0.0             // extra turn, degrees
-    @State private var status = ""
+    @State private var status: SuiMessage?
     @State private var busy = false
     @State private var done = false
     @State private var stairs: [StairSuggestion] = []
@@ -165,9 +165,9 @@ struct PlaceView: View {
                     }
                 }.padding(8).background(Color(.secondarySystemBackground)).clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            if !status.isEmpty { Text(status).font(.footnote) }
         }
         .padding()
+        .suiMessage($status)
         .navigationTitle(capture.name.isEmpty ? "Place scan" : capture.name)
         .task { await load() }
     }
@@ -180,7 +180,7 @@ struct PlaceView: View {
             scanDoors = try? await model.client().doors(house: houseId, blob: capture.blob)
             await propose()
         } catch {
-            status = "Could not load the plan: \(error.localizedDescription)"
+            status = .danger("Could not load the plan: \(error.localizedDescription)")
         }
     }
 
@@ -206,10 +206,10 @@ struct PlaceView: View {
             guard run == proposalRun else { return }
             Diagnostics.event("place", ["capture": String(blob.prefix(8)), "level": lvl, "ms": Int(Date().timeIntervalSince(started) * 1000), "outcome": p.confidence])
             apply(p, house: house)
-            status = ""
+            status = nil
             if p.confidence == "unlabelled" {   // no connection to go by: the scan waits in the middle of the floor to be paired
                 let missing = (p.evidence?.missing ?? []).joined(separator: " ")
-                status = "Label a door that connects to a placed room: tap Pair doors, tap a door on the red scan, then its door on the plan." + (missing.isEmpty ? "" : " (\(missing))")
+                status = .warning("Label a door that connects to a placed room: tap Pair doors, tap a door on the red scan, then its door on the plan." + (missing.isEmpty ? "" : " (\(missing))"))
                 pairing = true
                 await manualPlacement(house: house, level: lvl, blob: blob)
             }
@@ -219,8 +219,8 @@ struct PlaceView: View {
             let slow = ms >= 9_500
             Diagnostics.event("place", ["capture": String(blob.prefix(8)), "level": lvl, "ms": ms, "outcome": slow ? "timeout" : "error",
                                         "error": (error as NSError).domain + " " + String((error as NSError).code)])
-            status = slow ? "Finding the place took too long, so the scan is in the middle of the floor: drag and turn it into place."
-                          : "Could not work out where it fits (\(error.localizedDescription)): the scan is in the middle of the floor; drag and turn it into place."
+            status = .warning(slow ? "Finding the place took too long, so the scan is in the middle of the floor: drag and turn it into place."
+                               : "Could not work out where it fits (\(error.localizedDescription)): the scan is in the middle of the floor; drag and turn it into place.")
             await manualPlacement(house: house, level: lvl, blob: blob)
         }
         if run == proposalRun { proposing = false }
@@ -253,7 +253,7 @@ struct PlaceView: View {
             let pts = floor + mine.flatMap { [$0.a, $0.b] }.map { Pt($0.x + dragged.x, $0.y + dragged.y) }
             bounds = Geometry.bounds(pts)
         } catch {
-            status += " (The scan could not be shown either: \(error.localizedDescription).)"
+            status = .danger((status?.text ?? "") + " (The scan could not be shown either: \(error.localizedDescription).)")
             Diagnostics.event("place-fallback-failed", ["error": (error as NSError).domain + " " + String((error as NSError).code)])
         }
     }
@@ -270,10 +270,10 @@ struct PlaceView: View {
             if pairedPlan != nil { await saveLabels(house: house) }
             stairs = capture.stair == nil ? result.stairs : []   // the floors were already given with the scan
             stairTarget = house.levels.first { $0.id != level }?.id ?? ""
-            status = "Placed and saved. Walls and rooms are on the plan; set thickness and materials next." + (capture.stair != nil ? " The staircase is saved too." : "")
+            status = .success("Placed and saved. Walls and rooms are on the plan; set thickness and materials next." + (capture.stair != nil ? " The staircase is saved too." : ""))
             await model.refresh()
         } catch {
-            status = "Could not save the placement: \(error.localizedDescription)"
+            status = .danger("Could not save the placement: \(error.localizedDescription)")
         }
     }
 
@@ -284,9 +284,9 @@ struct PlaceView: View {
         do {
             try await model.client().addStair(house: houseId, from: up ? here.id : there.id, to: up ? there.id : here.id, polygon: found.polygon)
             stairs.removeFirst()
-            status = "Staircase saved: it joins \(here.name) and \(there.name)."
+            status = .success("Staircase saved: it joins \(here.name) and \(there.name).")
         } catch {
-            status = "Could not save the staircase: \(error.localizedDescription)"
+            status = .danger("Could not save the staircase: \(error.localizedDescription)")
         }
     }
 }
