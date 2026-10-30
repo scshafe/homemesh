@@ -34,12 +34,12 @@ final class AppModel: ObservableObject {
     func summary(_ id: String) -> HouseSummary? { houses.first { $0.id == id } }
 
     func refresh() async {
-        guard configured else { houses = []; message = "Open Settings and fill in the server and sign-in."; return }
+        guard configured else { houses = []; message = ""; return }
         busy = true
         defer { busy = false }
         do {
             houses = try await client().houses()
-            message = houses.isEmpty ? "No houses yet. Tap + to create one." : ""
+            message = ""
         } catch {
             message = "Could not load the houses: \(error.localizedDescription)"
         }

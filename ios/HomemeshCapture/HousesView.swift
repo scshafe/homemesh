@@ -9,7 +9,7 @@ struct HousesView: View {
 
     var body: some View {
         List {
-            if !model.message.isEmpty { Section { Text(model.message).font(.footnote) } }
+            if !model.message.isEmpty { Section { SuiNote(.warning, model.message) } }
             Section("Houses") {
                 ForEach(model.houses) { h in
                     NavigationLink(value: h) {
@@ -17,6 +17,19 @@ struct HousesView: View {
                             Text(h.name)
                             Text("\(h.levels.count) level(s), \(h.rooms) room(s), \(h.captures) scan(s)").font(.footnote).foregroundStyle(.secondary)
                         }
+                    }
+                }
+            }
+        }
+        .overlay {
+            if model.houses.isEmpty && model.message.isEmpty {
+                if model.configured {
+                    SuiEmpty(title: "No houses yet", symbol: "house", detail: "Create one, then scan its rooms.") {
+                        Button("New house") { newName = ""; creating = true }.buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    SuiEmpty(title: "Not set up", symbol: "gearshape", detail: "Give the app your server and sign-in details first.") {
+                        Button("Settings") { showSettings = true }.buttonStyle(.borderedProminent)
                     }
                 }
             }

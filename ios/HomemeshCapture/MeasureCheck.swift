@@ -7,7 +7,7 @@ struct MeasureCheckSection: View {
     let level: String
     let doc: HouseDoc
     let onSaved: (HouseDoc) -> Void
-    @Binding var status: String
+    @Binding var status: SuiMessage?
     @State private var what = ""
     @State private var tape = ""
     @State private var last: HouseDoc.Check?
@@ -37,7 +37,7 @@ struct MeasureCheckSection: View {
         var d = doc
         last = d.addCheck(what: what, level: level, wall: wall.id, scanned: wall.length, measured: m)
         tape = ""
-        status = "Reading recorded."
+        status = .success("Reading recorded.")
         onSaved(d)
     }
 }

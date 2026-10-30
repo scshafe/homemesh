@@ -119,7 +119,7 @@ struct DoorsScreen: View {
     @State private var info: ScanDoorsInfo?
     @State private var labels: [String: String] = [:]
     @State private var choices: [String] = []
-    @State private var status = ""
+    @State private var status: SuiMessage?
 
     var body: some View {
         ScrollView {
@@ -130,9 +130,9 @@ struct DoorsScreen: View {
                     else { DoorLabelsView(doors: info.doors, walls: info.walls, roomNames: info.rooms, choices: choices, labels: $labels) }
                     Button("Save") { Task { await save() } }.buttonStyle(.borderedProminent)
                 } else { ProgressView() }
-                if !status.isEmpty { Text(status).font(.footnote) }
             }.padding()
         }
+        .suiMessage($status)
         .navigationTitle("Doors")
         .task { await load() }
     }
@@ -145,14 +145,14 @@ struct DoorsScreen: View {
             let rooms = try await model.client().rooms(house: houseId)
             choices = DoorLabelChoices.names(house: rooms.filter { $0.replaced_by == nil }.map(\.name), session: [],
                                              excluding: Set(i.rooms.map { $0.trimmed.lowercased() }))
-        } catch { status = "Could not load the doors: \(error.localizedDescription)" }
+        } catch { status = .danger("Could not load the doors: \(error.localizedDescription)") }
     }
 
     private func save() async {
         do {
             _ = try await model.client().setDoorLabels(house: houseId, blob: capture.blob, labels: labels)
-            status = "Saved."
-        } catch { status = "Could not save: \(error.localizedDescription)" }
+            status = .success("Saved.")
+        } catch { status = .danger("Could not save: \(error.localizedDescription)") }
     }
 }
 

@@ -53,8 +53,8 @@ enum UploadQueue {
     static func remove(_ p: PendingUpload) { try? FileManager.default.removeItem(at: dir(p)) }
 
     /// Uploads one queued scan; it leaves the queue only when the server confirmed it.
-    static func send(_ p: PendingUpload, with uploader: Uploader) async throws -> String {
-        let id = try await uploader.upload(json: try json(p), usdz: usdz(p), name: p.name, level: p.level, replaces: p.replaces, purpose: p.purpose ?? "", stairFrom: p.stairFrom ?? "", stairTo: p.stairTo ?? "")
+    static func send(_ p: PendingUpload, with uploader: Uploader, progress: (@Sendable (Double) -> Void)? = nil) async throws -> String {
+        let id = try await uploader.upload(json: try json(p), usdz: usdz(p), name: p.name, level: p.level, replaces: p.replaces, purpose: p.purpose ?? "", stairFrom: p.stairFrom ?? "", stairTo: p.stairTo ?? "", progress: progress)
         remove(p)
         return id
     }

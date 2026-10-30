@@ -68,7 +68,7 @@ struct StairFloorsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var from = ""
     @State private var to = ""
-    @State private var status = ""
+    @State private var status: SuiMessage?
 
     private var rise: Double? { capture.stairs_found?.first?.rise }
 
@@ -79,9 +79,9 @@ struct StairFloorsSheet: View {
                     if let r = rise { Text("RoomPlan found a staircase in \"\(capture.name)\": it rises \(String(format: "%.1f", r)) m.") }
                     Picker("This scan's floor", selection: $from) { ForEach(levels.reversed()) { Text($0.name).tag($0.id) } }
                     StairFloorPickers(levels: levels, from: from, to: $to)
-                    if !status.isEmpty { Text(status).font(.footnote) }
                 }
             }
+            .suiMessage($status)
             .navigationTitle("Staircase")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Later") { dismiss() } }
@@ -101,7 +101,7 @@ struct StairFloorsSheet: View {
             onSaved()
             dismiss()
         } catch {
-            status = "Could not save: \(error.localizedDescription)"
+            status = .danger("Could not save: \(error.localizedDescription)")
         }
     }
 }

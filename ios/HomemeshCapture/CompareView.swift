@@ -16,7 +16,7 @@ struct CompareView: View {
     @State private var mapB: RateMapResult?
     @State private var level = ""
     @State private var mode = Mode.diff
-    @State private var status = ""
+    @State private var status: SuiMessage?
 
     var body: some View {
         List {
@@ -45,8 +45,8 @@ struct CompareView: View {
                     row(zoneName(z), a.zones.first { $0.zone == z }.map { fmt($0.utility) } ?? "-", b.zones.first { $0.zone == z }.map { fmt($0.utility) } ?? "-")
                 }
             }
-            if !status.isEmpty { Text(status).font(.footnote) }
         }
+        .suiMessage($status)
         .navigationTitle("Compare")
         .task { await load() }
     }
@@ -72,7 +72,7 @@ struct CompareView: View {
             (mapA, mapB) = try await (ra, rb)
             level = plan?.levels.first { l in mapA?.grids.contains { $0.level == l.id } ?? false }?.id ?? plan?.levels.first?.id ?? ""
         } catch {
-            status = "Could not draw the comparison: \(error.localizedDescription)"
+            status = .danger("Could not draw the comparison: \(error.localizedDescription)")
         }
     }
 }
