@@ -47,7 +47,7 @@ struct AccuracyView: View {
     let houseId: String
     @EnvironmentObject var model: AppModel
     @State private var doc: HouseDoc?
-    @State private var note = ""
+    @State private var note: SuiMessage?
 
     var body: some View {
         List {
@@ -73,11 +73,11 @@ struct AccuracyView: View {
                     }
                 }
             }
-            if !note.isEmpty { Text(note).font(.footnote) }
         }
+        .suiMessage($note)
         .navigationTitle("Accuracy")
         .task {
-            do { doc = try HouseDoc(data: try await model.client().call("GET", "/api/houses/\(houseId)")) } catch { note = "Could not load: \(error.localizedDescription)" }
+            do { doc = try HouseDoc(data: try await model.client().call("GET", "/api/houses/\(houseId)")) } catch { note = .danger("Could not load: \(error.localizedDescription)") }
         }
     }
 

@@ -250,11 +250,10 @@ struct DoorsChecklistView: View {
     @EnvironmentObject var model: AppModel
     @State private var rows: [ChecklistRow] = []
     @State private var captures: [CaptureMeta] = []
-    @State private var note = ""
+    @State private var note: SuiMessage?
 
     var body: some View {
         List {
-            if !note.isEmpty { Text(note).font(.footnote) }
             Section {
                 Text("Placing a scan needs a door of it labelled with the room it leads to, and a door of that room labelled back. Label everything first, then place.")
                     .font(.footnote).foregroundStyle(.secondary)
@@ -280,6 +279,7 @@ struct DoorsChecklistView: View {
             }
             if rows.isEmpty { Text("No scans on \(levelName) yet.").font(.footnote) }
         }
+        .suiMessage($note)
         .navigationTitle("Doors on \(levelName)")
         .task { await load() }
         .refreshable { await load() }
@@ -293,8 +293,8 @@ struct DoorsChecklistView: View {
         do {
             rows = try await model.client().get("/api/houses/\(houseId)/doors?level=\(level)")
             captures = try await model.client().captures(house: houseId)
-            note = ""
-        } catch { note = "Could not load the doors: \(error.localizedDescription)" }
+            note = .info("")
+        } catch { note = .danger("Could not load the doors: \(error.localizedDescription)") }
     }
 }
 

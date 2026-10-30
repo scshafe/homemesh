@@ -65,11 +65,10 @@ struct CatalogueView: View {
     @EnvironmentObject var model: AppModel
     @State private var data: CatalogueData?
     @State private var list = Shortlist()
-    @State private var note = ""
+    @State private var note: SuiMessage?
 
     var body: some View {
         List {
-            if !note.isEmpty { Text(note).font(.footnote) }
             if let data {
                 Section("Plan with") {
                     Toggle("Every mesh system in the catalogue", isOn: $list.allCatalogue)
@@ -103,6 +102,7 @@ struct CatalogueView: View {
                 }
             }
         }
+        .suiMessage($note)
         .navigationTitle("Equipment")
         .task { await load() }
         .onChange(of: list) { list.save(house: houseId) }
@@ -114,7 +114,7 @@ struct CatalogueView: View {
 
     private func load() async {
         list = Shortlist.load(house: houseId)
-        do { data = try await model.client().get("/api/catalogue") } catch { note = "Could not load the catalogue: \(error.localizedDescription)" }
+        do { data = try await model.client().get("/api/catalogue") } catch { note = .danger("Could not load the catalogue: \(error.localizedDescription)") }
     }
 }
 

@@ -30,7 +30,7 @@ struct FloorsView: View {
     @State private var newName = ""
     @State private var adding = false
     @State private var addBelow = false
-    @State private var note = ""
+    @State private var note: SuiMessage?
     @State private var busy = false
 
     private var levels: [LevelRef] { model.summary(houseId)?.levels ?? [] }
@@ -63,15 +63,15 @@ struct FloorsView: View {
                 Button("Add a floor above") { addBelow = false; newName = ""; adding = true }
                 Button("Add a basement below") { addBelow = true; newName = ""; adding = true }
             }
-            if !note.isEmpty { Section { Text(note).font(.footnote) } }
         }
         .environment(\.editMode, .constant(.active))
+        .suiMessage($note)
         .navigationTitle("Floors")
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Save order") { Task { await save() } }.disabled(busy || !changed) } }
-        .alert(addBelow ? "New basement" : "New floor", isPresented: $adding) {
-            TextField("Name", text: $newName)
-            Button("Add") { Task { await model.addLevel(house: houseId, name: newName, below: addBelow); load() } }
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $adding) {
+            SuiNameSheet(title: addBelow ? "New basement" : "New floor", prompt: "Name (for example First floor)", confirm: "Add", noun: "floor",
+                         isTaken: { n in levels.contains { $0.name.lowercased() == n.lowercased() } },
+                         save: { let e = await model.addLevel(house: houseId, name: $0, below: addBelow); load(); return e })
         }
         .onAppear { load() }
     }
@@ -92,9 +92,9 @@ struct FloorsView: View {
             _ = try await model.client().orderLevels(house: houseId, order: order, belowGround: FloorStack.belowGround(order: order, ground: ground))
             await model.refresh()
             load()
-            note = "Saved: elevations follow the new order."
+            note = .success("Saved: elevations follow the new order.")
         } catch {
-            note = "Could not save the floors: \(error.localizedDescription)"
+            note = .danger("Could not save the floors: \(error.localizedDescription)")
         }
     }
 }
