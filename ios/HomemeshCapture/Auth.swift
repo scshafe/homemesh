@@ -158,6 +158,10 @@ final class Auth: NSObject, ASWebAuthenticationPresentationContextProviding {
     nonisolated static func signOut() { Settings.tokens = nil }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? ASPresentationAnchor()
+        // Sign-in starts from a screen, so a scene exists.
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            preconditionFailure("no window scene to present sign-in from")
+        }
+        return scene.keyWindow ?? ASPresentationAnchor(windowScene: scene)
     }
 }

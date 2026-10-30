@@ -10,7 +10,7 @@ options:
   # bakes the commit and a build number in (git-ignored generated files); see ios/stamp-build
   preGenCommand: bash "$(git rev-parse --show-toplevel)/ios/stamp-build"
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
 configFiles:
   Debug: Build.generated.xcconfig     # CURRENT_PROJECT_VERSION, written by ios/stamp-build
   Release: Build.generated.xcconfig

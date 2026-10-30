@@ -111,7 +111,7 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
   and the next room gets a new camera view, session and frame. Each session uploads as its own scan, so the rooms of
   different sessions are placed one by one by the usual placement step.
 - The scan screen is the camera, edge to edge; Back, Save, the hint, the room names, the floor picker and
-  Start/Done float over it on glass (Liquid Glass on iOS 26, a thin material before). The AR session starts as soon as
+  Start/Done float over it on glass (Liquid Glass). The AR session starts as soon as
   the screen (or a renewed session) is up so the camera is never dark; if frames do not arrive, or camera access is
   off, the screen says why with a Retry, and the event log records it (`preview`, `camera`).
 - Staircases: the save sheet says what RoomPlan found ("8 walls, 2 doors… Staircase found: rises 3.3 m") and asks which

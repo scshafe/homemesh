@@ -330,15 +330,11 @@ struct ScanScreen: View {
     }
 }
 
-/// The system's glass on iOS 26 and later (Liquid Glass), a thin material before that.
+/// The system's Liquid Glass.
 struct GlassBackground: ViewModifier {
     let radius: CGFloat
     func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
-            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
-        } else {
-            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
-        }
+        content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius))
     }
 }
 
