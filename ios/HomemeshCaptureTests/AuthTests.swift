@@ -715,3 +715,11 @@ final class NameSheetTests: XCTestCase {
         XCTAssertNil(SuiNameSheet.problem("Attic", noun: "floor", isTaken: taken))
     }
 }
+
+final class PlanToolTests: XCTestCase {
+    func testEveryToolHasItsOwnSymbolAndPlacingToolsAreTools() {
+        XCTAssertEqual(Set(PlanTool.allCases.map(\.symbol)).count, PlanTool.allCases.count)
+        XCTAssertTrue(PlanTool.placing.allSatisfy { PlanTool.allCases.contains($0) })
+        XCTAssertFalse(PlanTool.placing.contains(.select))
+    }
+}

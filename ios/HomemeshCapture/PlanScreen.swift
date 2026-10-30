@@ -3,6 +3,22 @@ import SwiftUI
 enum PlanTool: String, CaseIterable, Identifiable {
     case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", entry = "Internet", measure = "Measure", stair = "Stair", zone = "Zone"
     var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .select: "cursorarrow"
+        case .outlet: "powerplug"
+        case .jack: "cable.connector"
+        case .accessPoint: "wifi.router"
+        case .entry: "network"
+        case .measure: "dot.radiowaves.left.and.right"
+        case .stair: "figure.stairs"
+        case .zone: "square.dashed"
+        }
+    }
+
+    /// The tools that put a thing on the plan, grouped in one menu.
+    static let placing: [PlanTool] = [.outlet, .jack, .accessPoint, .entry]
 }
 
 /// The plan of one floor: tap a wall or a thing to edit it, or pick a tool to put an outlet, jack, access point
@@ -25,6 +41,7 @@ struct PlanScreen: View {
     @State private var stairTarget = ""
     @State private var status: SuiMessage?
     @State private var bounds = CGRect(x: -1, y: -1, width: 2, height: 2)
+    @State private var detent = PresentationDetent.height(220)
 
     private var markers: [PlanMarker] {
         guard let plan else { return [] }
@@ -49,9 +66,6 @@ struct PlanScreen: View {
     var body: some View {
         VStack(spacing: 8) {
             if let plan {
-                Picker("Tool", selection: $tool) { ForEach(PlanTool.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented)
-                    .onChange(of: tool) { draft = []; selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil }
                 if tool == .zone {
                     VStack(alignment: .leading, spacing: 4) {
                         Picker("Kind", selection: $zoneKind) {
@@ -84,14 +98,43 @@ struct PlanScreen: View {
                         }
                     }.font(.footnote)
                 }
-                inspector(plan)
+                hint
             } else {
                 ProgressView()
             }
         }
-        .suiMessage($status, undo: { Task { await undo() } })
+        .onChange(of: tool) { draft = []; clearSelection() }
+        .suiMessage(Binding(get: { inspecting ? nil : status }, set: { status = $0 }), undo: { Task { await undo() } })
+        .sheet(isPresented: Binding(get: { inspecting }, set: { if !$0 { clearSelection() } })) {
+            if let plan {
+                NavigationStack {
+                    inspector(plan)
+                        .navigationTitle(inspectorTitle(plan))
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { clearSelection() } } }
+                }
+                .suiMessage($status)
+                .presentationDetents([.height(220), .medium, .large], selection: $detent)
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))   // the plan stays tappable above the sheet
+            }
+        }
         .navigationTitle(plan?.levels.first { $0.id == level }?.name ?? "Plan")
         .toolbar {
+            ToolbarItemGroup(placement: .bottomBar) {
+                toolButton(.select)
+                Menu {
+                    ForEach(PlanTool.placing) { t in
+                        Button { tool = t } label: { Label(t.rawValue, systemImage: t.symbol) }
+                    }
+                } label: {
+                    Label(PlanTool.placing.contains(tool) ? tool.rawValue : "Put on the plan", systemImage: PlanTool.placing.contains(tool) ? tool.symbol : "mappin.and.ellipse")
+                        .symbolVariant(PlanTool.placing.contains(tool) ? .fill : .none)
+                }
+                toolButton(.measure)
+                toolButton(.stair)
+                toolButton(.zone)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Undo", systemImage: "arrow.uturn.backward") { Task { await undo() } }
                     .disabled(undoTarget == nil)
@@ -101,28 +144,60 @@ struct PlanScreen: View {
         .task { await load() }
     }
 
+    private func toolButton(_ t: PlanTool) -> some View {
+        Button { tool = t } label: { Label(t.rawValue, systemImage: t.symbol).symbolVariant(tool == t ? .fill : .none) }
+            .accessibilityAddTraits(tool == t ? .isSelected : [])
+    }
+
+    private var inspecting: Bool {
+        selectedWall != nil || selectedMarker != nil || selectedStair != nil || selectedZone != nil || selectedFurniture != nil
+    }
+
+    private func clearSelection() { selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil }
+
+    private func inspectorTitle(_ plan: PlanHouse) -> String {
+        if let id = selectedWall { return "Wall \(id)" }
+        if let m = selectedMarker { return PlanScreen.markerTitle(m.kind) }
+        if selectedStair != nil { return "Staircase" }
+        if selectedFurniture != nil { return "Furniture" }
+        if selectedZone != nil { return "Zone" }
+        return ""
+    }
+
+    private static func markerTitle(_ k: PlanMarker.Kind) -> String {
+        switch k {
+        case .outlet: "Outlet"
+        case .jack: "Jack"
+        case .accessPoint: "Access point"
+        case .entry: "Internet"
+        case .measurement: "Reading"
+        default: "Marker"
+        }
+    }
+
+    /// What to do next, under the plan.
+    @ViewBuilder
+    private var hint: some View {
+        if tool == .select {
+            Text("Tap a wall, a thing, a piece of furniture, a staircase or a zone.").font(.footnote).foregroundStyle(.secondary)
+        } else if tool != .stair && tool != .zone {
+            Text("Tap the plan to put the \(tool.rawValue.lowercased()) there.").font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
     @ViewBuilder
     private func inspector(_ plan: PlanHouse) -> some View {
         if let doc {
             if let id = selectedWall, let wall = plan.walls.first(where: { $0.id == id }) {
                 WallInspector(houseId: houseId, wall: wall, doc: doc, level: level, onSaved: { new in Task { await save(new) } }, status: $status)
-                    .frame(maxHeight: 360)
             } else if let m = selectedMarker {
                 MarkerInspector(marker: m, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedMarker = nil })
-                    .frame(maxHeight: 300)
             } else if let id = selectedStair, let st = plan.stairs.first(where: { $0.id == id }) {
                 StairInspector(stair: st, doc: doc, here: level, rise: plan.levels.first { $0.id == st.from_level }.flatMap { a in plan.levels.first { $0.id == st.to_level }.map { abs($0.elevation - a.elevation) } }, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedStair = nil })
-                    .frame(maxHeight: 240)
             } else if let id = selectedFurniture, let f = plan.furniture.first(where: { $0.id == id }) {
                 FurnitureInspector(item: f, doc: doc, onSaved: { new in Task { await save(new) } }, onClose: { selectedFurniture = nil })
-                    .frame(maxHeight: 300)
             } else if let id = selectedZone, let z = plan.zones.first(where: { $0.id == id }) {
                 ZoneInspector(zone: z, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedZone = nil })
-                    .frame(maxHeight: 420)
-            } else if tool == .select {
-                Text("Tap a wall, a thing, a piece of furniture, a staircase or a zone.").font(.footnote).foregroundStyle(.secondary)
-            } else if tool != .stair && tool != .zone {
-                Text("Tap the plan to put the \(tool.rawValue.lowercased()) there.").font(.footnote).foregroundStyle(.secondary)
             }
         }
     }
@@ -131,7 +206,7 @@ struct PlanScreen: View {
         guard var d = doc else { return }
         switch tool {
         case .select:
-            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil
+            clearSelection()
             if let m = markers.min(by: { dist($0.at, p) < dist($1.at, p) }), dist(m.at, p) <= tol {
                 selectedMarker = m
             } else if let st = stairsHere.first(where: { Geometry.contains(p, polygon: $0.polygon) }) {
@@ -228,7 +303,7 @@ struct PlanScreen: View {
         do {
             try await model.client().restore(house: houseId, revision: t, expect: plan.revision)
             undoCursor = t
-            selectedWall = nil; selectedMarker = nil; selectedStair = nil; selectedZone = nil; selectedFurniture = nil
+            clearSelection()
             status = .success("Back to the plan as it was at revision \(t).")
             await load()
         } catch {
