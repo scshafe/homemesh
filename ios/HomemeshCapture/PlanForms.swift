@@ -172,12 +172,12 @@ struct StairFormSheet: View {
                 Section("Floors") {
                     Picker("This floor leads to", selection: $target) { ForEach(levels.filter { $0.id != here }, id: \.id) { Text($0.name).tag($0.id) } }
                 }
-                Section("Where") {
+                Section {
                     Picker("Room", selection: $roomId) { ForEach(rooms) { Text($0.name.isEmpty ? $0.id : $0.name).tag($0.id) } }
                     Picker("Runs along the wall on the", selection: $side) { ForEach(Geometry.Side.allCases) { Text($0.rawValue).tag($0) } }
                     TextField("Length (m)", text: $length).keyboardType(.decimalPad)
                     TextField("Width (m)", text: $width).keyboardType(.decimalPad)
-                } footer: { Text("The bottom of the flight is at the west or south end of that wall. Turn the flight round afterwards if it climbs the other way.") }
+                } header: { Text("Where") } footer: { Text("The bottom of the flight is at the west or south end of that wall. Turn the flight round afterwards if it climbs the other way.") }
             }
             .navigationTitle("Add a staircase")
             .navigationBarTitleDisplayMode(.inline)
