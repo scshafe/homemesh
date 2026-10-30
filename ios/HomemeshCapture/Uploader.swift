@@ -75,13 +75,13 @@ struct Uploader: Sendable {
         let usdzSize = usdz.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
         let total = Double(max(1, json.count + usdzSize))   // real bytes: the model is most of the upload
         let jsonSize = json.count
-        let created = try await post(try url(path, query: [URLQueryItem(name: "name", value: name)] + (level.isEmpty ? [] : [URLQueryItem(name: "level", value: level)]) + (replaces.isEmpty ? [] : [URLQueryItem(name: "replaces", value: replaces)]) + (purpose.isEmpty ? [] : [URLQueryItem(name: "purpose", value: purpose)]) + (stairFrom.isEmpty || stairTo.isEmpty ? [] : [URLQueryItem(name: "stair_from", value: stairFrom), URLQueryItem(name: "stair_to", value: stairTo)])), body: json, type: "application/json", sent: progress.map { p in { n in p(Double(n) / total) } })
+        let created = try await post(try url(path, query: [URLQueryItem(name: "name", value: name)] + (level.isEmpty ? [] : [URLQueryItem(name: "level", value: level)]) + (replaces.isEmpty ? [] : [URLQueryItem(name: "replaces", value: replaces)]) + (purpose.isEmpty ? [] : [URLQueryItem(name: "purpose", value: purpose)]) + (stairFrom.isEmpty || stairTo.isEmpty ? [] : [URLQueryItem(name: "stair_from", value: stairFrom), URLQueryItem(name: "stair_to", value: stairTo)])), body: json, type: "application/json", sent: progress.map { p in { @Sendable n in p(Double(n) / total) } })
         guard let blob = (try JSONSerialization.jsonObject(with: created) as? [String: Any])?["blob"] as? String else {
             throw Failure(message: "Unexpected answer from the server")
         }
         if let usdz {
             _ = try await post(try url("\(path)/\(blob)/usdz"), body: try Data(contentsOf: usdz), type: "model/vnd.usdz+zip",
-                              sent: progress.map { p in { n in p(Double(jsonSize + Int(n)) / total) } })
+                              sent: progress.map { p in { @Sendable n in p(Double(jsonSize + Int(n)) / total) } })
         }
         return blob
     }
