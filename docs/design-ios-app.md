@@ -16,7 +16,7 @@ phone until the server confirms them.
 | **D-C** | The owner names every room in the app after scanning it. No auto-guessed labels in the UI. RoomPlan's section labels may still be stored as data. |
 | **D-D** | Stitching is automatic and deterministic (no LLM): rooms of one session share the frame; separate sessions are lined up by shared doorways and room names; the owner fixes placement by dragging on the phone. |
 
-| **Q1-Q9** | **Accepted as recommended (2026-10-21):** hand-written `Codable` models with raw-JSON passthrough plus the fixture decode test; whole-house `PUT` with the revision conflict; scanning and the upload queue work offline, everything else needs the server; 2D canvas first, 3D later; typed dBm or speed-test readings (the 0 to 1 `NEHotspotNetwork` figure optional, off by default); display name "homemesh" with the bundle id kept; room names as free text with suggestions; iOS 17 minimum. |
+| **Q1-Q9** | **Accepted as recommended (2026-10-21):** hand-written `Codable` models with raw-JSON passthrough plus the fixture decode test; whole-house `PUT` with the revision conflict; scanning and the upload queue work offline, everything else needs the server; 2D canvas first, 3D later; typed dBm or speed-test readings (the 0 to 1 `NEHotspotNetwork` figure optional, off by default); display name "homemesh" with the bundle id kept; room names as free text with suggestions; iOS 17 minimum (raised to 26 on 2026-10-30). |
 | **Blueprints** | The owner finds the LiDAR better than expected. LiDAR scans are the primary source of the plan. No phone blueprint import and no new blueprint work; the web app's blueprint underlay stays as an optional aid, untouched. Revisit, and possibly drop blueprints entirely, after the whole house is scanned and an accuracy check (below) is done. |
 
 | **UX 2026-10-21** | (1) One name field per room: asked once, prefilled, the same control everywhere; any room can be renamed at any time. (2) A distinct "Add room scan" button, not a list row. (3) A **room** is the first-class item: name (required), description (optional), floor, scan; "Re-scan this room" replaces its geometry and keeps the earlier capture as history. (4) Tapping a scanned room shows its 3D model (the uploaded USDZ) and its details. (5) **Floors** are explicit: a scan belongs to a floor chosen when the scan starts (default: the floor being viewed), lists are grouped by floor, and the floor can be changed later. (6) **Staircases** link two floors: the house model's `Stair` (footprint on the lower floor, `void` opening on the upper floor, already an open path in the Wi-Fi model). When a scan contains a stairs object the app asks which floor it leads to and whether up or down; one can also be added by tapping the plan; the stair anchors the floors to each other in XY as doorways do within a floor. BUG B (restarting the scanner) comes first. |
@@ -438,8 +438,8 @@ touching the canvas (the tap targets there have no list alternative yet).
 8. **Blueprint import on the phone** (photo or file into the underlay): not in
    the milestones above. Recommend later, after P7, since blueprints are already
    handled by the web app and the owner's rooms come from scans.
-9. **Deployment target.** Keep iOS 17 as the minimum until a feature needs more
-   (the owner's phone runs a newer iOS).
+9. **Deployment target.** iOS 26 minimum (owner decision 2026-10-30, UI review): Liquid Glass without a fallback,
+   and the owner's phone runs it. Was 17.
 
 ## Later (owner direction, not built)
 
