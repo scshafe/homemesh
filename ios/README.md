@@ -94,6 +94,12 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.
    A scan gives no wall thickness or material: set them in the editor.
 
+## Look
+
+iOS 26 and later; light and dark follow the system. Colours, status tones (always a symbol and text), banners, toasts
+and empty states live in `HomemeshCapture/Sui/` so they can move to the `scshafe-ios` package. The app icon's layers are
+in `ios/icon/` (`./icon/build` flattens them into the asset catalog; needs `rsvg-convert`).
+
 ## Debugging a scan
 
 - Xcode's Run turns on Metal API validation and GPU frame capture by default. The scheme in `project.yml`
