@@ -57,3 +57,6 @@ ios/HomemeshCapture.xcodeproj/
 ios/build/
 ios/Build.generated.xcconfig
 ios/HomemeshCapture/BuildInfo.generated.swift
+
+# Swift package build output
+.build/
