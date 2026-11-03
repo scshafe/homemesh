@@ -213,10 +213,38 @@ public final class LocalAPI: @unchecked Sendable {
     }
 }
 
+/// A house being copied in, file by file, so a large copy never sits in memory whole. The house only opens once `finish` writes its
+/// document; `abort` (or a failure before it) leaves nothing behind.
+public final class HouseImport: @unchecked Sendable {
+    let store: HouseStore
+    let house: House
+    var finished = false
+
+    init(store: HouseStore, house: House) { self.store = store; self.house = house }
+
+    public func addScan(_ index: Data) throws {
+        guard let m = try? JSONSerialization.jsonObject(with: index) as? JObject, let blob = m["blob"] as? String, Captures.validDigest(blob) else { throw APIError(422, "a scan index does not read") }
+        try Captures.writeMeta(store, m)
+    }
+
+    /// Stores one file under the digest it is known by; a file that does not match its name is refused.
+    public func addFile(_ digest: String, _ data: Data) throws {
+        if try store.putBlob(data) != digest { throw APIError(422, "a stored file does not match its name (\(digest.prefix(8)))") }
+    }
+
+    public func finish() throws {
+        let doc = try house.encoded()
+        try store.write(doc, to: store.root.appendingPathComponent("revisions").appendingPathComponent("\(house.revision).json"))
+        try store.write(doc, to: store.root.appendingPathComponent("house.json"))
+        finished = true
+    }
+
+    public func abort() { if !finished { try? FileManager.default.removeItem(at: store.root) } }
+}
+
 extension LocalAPI {
-    /// Writes a house copied from elsewhere (the server, or an exported folder) into this library: its document at the revision it had,
-    /// the index of each scan, and the blobs (scan JSON and USDZ) under the digests they are known by. Refuses to overwrite a house.
-    public func restoreHouse(id: String, house: Data, captures: [Data], blobs: [String: Data]) throws {
+    /// Starts copying a house in. Refuses to overwrite one, and a document that does not read or is not sound.
+    public func beginImport(id: String, house: Data) throws -> HouseImport {
         lock.lock(); defer { lock.unlock() }
         let s = try store(id)
         if s.exists { throw APIError(409, "a house called \(id) is already on this phone") }
@@ -225,13 +253,17 @@ extension LocalAPI {
         if h.id != id { throw APIError(422, "id does not match") }
         let problems = h.validate()
         if !problems.isEmpty { throw APIError(422, "invalid house: " + problems.prefix(5).joined(separator: "; ")) }
-        for (digest, data) in blobs where try s.putBlob(data) != digest { throw APIError(422, "a stored file does not match its name (\(digest.prefix(8)))") }
-        for raw in captures {
-            guard let m = try? JSONSerialization.jsonObject(with: raw) as? JObject, let blob = m["blob"] as? String, Captures.validDigest(blob) else { throw APIError(422, "a scan index does not read") }
-            try Captures.writeMeta(s, m)
-        }
-        try s.write(try h.encoded(), to: s.root.appendingPathComponent("house.json"))
-        try s.write(try h.encoded(), to: s.root.appendingPathComponent("revisions").appendingPathComponent("\(h.revision).json"))
+        return HouseImport(store: s, house: h)
+    }
+
+    /// Writes a house copied from elsewhere in one go (the demo houses, tests): its document, the index of each scan, and the blobs.
+    public func restoreHouse(id: String, house: Data, captures: [Data], blobs: [String: Data]) throws {
+        let imp = try beginImport(id: id, house: house)
+        do {
+            for (digest, data) in blobs { try imp.addFile(digest, data) }
+            for c in captures { try imp.addScan(c) }
+            try imp.finish()
+        } catch { imp.abort(); throw error }
     }
 
     /// What the library holds of house `id`, for checking a copy against its source: counts of what the plan has.

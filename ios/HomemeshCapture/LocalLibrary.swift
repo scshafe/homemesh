@@ -48,17 +48,26 @@ enum LocalLibrary {
         guard let metas = try JSONSerialization.jsonObject(with: capturesData) as? [[String: Any]] else { throw Uploader.Failure(message: "Unexpected answer from the server") }
         var digests: [String] = []
         for m in metas { for key in ["blob", "usdz"] { if let d = m[key] as? String, !d.isEmpty, !digests.contains(d) { digests.append(d) } } }
-        var blobs: [String: Data] = [:]
+        let copy: HouseImport
+        do { copy = try api.beginImport(id: id, house: houseData) } catch let e as APIError { throw Uploader.Failure(message: e.detail) }
         var bytes = 0
-        for (i, d) in digests.enumerated() {
-            progress("Copying file \(i + 1) of \(digests.count)")
-            let data = try await server.call("GET", "/api/houses/\(id)/blobs/\(d)", timeout: 600)
-            blobs[d] = data
-            bytes += data.count
+        do {
+            for (i, d) in digests.enumerated() {   // one file at a time: a copy never holds every scan in memory
+                progress("Copying file \(i + 1) of \(digests.count)")
+                let data = try await server.call("GET", "/api/houses/\(id)/blobs/\(d)", timeout: 600)
+                try copy.addFile(d, data)
+                bytes += data.count
+            }
+            progress("Saving on this phone")
+            for m in metas { try copy.addScan(try JSONSerialization.data(withJSONObject: m)) }
+            try copy.finish()
+        } catch let e as APIError {
+            copy.abort()
+            throw Uploader.Failure(message: e.detail)
+        } catch {
+            copy.abort()
+            throw error
         }
-        progress("Saving on this phone")
-        do { try api.restoreHouse(id: id, house: houseData, captures: try metas.map { try JSONSerialization.data(withJSONObject: $0) }, blobs: blobs) }
-        catch let e as APIError { throw Uploader.Failure(message: e.detail) }
         var diffs: [String] = []
         if let s = summary {
             let mine = try api.counts(of: id)
@@ -66,6 +75,6 @@ enum LocalLibrary {
             for (k, v) in theirs.sorted(by: { $0.key < $1.key }) where mine[k] != v { diffs.append("\(k): \(mine[k] ?? -1) here, \(v) on the server") }
             if mine["revision"] != s.revision { diffs.append("revision: \(mine["revision"] ?? -1) here, \(s.revision) on the server") }
         } else { diffs.append("the server did not list this house, so it could not be compared") }
-        return CopyReport(scans: metas.count, files: blobs.count, bytes: bytes, differences: diffs)
+        return CopyReport(scans: metas.count, files: digests.count, bytes: bytes, differences: diffs)
     }
 }
