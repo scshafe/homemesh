@@ -69,7 +69,8 @@ public enum ScanImport {
     static let minOpening = 0.3
 
     // MARK: rounding as Python does it (round half to even on the decimal)
-    static func rnd(_ x: Double, _ d: Int) -> Double { let k = pow(10.0, Double(d)); return (x * k).rounded(.toNearestOrEven) / k }
+    /// Python's round(x, d): the decimal nearest the exact binary value (printf rounds exactly, unlike multiplying by 10^d first).
+    static func rnd(_ x: Double, _ d: Int) -> Double { x.isFinite ? Double(String(format: "%.\(d)f", x)) ?? x : x }
 
     // MARK: JSON access
     static func num(_ v: Any?) throws -> Double {

@@ -487,3 +487,20 @@ In `core/` (`HomemeshCore`), all with golden parity against the Python engine on
 
 Next: the app target depends on this package (P1 app side: open a house from local files read-only, the transitional import build), then the editor (P3).
 
+## 17. As built: P4 engine (2026-11-03)
+
+In `core/`, with golden parity against Python on synthetic data (`scripts/golden` writes planner runs and calibration fits from the Python engine):
+
+- **Equipment and the generic catalogue** (`Equipment.swift`), **backhaul and client rate** (`Network.swift`: wired chains, wireless hops with airtime sharing,
+  per-cell rate, zone scores), **planner** (`Planner.swift`: candidates, representatives, exhaustive/greedy/swap search, Pareto) and **explanation**
+  (`Explain.swift`: limiter per zone, leave-one-out, comparison with the runner-up, rank stability). Three planner scenarios (a 30 m hall with a wired and
+  an untrusted jack, a box with demanding zones) give the same top 12 arrangements, scores (1e-6), costs, zones and backhaul chains as Python; the explanations
+  match too, except that the stability percentage uses this package's own seeded draws (`SeededNormal`), since numpy's generator is not available, and the
+  access-limited detail text is not compared (Python's choice among equal-rate cells is unspecified).
+- **Calibration** (`Calibration.swift`): the ridge/Huber fit with priors, leave-one-area-out cross-validation, `apply`, `paramsFor`, `marginFor`; the fits, sigma,
+  cross-validated error and residuals match Python to 1e-5 on invented readings. `exposures` (per-material units crossed) joined the propagation model.
+- **Speed**, release build, one thread, on the PC: the full plan on the 30 m hall fixture (`long_thin`, two models, k up to 3, 1 m grid and spacing) takes
+  **1.5 s against about 27 s in Python** (18 times), with no tuning yet; loss maps alone were 10 times faster (section 15). The planner and its context are safe to
+  call from several tasks (the caches are locked), so a progress screen with cancel is a wrapper in the app. Phone timings still need a device run.
+- Not ported yet: CSV measurement import, "measure here next" suggestions, rate-map serialisation for the screens (the grids are in `PlanContext`).
+

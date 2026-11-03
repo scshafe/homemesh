@@ -47,3 +47,17 @@ let isRelease = true
     print("BENCH \(house.walls.count) walls, \(rx.count) cells, \(candidates) candidates x 3 bands: \(secs) s (\(sink))")
     #expect(secs < 60, "the Python build takes about 20 s for 70 walls and 1,536 cells")
 }
+
+@Test(.enabled(if: isRelease, "timing is only meaningful in a release build: swift test -c release")) func aFullPlanOnTheLongHouse() throws {
+    // Python takes about 27 s for this plan (the notes' benchmark, same fixture, same settings).
+    let house = try House.load(golden("long_thin.house"))
+    let ctx = try PlanContext(house: house, catalogue: Catalogue.generic(), client: Catalogue.genericClients()["phone-2x2-ax"]!, step: 1.0)
+    var cfg = PlanConfig()
+    cfg.equipment = ["generic-mesh-ax", "generic-mesh-tri"]; cfg.k_max = 3; cfg.candidate_step = 1.0
+    let clock = ContinuousClock()
+    var results: [Scored] = []
+    let t = try clock.measure { results = try Planner.search(ctx, cfg) }
+    let secs = Double(t.components.seconds) + Double(t.components.attoseconds) * 1e-18
+    print("BENCH plan on long_thin: \(results.count) results in \(secs) s (Python: about 27 s)")
+    #expect(secs < 27)
+}

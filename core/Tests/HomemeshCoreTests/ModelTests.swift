@@ -43,3 +43,18 @@ func fixturesAreSound(name: String) throws {
     #expect(errs.contains("zone z-office: a demand zone needs `need`"))
     #expect(errs.contains("duplicate outlet id o0"))
 }
+
+@Test func aHouseWithOnlyTheFieldsAnEditorKnowsStillLoads() throws {
+    var o = try JSONSerialization.jsonObject(with: golden("one_floor_box.house")) as! JObject
+    var outlets = o["outlets"] as! [JObject]
+    outlets.append(["id": "o9", "position": [1.0, 2.0], "level": "L0"])      // no z, no prov, no circuit
+    o["outlets"] = outlets
+    var walls = o["walls"] as! [JObject]
+    walls.append(["id": "w9", "level": "L0", "a": [0.0, 0.0], "b": [1.0, 0.0], "thickness": 0.1, "height": 2.5, "material": "drywall"])
+    o["walls"] = walls
+    o["underlays"] = [["id": "u1"]]
+    let h = try House.load(lenient: JSONSerialization.data(withJSONObject: o))
+    #expect(h.outlets.last?.z == 0.3 && h.outlets.last?.prov.source == "manual")
+    #expect(h.walls.last?.openings.isEmpty == true && h.walls.last?.base_z == 0)
+    #expect(h.validate() == [])
+}

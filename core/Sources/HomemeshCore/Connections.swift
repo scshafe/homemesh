@@ -21,6 +21,7 @@ public struct CaptureInfo: Sendable {
     public var doorLabels: [String: String]
     public var purpose: String?
     public var replaces: String?          // "<blob>" or "<blob>:<index>"
+    public var kinds: [String: String] = [:]   // door id -> door or opening
     public init(blob: String, name: String = "", level: String? = nil, at: Double = 0, rooms: [String] = [], doors: [DoorEntry] = [], doorLabels: [String: String] = [:], purpose: String? = nil, replaces: String? = nil) {
         self.blob = blob; self.name = name; self.level = level; self.at = at; self.rooms = rooms; self.doors = doors; self.doorLabels = doorLabels; self.purpose = purpose; self.replaces = replaces
     }

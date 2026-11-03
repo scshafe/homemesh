@@ -12,6 +12,7 @@ public struct PlaceEvidence: Sendable {
     public var connections = 0
     public var residualCm = 0.0
     public var roomOverlapM2 = 0.0
+    public var wallOverlapM = 0.0
     public var stairs = 0
     public var source = ""
     public var missing: [String] = []
@@ -133,6 +134,34 @@ public enum Placement {
             }
         }
         return total
+    }
+
+    /// Metres of the scan's walls (placed by `sim`) lying on parallel plan walls: samples every 0.1 m, within 0.12 m and 4 degrees.
+    static func wallOverlap(_ scan: [Wall], _ plan: [Wall], _ sim: Similarity2D) -> Double {
+        let sample = 0.1, tol = 0.12, angTol = 4.0 * .pi / 180
+        var covered = 0
+        for w in scan {
+            let ln = w.length
+            if ln < 1e-6 { continue }
+            let ang = (atan2(w.b.y - w.a.y, w.b.x - w.a.x) + sim.rotation * .pi / 180).truncatingRemainder(dividingBy: .pi)
+            let n = max(1, Int(ln / sample))
+            for i in 0..<n {
+                let q = sim.apply(w.a + (w.b - w.a) * ((Double(i) + 0.5) / Double(n)))
+                let a = ang < 0 ? ang + .pi : ang
+                let hit = plan.contains { pw in
+                    guard pw.length > 1e-6 else { return false }
+                    let ab = pw.b - pw.a
+                    let t = min(1, max(0, dot(q - pw.a, ab) / max(dot(ab, ab), 1e-12)))
+                    if (q - (pw.a + ab * t)).length > tol { return false }
+                    var pa = atan2(ab.y, ab.x).truncatingRemainder(dividingBy: .pi)
+                    if pa < 0 { pa += .pi }
+                    let dq = abs(a - pa)
+                    return min(dq, .pi - dq) <= angTol
+                }
+                if hit { covered += 1 }
+            }
+        }
+        return Double(covered) * sample
     }
 
     // MARK: propose
@@ -270,7 +299,7 @@ public enum Placement {
         var reason = "\(agree.count) labelled connection(s); fits to \(String(format: "%.0f", resid * 100)) cm"
         if conf != .labelled { reason += overlap > 0.5 ? " (rooms would overlap: check it)" : " (the connections disagree: check it)" }
         var ev = PlaceEvidence()
-        ev.connections = agree.count; ev.residualCm = ScanImport.rnd(resid * 100, 1); ev.roomOverlapM2 = ScanImport.rnd(overlap, 2); ev.source = "labelled doors"; ev.missing = missing
+        ev.connections = agree.count; ev.residualCm = ScanImport.rnd(resid * 100, 1); ev.roomOverlapM2 = ScanImport.rnd(overlap, 2); ev.wallOverlapM = ScanImport.rnd(wallOverlap(scanWalls, planWalls, sim), 2); ev.source = "labelled doors"; ev.missing = missing
         return Proposal(confidence: conf, reason: reason, transform: sim, evidence: ev, preview: preview(scanWalls, sim))
     }
 

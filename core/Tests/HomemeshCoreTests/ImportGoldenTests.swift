@@ -3,16 +3,16 @@ import Testing
 @testable import HomemeshCore
 
 /// The first difference between two JSON values (numbers within `tol`), or nil when they match; nulls and underlays are ignored.
-func firstDifference(_ a: Any, _ b: Any, tol: Double, path: String = "$") -> String? {
+func firstDifference(_ a: Any, _ b: Any, tol: Double, path: String = "$", ignore: Set<String> = []) -> String? {
     if let x = a as? [String: Any], let y = b as? [String: Any] {
-        let kx = Set(x.filter { !($0.value is NSNull) && $0.key != "underlays" }.keys), ky = Set(y.filter { !($0.value is NSNull) && $0.key != "underlays" }.keys)
+        let kx = Set(x.filter { !($0.value is NSNull) && $0.key != "underlays" && !ignore.contains($0.key) }.keys), ky = Set(y.filter { !($0.value is NSNull) && $0.key != "underlays" && !ignore.contains($0.key) }.keys)
         if kx != ky { return "\(path): keys differ: only swift \(kx.subtracting(ky).sorted()), only python \(ky.subtracting(kx).sorted())" }
-        for k in kx.sorted() { if let d = firstDifference(x[k]!, y[k]!, tol: tol, path: "\(path).\(k)") { return d } }
+        for k in kx.sorted() { if let d = firstDifference(x[k]!, y[k]!, tol: tol, path: "\(path).\(k)", ignore: ignore) { return d } }
         return nil
     }
     if let x = a as? [Any], let y = b as? [Any] {
         if x.count != y.count { return "\(path): \(x.count) items, python has \(y.count)" }
-        for (i, (p, q)) in zip(x, y).enumerated() { if let d = firstDifference(p, q, tol: tol, path: "\(path)[\(i)]") { return d } }
+        for (i, (p, q)) in zip(x, y).enumerated() { if let d = firstDifference(p, q, tol: tol, path: "\(path)[\(i)]", ignore: ignore) { return d } }
         return nil
     }
     if let x = a as? NSNumber, let y = b as? NSNumber, type(of: a) != Bool.self || type(of: b) != Bool.self {
