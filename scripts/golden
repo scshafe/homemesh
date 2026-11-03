@@ -216,8 +216,40 @@ def place_scenarios() -> list[dict]:
     return json.loads(json.dumps({"scenarios": out, "checklist": {"metas": metas, "expect": connections.checklist(metas)}}))
 
 
+def plan_scenarios() -> list[dict]:
+    """Planner runs: arrangements, scores, zones and backhaul of the top results, from the Python engine."""
+    from homemesh import catalogue as C
+    from homemesh.jobs import serialise
+    from homemesh.model import Need, Zone
+    from homemesh.network import Context, Policy
+    from homemesh.planner import PlanConfig, search
+
+    cat = C.load(owner_dir=None)
+    out = []
+
+    def run(name, h, trust, step, k_max):
+        params = P.Params(n={"2.4": 3.2, "5": 3.4, "6": 3.6}, extra_loss={"2.4": 2.0, "5": 3.0, "6": 4.0})
+        ctx = Context(h, cat.equipment, cat.clients["phone-2x2-ax"], params=params, step=1.0)
+        cfg = PlanConfig(equipment=("generic-mesh-ax", "generic-mesh-tri"), k_max=k_max, candidate_step=step, policy=Policy(trust_unknown_jacks=trust))
+        results = search(ctx, cfg, cat.equipment)
+        out.append({"name": name, "house": json.loads(h.model_dump_json()), "n": params.n, "extra_loss": params.extra_loss, "client": "phone-2x2-ax", "grid": 1.0, "equipment": list(cfg.equipment),
+                    "k_max": k_max, "candidate_step": step, "trust_unknown_jacks": trust, "count": len(results),
+                    "results": [serialise(r) for r in results[:12]]})
+
+    wired = house("wired_ends")
+    wired = wired.model_copy(update={"zones": [z.model_copy(update={"need": Need(min_throughput=700, must=True)}) if z.kind == "demand" else z for z in wired.zones]})
+    run("hall, unknown jack not trusted", wired, False, 3.0, 3)
+    run("hall, unknown jack trusted", wired, True, 3.0, 3)
+    box = house("one_floor_box")
+    zs = [Zone(id="z-allow", level="L0", kind="allow", polygon=[(0, 0), (10, 0), (10, 8), (0, 8)], requires="none"),
+          Zone(id="z-office", level="L0", kind="demand", name="Office", polygon=[(6, 4), (9.5, 4), (9.5, 7.5), (6, 7.5)], weight=3.0, need=Need(min_throughput=900, must=True)),
+          Zone(id="z-bed", level="L0", kind="demand", name="Bed", polygon=[(0.5, 5), (4.5, 5), (4.5, 7.5), (0.5, 7.5)], weight=1.0, need=Need(min_throughput=700))]
+    run("box, demanding zones", box.model_copy(update={"zones": zs}), False, 2.0, 2)
+    return json.loads(json.dumps(out))
+
+
 def files() -> dict[str, str]:
-    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios())}
+    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios()), "plans.json": json.dumps(plan_scenarios())}
     for name in FIXTURES:
         out[f"{name}.house.json"] = (ROOT / "tests" / "fixtures" / f"{name}.json").read_text()
     return out
