@@ -304,9 +304,18 @@ def api_session() -> list[dict]:
     from homemesh import api, store
     from tests.roomplan_synth import room, two_rooms
     from tests.test_place import moved, wrap
+    from unittest import mock
+    import itertools
+    import uuid
 
     log: list[dict] = []
-    with tempfile.TemporaryDirectory() as tmp:
+    counter = itertools.count(1)
+
+    class _Id:
+        def __init__(self, n): self.hex = f"{n:032x}"
+
+    with tempfile.TemporaryDirectory() as tmp, mock.patch("homemesh.captures.time.time", return_value=1_700_000_000.0), \
+            mock.patch("homemesh.jobs.uuid.uuid4", side_effect=lambda: _Id(next(counter))):
         saved = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST, api.DOOR_ADDR)}
         os.environ[store.ENV] = tmp
         os.environ[api.AUTH_HEADER] = "X-Door-User"
@@ -425,6 +434,17 @@ def api_session() -> list[dict]:
     return json.loads(json.dumps(log))
 
 
+def same(a, b, tol: float = 1e-9) -> bool:
+    """Equal JSON, numbers within `tol` (relative): linear algebra differs in the last digits between machines."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(k == "at" or same(a[k], b[k], tol) for k in a)   # `at` is a time stamp (the clock is not repeatable)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same(x, y, tol) for x, y in zip(a, b))
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+        return abs(a - b) <= tol * max(1.0, abs(a), abs(b))
+    return a == b
+
+
 def files() -> dict[str, str]:
     out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios()), "plans.json": json.dumps(plan_scenarios()), "calibrations.json": json.dumps(calibration_scenarios()), "api_session.json": json.dumps(api_session())}
     for name in FIXTURES:
@@ -435,7 +455,7 @@ def files() -> dict[str, str]:
 def main() -> int:
     want = files()
     if "--check" in sys.argv:   # the committed vectors must be what the Python engine writes now
-        stale = [n for n, t in want.items() if not (OUT / n).exists() or (OUT / n).read_text() != t]
+        stale = [n for n, t in want.items() if not (OUT / n).exists() or not same(json.loads((OUT / n).read_text()), json.loads(t))]
         if stale:
             print("golden vectors are stale:", stale, "(run scripts/golden)")
             return 1

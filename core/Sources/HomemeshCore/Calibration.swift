@@ -33,6 +33,8 @@ public enum Calibrate {
     static let areaBlock = 4.0
     static let minSigma = 2.0
 
+    static func dot(_ a: [Double], _ b: [Double]) -> Double { var s = 0.0; for i in 0..<a.count { s += a[i] * b[i] }; return s }
+
     static func median(_ x: [Double]) -> Double {
         let s = x.sorted()
         return s.count % 2 == 1 ? s[s.count / 2] : (s[s.count / 2 - 1] + s[s.count / 2]) / 2
@@ -103,7 +105,8 @@ public enum Calibrate {
                 let c = min(max(new[i], lo[i]), hi[i])
                 if c != new[i] && free[i] { changedFree[i] = true; free[i] = false; new[i] = c }
             }
-            let r = (0..<nobs).map { k in y[k] - (0..<p).reduce(0.0) { $0 + X[k][$1] * new[$1] } }
+            var r: [Double] = []
+            for k in 0..<nobs { r.append(y[k] - dot(X[k], new)) }
             if r.count > 3 {
                 let med = median(r)
                 sigma = max(minSigma, 1.4826 * median(r.map { abs($0 - med) }))
@@ -135,13 +138,23 @@ public enum Calibrate {
         if r.used.count < minMeasurements { return nil }
         let mats = Dictionary(house.materials.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let crossed = Set(r.expo.flatMap { $0.filter { $0.value > 1e-9 && mats[$0.key] != nil }.map(\.key) }).sorted()
-        let X = (0..<r.y.count).map { k in [1, r.logd[k]] + crossed.map { r.expo[k][$0] ?? 0 } }
-        let mu = [0, nPrior] + crossed.map { mats[$0]!.loss(band) }
-        let sd = [extraPriorSd, nPriorSd] + crossed.map { max(mats[$0]!.prior_sd, 0.25) }
-        let lo = [extraBounds.0, nBounds.0] + crossed.map { _ in 0.0 }, hi = [extraBounds.1, nBounds.1] + crossed.map { _ in 60.0 }
+        var X: [[Double]] = []
+        for k in 0..<r.y.count {
+            var row: [Double] = [1, r.logd[k]]
+            for m in crossed { row.append(r.expo[k][m] ?? 0) }
+            X.append(row)
+        }
+        var mu: [Double] = [0, nPrior], sd: [Double] = [extraPriorSd, nPriorSd]
+        var lo: [Double] = [extraBounds.0, nBounds.0], hi: [Double] = [extraBounds.1, nBounds.1]
+        for m in crossed {
+            mu.append(mats[m]!.loss(band)); sd.append(max(mats[m]!.prior_sd, 0.25))
+            lo.append(0); hi.append(60)
+        }
         let (theta, cov, sigma) = solve(X, r.y, mu, sd, lo, hi, sigma0: 4)
-        let resid = (0..<r.y.count).map { k in r.y[k] - zip(X[k], theta).map(*).reduce(0, +) }
-        let post = (0..<theta.count).map { max(cov[$0][$0], 0).squareRoot() }
+        var resid: [Double] = []
+        for k in 0..<r.y.count { resid.append(r.y[k] - dot(X[k], theta)) }
+        var post: [Double] = []
+        for i in 0..<theta.count { post.append(max(cov[i][i], 0).squareRoot()) }
         func pf(_ i: Int) -> ParamFit { ParamFit(mean: theta[i], sd: post[i], prior_mean: mu[i], prior_sd: sd[i], identified: post[i] < 0.8 * sd[i]) }
         var fits: [String: ParamFit] = [:]
         for (i, k) in crossed.enumerated() { fits[k] = pf(2 + i) }
@@ -156,7 +169,7 @@ public enum Calibrate {
                 let train = (0..<test.count).filter { !test[$0] }
                 if test.allSatisfy({ $0 }) || train.count < minMeasurements / 2 { continue }
                 let th = solve(train.map { X[$0] }, train.map { r.y[$0] }, mu, sd, lo, hi, sigma0: 4).theta
-                for k in 0..<test.count where test[k] { cv.append(r.y[k] - zip(X[k], th).map(*).reduce(0, +)) }
+                for k in 0..<test.count where test[k] { cv.append(r.y[k] - dot(X[k], th)) }
             }
         }
         let note = cv.isEmpty ? "too few separate areas for cross-validation: the margin stays at its default" : ""
