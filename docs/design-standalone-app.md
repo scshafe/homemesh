@@ -121,6 +121,10 @@ scan, door-centre and parallelism residuals, anchor fixed) spreads the disagreem
 kept. The Python version already does the fit for several connections (`register`, Umeyama); the loop spreading is the addition
 (estimate: small, a few hundred lines). 4. Report per connection and per scan: residual, and whether rooms overlap.
 
+**Right-angle prior.** Houses are mostly rectilinear, so each scan's dominant wall direction is also pulled to the anchor's modulo 90
+degrees (a soft constraint in the same fit, skipped for a scan whose walls do not agree on a direction). This removes the rotation drift along
+a chain; phase 0 measured it (section 15).
+
 **Drift** is bounded by the structure: rooms are rigid scans, joins are wall-parallel, so only door-centre error accumulates
 along a chain. With 0.1 to 0.15 m per join and a degree of heading error (14 cm over 8 m), a chain of eight rooms sits near
 0.4 m (*estimate*, root-sum-square), and any loop tightens it. That fits the "Good" line, which is why high-accuracy registration
@@ -418,3 +422,50 @@ Recommendation first in each.
 No code, no existing document and no deployment changes with this PR. The server, the web editor and the iOS client remain the
 product until the owner accepts a design and a phase starts; this file then becomes the reference for that work and the
 sections above are copied into `design-ios-app.md` as they are built, in the repository's usual "As built" style.
+
+## 15. Phase 0 findings (2026-11-03, PR for P0)
+
+Each P0 question, answered with numbers from the code in `core/` (Foundation-only package `HomemeshCore`, tests in `core/Tests`).
+
+**(a) Linux Swift.** Works. The open-source Swift 6.4.2 toolchain (the Ubuntu 24.04 tarball) runs on the agent's Arch host from `~/swift`
+with two compatibility symlinks (`libncurses.so.6`, `libxml2.so.2`, no root, nothing system-wide), and `swift test` builds and runs
+the package in about 15 s from clean. CI has a Linux job (`swift:6.2-noble`) and also runs `swift test --package-path core` with Xcode 26.6's
+toolchain in the macOS job, so the Core is checked with both compilers (the package uses tools version 6.2 and nothing newer).
+Consequence: the macOS round trip (4 to 6 minutes) is needed only for the app target, which was the biggest schedule risk.
+
+**(b) Golden vectors.** `scripts/golden` writes, from the Python engine and the synthetic fixtures only, loss grids (4 fixtures, 3 bands,
+two transmitter levels, calibrated exponents and extra loss), grid masks, and rate tables (3 standards, widths, streams, 0.5 dB steps).
+`tests/test_golden.py` fails if the committed vectors are not what Python writes now. The Swift port of propagation and rates matches
+them to **1e-6 dB** (the tests assert it), with identical masks and rates.
+
+**(c) Propagation speed.** The same model in Swift, release build, one thread, on the PC (Ryzen 5 5600G): an invented two-floor house of
+60 walls and 1,536 cells, 1,426 candidates times 3 bands (4,278 loss maps) takes **1.9 s**, against about **20 s** for the Python build
+at that size (the notes' measurement), roughly **10 times faster before any optimisation** (the per-band geometry reuse, culling and
+parallelism in section 5 are still to do). The phone number is not measured: it needs a device run (a performance test in the app target
+in P4). The estimate of 1 to 10 s per plan stands.
+
+**(d) Door-graph layout.** `Layout.solve` is a spanning tree plus a least-squares fit with loop residuals, and the optional right-angle
+prior. On synthetic grids of rooms (4 x 3 m, each pair joined by a doorway, every scan in its own random frame, **8 cm of noise on each
+door position and 0.3 to 1 degree on each door's direction**, 20 seeds), the worst centre error after the best rigid motion of the whole
+layout (the map's own orientation is arbitrary, so it is not an error) was:
+
+| layout | door direction noise | without the prior | with the prior |
+|---|---|---|---|
+| chain of 8 rooms | 0.3 deg | 0.42 m | 0.42 m |
+| chain of 8 rooms | 1.0 deg | 0.64 m | 0.42 m |
+| 4 x 3 grid (loops) | 0.3 deg | 0.33 m | 0.31 m |
+| 4 x 3 grid (loops) | 1.0 deg | 0.34 m | 0.32 m |
+| 4 x 2 grid vs the same 8 rooms in a chain | 1.0 deg | 0.22 m vs 0.64 m | |
+
+Worst door residual 0.18 m. This confirms the section 3 estimate (about 0.4 m for a chain of eight, tighter with loops) and the "Good"
+line of 0.5 m; the right-angle prior only matters when door directions are noisy, so it stays optional and is on by default. A caveat found
+while writing the test: a metric that does not remove the layout's overall rotation reports errors 3 to 8 times larger (the first run read
+3.4 m for the chain) and would have wrongly failed the approach. Noiseless input recovers the layout to 1e-6 m, and an unconnected scan
+is reported, never guessed.
+
+**(e) Editor operations.** `Snap.resolve` (endpoint, midpoint, on-wall, axis/parallel/perpendicular within 3 degrees, 5 cm grid, with the
+label the editor shows) and `Document` with `Edit` values, undo and redo (apply then inverse restores the walls exactly) work and are
+tested as pure code. The gesture layer, the loupe and the touch feel are not part of this spike and need the phone in P3.
+
+**Consequences for the plan.** No change to the phases or the estimates. Phase 1 (model, store, import) is next; the package already holds
+the geometry, propagation, rates, layout and edit core it will build on.

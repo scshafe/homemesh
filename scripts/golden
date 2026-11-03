@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Writes the golden vectors the Swift core is tested against, from the Python engine (the oracle).
+
+Synthetic fixtures only (tests/fixtures). Output: core/Tests/HomemeshCoreTests/Golden/*.json.
+Run from the repository root with the project's environment:  .venv/bin/python scripts/golden
+Regenerate when the model changes on purpose; the diff in review shows what moved.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from homemesh import propagation as P  # noqa: E402
+from homemesh import rates  # noqa: E402
+from homemesh.model import House  # noqa: E402
+
+OUT = ROOT / "core" / "Tests" / "HomemeshCoreTests" / "Golden"
+FIXTURES = ["one_floor_box", "two_floor_stairwell", "long_thin", "wired_ends"]
+
+
+def house(name: str) -> House:
+    return House.model_validate_json((ROOT / "tests" / "fixtures" / f"{name}.json").read_text())
+
+
+def propagation_cases() -> list[dict]:
+    cases = []
+    for name in FIXTURES:
+        h = house(name)
+        params = P.Params(n={"2.4": 2.2, "5": 2.6, "6": 3.0}, extra_loss={"2.4": 1.0, "5": 2.0, "6": 3.0})
+        for lv in h.levels:
+            if not any(w.level == lv.id for w in h.walls):
+                continue
+            grid = P.level_grid(h, lv.id, step=1.0, rx_height=1.0)
+            pts = grid.points()
+            rx = np.column_stack([pts, np.full(len(pts), grid.z)])
+            for tx_level in [x.id for x in h.levels][:2]:
+                tz = P.level_z(h)[tx_level] + 1.8
+                pos = (float(np.mean(pts[:, 0])), float(np.mean(pts[:, 1])))
+                for band in ("2.4", "5", "6"):
+                    loss = P.path_loss(h, (pos[0], pos[1], tz), rx, band, params)
+                    cases.append({"fixture": name, "grid_level": lv.id, "tx_level": tx_level, "tx": [pos[0], pos[1], tz], "band": band,
+                                  "grid": {"x0": grid.x0, "y0": grid.y0, "step": grid.step, "nx": grid.nx, "ny": grid.ny, "z": grid.z},
+                                  "n": params.n, "extra_loss": params.extra_loss, "loss": [round(float(v), 9) for v in loss],
+                                  "mask": [bool(v) for v in P.grid_mask(h, grid)]})
+    return cases
+
+
+def rate_cases() -> list[dict]:
+    out = []
+    for std, widths in (("n", (20, 40)), ("ac", (20, 80, 160)), ("ax", (20, 80, 160))):
+        for width in widths:
+            for streams in (1, 2, 4):
+                snrs = [float(x) for x in np.arange(-5, 45, 0.5)]
+                out.append({"standard": std, "width": width, "streams": streams, "snr": snrs,
+                            "rate": [round(float(v), 9) for v in rates.throughput(np.array(snrs), std, width, streams)]})
+    return out
+
+
+def files() -> dict[str, str]:
+    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases())}
+    for name in FIXTURES:
+        out[f"{name}.house.json"] = (ROOT / "tests" / "fixtures" / f"{name}.json").read_text()
+    return out
+
+
+def main() -> int:
+    want = files()
+    if "--check" in sys.argv:   # the committed vectors must be what the Python engine writes now
+        stale = [n for n, t in want.items() if not (OUT / n).exists() or (OUT / n).read_text() != t]
+        if stale:
+            print("golden vectors are stale:", stale, "(run scripts/golden)")
+            return 1
+        return 0
+    OUT.mkdir(parents=True, exist_ok=True)
+    for n, t in want.items():
+        (OUT / n).write_text(t)
+    print("wrote", sorted(want))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
