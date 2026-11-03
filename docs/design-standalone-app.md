@@ -1,8 +1,8 @@
 # homemesh as a standalone iPhone app (design, for the owner's decision)
 
-Status: **accepted by the owner on 2026-11-03**, with every recommendation in section 13 accepted except Q6 (blueprints), which
-is still under discussion: nothing blueprint-specific is built or ported until the owner relays the answer. The answers are
-recorded in section 13. Phase 0 starts now and the phases follow under the standing order (planned-work PRs are auto-approved;
+Status: **accepted by the owner on 2026-11-03**, with every recommendation in section 13 accepted. Q6 (blueprints) was
+answered the same day: **blueprints are dropped from the standalone app**, and the app expects an iPhone with LiDAR (section 9). The
+answers are recorded in section 13. Phase 0 starts now and the phases follow under the standing order (planned-work PRs are auto-approved;
 only real design questions go to the owner). The UI work in flight (the five style changes, the VoiceOver route, the move to the
 `scshafe-ios` package) continues unchanged. The server, web editor and current iOS client stay the product until each phase's gate is met (section 7).
 
@@ -18,7 +18,7 @@ is a synthetic fixture.
 1. homemesh becomes a **standalone, serverless iPhone app**. Everything runs on the phone: no homemesh server, no Pocket ID sign-in,
    no tailnet, no Docker deployment.
 2. The **editing experience works fully on the phone** and replaces the browser editor: wall drawing and fixing, doors, zones,
-   stairs, floors and blueprints. A first-class touch editor; iPad is natural too.
+   stairs and floors (blueprints were dropped, section 13 Q6). A first-class touch editor; iPad is natural too.
 3. **The map does not need high accuracy.** Doorways are the stitching mechanism between rooms: rooms join where their labelled
    doors match (building on the both-sides door-labelling decision), not by precise geometric registration.
 4. **On hold, and kept out of the design:** monetization (ads or a one-time Pro unlock) and licence or repository visibility. The
@@ -148,8 +148,8 @@ floors; a floor's anchor is placed over the one below by the staircase footprint
 
 The web editor's tools are wall, door, window, switch, slab hole, jack, outlet, entry, zone, access point, measure,
 blueprint scale/rotate/move/check and delete. The phone already has the second half (jacks, outlets, access points, zones,
-stairs, entry, measurements; PRs #84, #86). This section is the first half and the blueprint tools, designed for fingers, with
-iPad and Pencil in mind.
+stairs, entry, measurements; PRs #84, #86). This section is the first half, designed for fingers, with iPad and Pencil in mind.
+The blueprint tools are **not** carried over (Q6). The editor is for **fixing scans and filling gaps**, not for drawing a whole house.
 
 ### 4.1 Principles
 
@@ -157,7 +157,7 @@ iPad and Pencil in mind.
   offset view) shows the point and what it snaps to; the editor snaps by default and says what it snapped to (a small label:
   "end of wall w12", "90 degrees", "5 cm grid").
 - **Numbers beat precision.** Anywhere a length or angle matters, typing it is one tap away (the segment's length chip is a text
-  field); a tape measure is the source of truth for a house without LiDAR.
+  field); a tape measure is the source of truth where a scan is wrong or missing.
 - **Every edit is an operation** on the document: undoable, redoable, listed in "Edit history", saved at once (autosave) and a
   revision written on a sensible boundary (a gesture ends, a form is saved).
 - **One selection model, two routes.** Everything is reachable by touching the plan and by lists and forms (the VoiceOver route
@@ -181,11 +181,14 @@ package, the touch handling is a thin UIKit recognizer set (already the pattern 
 
 - *Trace*: tap points to make a polyline; each segment shows its length; double-tap or "Done" ends; a closed loop makes a room.
   Snapping: endpoints, wall midpoints, a point on a wall (making a T junction and splitting it), 0/90 degrees (within 3
-  degrees) and parallel or perpendicular to a neighbouring wall, a 5 cm grid (10 cm at small zoom), and the blueprint's
-  lines when one is shown.
+  degrees) and parallel or perpendicular to a neighbouring wall, and a 5 cm grid (10 cm at small zoom).
 - *Draw by numbers*: pick a start, then for each segment choose a direction (the four axes, "continue", or an angle) and type the
-  length on a strip above the keyboard; "close" finishes the loop. This is the tape-measure route for a house without LiDAR.
-- *Room templates*: rectangle, L, U by dimensions, then edit like any walls.
+  length on a strip above the keyboard; "close" finishes the loop. This is the tape-measure route for **fixing a scanned wall and for filling a gap** (below), not for drawing a house.
+- *Fill the gap*: select the doors and walls around an unscanned space (a hall, a stairwell, a cupboard, a room RoomPlan could not
+  finish) and the editor proposes the room outline from them; typed lengths adjust it. It makes a room with walls and the doors
+  already labelled, or an `air` region where there are no walls.
+- *Room templates* (rectangle, L, U): **dropped**. They only suited drawing a whole house; a gap is drawn with the fill-the-gap tool or
+  four typed segments, which already gives a rectangle.
 - *Pencil sketch* (iPad): freehand strokes are straightened and snapped as above.
 - A new wall takes the current thickness and material (shown in the toolbar, one tap to change).
 
@@ -210,14 +213,8 @@ which is where doorway stitching is edited after the scan. Openings are clamped 
 **Floors.** The stack screen exists (order, ground, below-ground, heights from stairs). Added: copy a floor's walls as a starting point for
 the next (common in houses), per-floor height and slab thickness, and show the floor below as a faint underlay while drawing.
 
-**Blueprints (optional aid, iPad-first).** Import from Photos, Files (PDF, PNG, JPEG) or the document scanner; strip metadata by
-re-encoding (the server did this with Pillow; ImageIO does it here); stored as a blob per floor. Fit it with the web editor's
-four steps as touch gestures: **scale** (tap two points, type their real distance, or tap a door and say it is 0.8 m wide),
-**rotate** (align to a wall, then nudge), **move** (drag), **check** (tap two other points and see the error as a percentage). Opacity
-slider, lock, hide. Tracing snaps to the image's detected lines only if that proves reliable (later; not promised). The owner's
-standing decision applies: LiDAR is the primary source and **blueprint removal is deferred until the tape readings**; this
-design keeps blueprints as an aid and as the route for rooms that cannot be scanned, and says so as a question (Q6) rather than
-deciding it.
+**Blueprints: dropped** (owner decision 2026-11-03, Q6): no import, no fitting, no blueprint tools and no blueprint blobs on the phone. Two sources of
+truth would have to be reconciled, and few people have a usable blueprint.
 
 **Also from the web editor:** switch (a network switch on the wired path: a point tool like a jack), entry (modem), outlet, jack, access point
 and measurement tools exist; CSV measurement import becomes a Files picker (the parser is small).
@@ -257,7 +254,7 @@ Python either), and Metal (optional later; the CPU numbers fit the foreground bu
   house.json              the House (schema_version, revision)
   revisions/<n>.json      the last N revisions (undo, history), pruned
   captures/<id>/          scan.json (the wrapper), doors.json (labels), meta.json
-  blobs/<sha256>          USDZ scans, blueprint images (content addressed, deduplicated)
+  blobs/<sha256>          USDZ scans (content addressed, deduplicated)
   runs/<id>.json          planner results worth keeping (optional)
 ```
 
@@ -304,7 +301,7 @@ main defence against drift).
 House data never goes into git or CI; the migration runs on the owner's devices.
 
 1. **Transitional build.** One build keeps the existing client and sign-in and adds "Import this house to the phone": it reads the
-   house JSON, the captures (wrapper JSON, door labels, metadata) and the blobs (USDZ, blueprint images) through the endpoints the
+   house JSON, the captures (wrapper JSON, door labels, metadata) and the blobs (USDZ) through the endpoints the
    app already uses, writes a local package, and shows a checklist (counts and sizes). No server change is needed except, if
    wanted, a single "export house as one archive" endpoint to make it one request (owner decision).
 2. **Verify before trusting it.** The import re-opens the package, decodes it with the typed model, and compares: counts of walls,
@@ -314,20 +311,22 @@ House data never goes into git or CI; the migration runs on the owner's devices.
 4. **Cut-over.** After the owner has used the phone copy for a while, the next build drops the server, sign-in and upload code. The old
    data directory and its backups stay where they are as the archive.
 5. **Calibration, measurements and the catalogue shortlist** are part of the house document and come with it.
+6. **Blueprints.** Walls that were traced from a blueprint migrate as ordinary walls (their `prov` source is kept as data and nothing reads
+   it). The underlays and their images are **not** imported; they stay only in the server's final export archive.
 
 ## 9. Phones without LiDAR
 
-App Store reviewers and most iPhones have no LiDAR, and there is no install-time gate for it (the notes). The design is: **the app is
-useful without scanning**, and says so.
+**The app expects an iPhone with LiDAR** (owner decision 2026-11-03). There is no install-time gate for LiDAR (the notes), so a phone
+without it can still install the app. The design is one honest screen, not a second product:
 
-- Everything except RoomPlan capture works: the editor, doors and stitching labels, stairs, floors, blueprints, zones, simulation,
-  planning, calibration.
-- The way in without a scanner: **draw by numbers and room templates** (section 4), or trace over a photographed or imported blueprint
-  (iPad-first), or import a room's USDZ or a CapturedRoom JSON someone else scanned (Files).
-- `RoomCaptureSession.isSupported == false` hides "Scan" and shows the drawing routes as the primary action, not an error.
-- A bundled synthetic **demo house** (the committed fixtures) opens on first run and for App Review, with review notes saying
-  scanning needs a Pro model.
-- The listing says "scanning needs an iPhone Pro with LiDAR"; the rest works on any iPhone on iOS 26.
+- When `RoomCaptureSession.isSupported` is false the app shows a single clear screen, **"homemesh needs an iPhone with LiDAR"**, naming
+  the supported models (iPhone Pro and Pro Max from the 12 Pro, and LiDAR iPad Pros), and the bundled **demo house** to explore:
+  the plan, the 3D view, the planner and its results, read-only. Nothing pretends to work: no Scan, no new house, no import.
+- The demo house is the committed synthetic fixtures (all `"synthetic": true`), opened from the bundle and never written to.
+- The App Store listing says LiDAR is required, and App Review uses the demo house (review notes explain it).
+- Typed-measurement drawing (section 4) stays an editor tool for **fixing scans and filling gaps**; it is not a whole-house route, and
+  nothing in the app is built to make a no-LiDAR phone useful beyond the demo.
+- An iPad without LiDAR is treated the same way. A LiDAR iPad is a full device.
 
 ## 10. Testing, given Swift builds in public macOS CI
 
@@ -362,14 +361,14 @@ would be no Swift build for the agent at all. Visibility is on hold (section 12)
 
 Effort figures are the notes' estimates for one experienced Swift developer in developer-weeks and are **not** calendar time for an
 agent working through CI; they show relative size. The notes put the MVP at 12 to 16 weeks and the fuller product (manual drawing,
-iCloud, iPad, catalogue content) at 20 to 30; this plan makes the editor first-class, so it sits near the top of that range.
+iCloud, iPad, catalogue content) at 20 to 30; this plan makes the editor first-class but without blueprints, room templates or a no-LiDAR route (P3 is 4 to 6 weeks, down from 6 to 8), so it sits in the middle of that range.
 
 | Phase | Content | Exit criteria | Size |
 |---|---|---|---|
 | **P0 Spikes** | (a) Linux Swift toolchain and a Foundation-only package building in CI; (b) golden-vector generator from Python; (c) a Swift propagation spike timed on the phone against the notes' 1 to 10 s; (d) door-graph layout with loop residual on synthetic houses; (e) one editor interaction (draw a wall with snap and loupe) | each question answered in writing with numbers; the plan below adjusted | 1 to 2 |
 | **P1 Core, store, import** | Model, Store (package, revisions, migration), ScanImport; the app opens a migrated or demo house read-only (plan and 3D) from local files | golden parity for import and model; round-trip of every fixture; owner opens a copy of a real house on the phone | 4 to 5 |
 | **P2 Stitching and scan flow, local** | Layout (spanning tree, least squares, residuals), the scan, label, place flow against local storage; checklist; accuracy chips | placing the owner's rooms by labels matches the server's result within tolerance; loop residual shown | 2 to 3 |
-| **P3 Editor** | EditOps, walls (trace, numbers, templates, fixing), doors and windows, zones, stairs, floors, blueprints; undo; iPad layout | owner draws a house with no scan and fixes a scanned one on the phone; every tool has a list route; unit tests for the operations | 6 to 8 |
+| **P3 Editor** | EditOps, walls (trace, typed lengths, fill the gap, fixing), doors and windows, zones, stairs, floors; undo; iPad layout | owner fixes a scanned house and fills a gap on the phone; every tool has a list route; unit tests for the operations | 4 to 6 |
 | **P4 Simulation and planning** | Sim, Net, Planner, Calibrate, catalogue; progress and cancel; results screens on local results | golden parity on grids, scores and rankings; plan times measured on the phone; thermal check | 4 to 5 |
 | **P5 Migration and retire** | transitional import build, verification, cut-over build without server code; archive and retire the deployment (owner session) | all owner houses migrated and verified; server stopped; Python engine kept as oracle | 1 to 2 |
 | **P6 Release readiness** | export/import package UI, demo house, onboarding, privacy manifest, diagnostics by share sheet, TestFlight, listing | what a store submission needs; none of it depends on the business model | 2 to 3 |
@@ -398,7 +397,7 @@ Every recommendation was accepted except Q6. The question text is kept; **Decisi
 3. **Is 0.5 m the right line?** A model judgement, not a measurement. **Decision: stands provisionally with Q2.**
 4. **Keep "Guess for me"?** **Decision: dropped in the standalone app; labelled doors only, plus drag.**
 5. **Floor-to-floor alignment** by staircase footprints only. **Decision: yes.**
-6. **Blueprints:** keep as an aid and a no-LiDAR route, or drop once the tape readings are in? **Decision: OPEN, under discussion with the owner. Do not build or port anything blueprint-specific (the blueprint tools of section 4.3, blueprint blobs, the underlay, the blueprint import) until the owner relays the answer.** Everything else, including the editor's other tools and the document layout, proceeds; the layout leaves room for blueprint blobs without implementing them.
+6. **Blueprints:** keep as an aid and a no-LiDAR route, or drop? **Decision: DROPPED (2026-11-03).** No import, no fitting, no blueprint tools, no blueprint blobs on the phone. Walls already traced from a blueprint migrate as ordinary walls; the images stay only in the server's final export. Reason: two sources of truth to reconcile, and few users have a usable blueprint. This also changes section 9: the app expects LiDAR, the non-LiDAR route is not a primary path.
 7. **iPad:** first-class layout in P3. **Decision: yes.**
 8. **Backup:** export/import only in v1 (option A), iCloud Drive (B) after; USDZ blobs included in the phone backup, revisited if size hurts. **Decision: yes.**
 9. **Equipment models and material priors:** placeholders, flagged "assumed" as today. **Decision: yes.**
