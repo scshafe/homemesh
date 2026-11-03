@@ -33,7 +33,7 @@ public struct HouseStore: Sendable {
     private var houseFile: URL { root.appendingPathComponent("house.json") }
     private func revisionFile(_ n: Int) -> URL { root.appendingPathComponent("revisions").appendingPathComponent("\(n).json") }
 
-    private func write(_ data: Data, to url: URL) throws {
+    func write(_ data: Data, to url: URL) throws {
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
     }

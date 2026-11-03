@@ -1,3 +1,4 @@
+import HomemeshCore
 import SwiftUI
 
 /// The server settings and the house list, shared by every screen.
@@ -9,8 +10,12 @@ final class AppModel: ObservableObject {
     @Published var houses: [HouseSummary] = []
     @Published var message = ""
     @Published var busy = false
+    @Published var useLocal = Settings.useLocal
 
-    var configured: Bool { !server.trimmed.isEmpty && !issuer.trimmed.isEmpty && !clientId.trimmed.isEmpty }
+    /// The houses of this phone: always there, used when `useLocal` is on.
+    var library: LocalAPI { LocalLibrary.api }
+
+    var configured: Bool { useLocal || (!server.trimmed.isEmpty && !issuer.trimmed.isEmpty && !clientId.trimmed.isEmpty) }
 
     func saveSettings() {
         server = server.trimmed
@@ -19,14 +24,17 @@ final class AppModel: ObservableObject {
         Settings.server = server
         Settings.issuer = issuer
         Settings.clientId = clientId
+        Settings.useLocal = useLocal
     }
 
     func client() -> Client {
+        if useLocal { return Client(local: library) }
         let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
         return Client(server: server, token: { try await auth.freshIdToken() })
     }
 
     func uploader(house: String) -> Uploader {
+        if useLocal { return Uploader(server: "", house: house, token: { "" }, local: library) }
         let auth = Auth(issuer: issuer.trimmed, clientId: clientId.trimmed)
         return Uploader(server: server, house: house, token: { try await auth.freshIdToken() })
     }

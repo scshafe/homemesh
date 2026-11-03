@@ -4,10 +4,26 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var diagnostics = Diagnostics.enabled
+    @State private var demoNote: String?
+
+    private func demo() {
+        do {
+            let added = try LocalLibrary.addDemoHouses()
+            demoNote = added.isEmpty ? "The demo houses are already on this phone." : "Added: " + added.joined(separator: ", ") + "."
+            Task { await model.refresh() }
+        } catch { demoNote = "Could not add the demo houses: \(error.localizedDescription)" }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Toggle("Keep the houses on this phone", isOn: $model.useLocal)
+                    Button("Add the demo house") { demo() }
+                    if let demoNote { SuiNote(.info, demoNote) }
+                } header: { Text("Where the houses live") } footer: {
+                    Text("On this phone, nothing is sent anywhere: no server and no sign-in. Copy a house over from the server with \"Copy to this phone\" on its screen, then switch this on.")
+                }
                 Section("Server") {
                     TextField("https://homemesh.<tailnet>", text: $model.server).textInputAutocapitalization(.never).keyboardType(.URL)
                 }

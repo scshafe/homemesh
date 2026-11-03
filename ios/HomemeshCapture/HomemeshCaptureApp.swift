@@ -13,7 +13,7 @@ struct HomemeshCaptureApp: App {
             .environmentObject(model)
             .task {
                 Diagnostics.launched()
-                if model.configured { DiagnosticsUploader.shared.start { model.client() } }
+                if model.configured && !model.useLocal { DiagnosticsUploader.shared.start { model.client() } }   // on this phone the logs stay here
             }
         }
     }

@@ -25,11 +25,19 @@ settings:
     CODE_SIGN_STYLE: Automatic
     # The app's bundle id; ios/project.local.yml can override it.
     HOMEMESH_BUNDLE_ID: com.scshafe.homemesh-capture
+packages:
+  HomemeshCore:
+    path: ../core            # the on-device engine (docs/design-standalone-app.md)
 targets:
   HomemeshCapture:
     type: application
     platform: iOS
-    sources: [HomemeshCapture]
+    sources:
+      - HomemeshCapture
+      - path: ../tests/fixtures   # the synthetic houses: the demo houses of the app, opened from the bundle
+        buildPhase: resources
+    dependencies:
+      - package: HomemeshCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(HOMEMESH_BUNDLE_ID)

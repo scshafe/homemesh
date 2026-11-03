@@ -66,3 +66,23 @@ final class Ticks: @unchecked Sendable {
     private let lock = NSLock()
     func next() -> Double { lock.withLock { n += 1; return n } }
 }
+
+@Test func aHouseCopiedFromElsewhereOpensAsItWas() throws {
+    // Build a house in one library, copy it (document, scan indexes, blobs) into another through restoreHouse, and compare.
+    let a = LocalAPI(root: FileManager.default.temporaryDirectory.appendingPathComponent("homemesh-from-\(UUID().uuidString)"))
+    let b = LocalAPI(root: FileManager.default.temporaryDirectory.appendingPathComponent("homemesh-to-\(UUID().uuidString)"))
+    _ = try a.handle("POST", "/api/houses", body: Data(#"{"id": "demo", "name": "Demo"}"#.utf8))
+    let log = try JSONSerialization.jsonObject(with: golden("api_session")) as! [JObject]
+    let up = log.first { ($0["path"] as? String)?.hasPrefix("/api/houses/demo/captures?name=Kitchen") == true }!
+    let meta = try JSONSerialization.jsonObject(with: a.handle("POST", up["path"] as! String, body: Data((up["body"] as! String).utf8))) as! JObject
+    let digest = meta["blob"] as! String
+    let house = try a.handle("GET", "/api/houses/demo")
+    let metas = try JSONSerialization.jsonObject(with: a.handle("GET", "/api/houses/demo/captures")) as! [Any]
+    let blob = try a.handle("GET", "/api/houses/demo/blobs/\(digest)")
+    try b.restoreHouse(id: "demo", house: house, captures: try metas.map { try JSONSerialization.data(withJSONObject: $0) }, blobs: [digest: blob])
+    #expect(try b.counts(of: "demo") == a.counts(of: "demo"))
+    #expect(try b.handle("GET", "/api/houses/demo/captures/\(digest)/doors") == a.handle("GET", "/api/houses/demo/captures/\(digest)/doors"))
+    #expect(throws: APIError.self) { try b.restoreHouse(id: "demo", house: house, captures: [], blobs: [:]) }
+    #expect(throws: APIError.self) { try b.restoreHouse(id: "other", house: house, captures: [], blobs: [:]) }
+    #expect(throws: APIError.self) { try b.restoreHouse(id: "bad", house: house, captures: [], blobs: ["0".padding(toLength: 64, withPad: "0", startingAt: 0): Data("x".utf8)]) }
+}

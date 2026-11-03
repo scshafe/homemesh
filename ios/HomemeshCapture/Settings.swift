@@ -10,6 +10,11 @@ enum Settings {
         get { d.string(forKey: "server") ?? "" }
         set { d.set(newValue, forKey: "server") }
     }
+    /// True when the houses live on this phone (the standalone app) instead of on the homemesh server.
+    static var useLocal: Bool {
+        get { d.bool(forKey: "useLocal") }
+        set { d.set(newValue, forKey: "useLocal") }
+    }
     static var house: String {
         get { d.string(forKey: "house") ?? "" }
         set { d.set(newValue, forKey: "house") }
