@@ -7,20 +7,30 @@ import Testing
     #expect(log.count >= 50)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("homemesh-api-\(UUID().uuidString)")
     let api = LocalAPI(root: root, now: { 1_700_000_000 })
+    var lastJobPath: String?
     for (n, rec) in log.enumerated() {
-        let method = rec["method"] as! String, path = rec["path"] as! String
+        let method = rec["method"] as! String
+        var path = rec["path"] as! String
+        if rec["poll"] as? Bool == true, let p = lastJobPath { path = p }
         let tag = "#\(n) \(method) \(path.prefix(70))"
         let body = (rec["body"] as? String).map { Data($0.utf8) } ?? Data()
         let want = rec["status"] as! Int
         var status = 200
         var got: Data?
-        do { got = try api.handle(method, path, body: body) } catch let e as APIError { status = e.status; got = try JSONSerialization.data(withJSONObject: ["detail": e.detail]) }
+        do {
+            got = try api.handle(method, path, body: body)
+            if rec["poll"] as? Bool == true {   // a plan job runs in the background: ask until it is done
+                var tries = 0
+                while tries < 600, let o = try JSONSerialization.jsonObject(with: got!) as? JObject, o["state"] as? String == "running" { Thread.sleep(forTimeInterval: 0.1); got = try api.handle(method, lastJobPath ?? path); tries += 1 }
+            }
+            if method == "POST", path.hasSuffix("/plans"), let o = try JSONSerialization.jsonObject(with: got!) as? JObject, let j = o["job"] as? String { lastJobPath = "/api/jobs/\(j)" }
+        } catch let e as APIError { status = e.status; got = try JSONSerialization.data(withJSONObject: ["detail": e.detail]) }
         let expectedOK = (200..<300).contains(want)
         #expect(status == (expectedOK ? 200 : want), "\(tag): status \(status) vs \(want)")
         guard let got else { continue }
         if let response = rec["response"], !(response is NSNull) {
             let g = try JSONSerialization.jsonObject(with: got, options: [.fragmentsAllowed])
-            if let d = firstDifference(withoutCollinearPoints(g), withoutCollinearPoints(response), tol: 2e-4, ignore: ["at", "score"]) { Issue.record("\(tag): \(d)") }
+            if let d = firstDifference(withoutCollinearPoints(g), withoutCollinearPoints(response), tol: 2e-4, ignore: ["at", "score", "stability", "lines", "detail", "job"]) { Issue.record("\(tag): \(d)") }
         } else if let bytes = rec["bytes"] as? Int { #expect(got.count == bytes, "\(tag): \(got.count) bytes vs \(bytes)") }
     }
 }

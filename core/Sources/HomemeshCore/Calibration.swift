@@ -210,4 +210,36 @@ public enum Calibrate {
         }
         return d
     }
+
+    public struct Suggestion: Sendable { public var material: String, level: String; public var x: Double, y: Double, units: Double }
+
+    /// Where to measure next: cells of heavy exposure to materials the walk has not pinned down.
+    public static func suggest(_ house: House, _ band: Band, k: Int = 5, step: Double = 1.0) -> [Suggestion] {
+        guard let ap = house.access_points.first, let client = Catalogue.genericClients().values.sorted(by: { $0.id < $1.id }).first ?? nil else { return [] }
+        let f = fitBand(house, band)
+        let unidentified = f.map { $0.materials.filter { !$0.value.identified }.map(\.key).sorted() } ?? house.materials.map(\.id)
+        if unidentified.isEmpty { return [] }
+        guard let ctx = try? PlanContext(house: house, catalogue: Catalogue.generic(), client: Catalogue.genericClientList()[0], step: step, rxHeight: rxHeight) else { return [] }
+        _ = client
+        let tx = Vec3(ap.position.x, ap.position.y, (ctx.elevation[ap.level] ?? 0) + ap.height)
+        let ex = ctx.model.exposures(tx: tx, rx: ctx.cells, band: band)
+        let have = house.measurements.filter { $0.band == band.rawValue }.map { $0.position }
+        var out: [Suggestion] = []
+        for mid in unidentified {
+            guard var e = ex[mid], e.contains(where: { $0 > 0 }) else { continue }
+            for i in e.indices where !ctx.cellOk[i] { e[i] = 0 }
+            let order = e.indices.sorted { e[$0] != e[$1] ? e[$0] > e[$1] : $0 < $1 }.prefix(200)
+            for i in order {
+                if e[i] <= 0 { break }
+                let x = ctx.cells[i].x, y = ctx.cells[i].y
+                let spots = out.map { Vec2($0.x, $0.y) } + have
+                if spots.allSatisfy({ hypot(x - $0.x, y - $0.y) >= 3.0 }) {
+                    out.append(Suggestion(material: mid, level: ctx.grids[ctx.cellLevel[i]].level, x: x, y: y, units: e[i]))
+                    break
+                }
+            }
+            if out.count >= k { break }
+        }
+        return out
+    }
 }

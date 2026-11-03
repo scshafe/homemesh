@@ -390,6 +390,32 @@ def api_session() -> list[dict]:
             call("GET", f"/api/houses/demo/blobs/{da}")
             call("GET", f"/api/houses/demo/blobs/{'0' * 64}")
             call("GET", "/api/houses")
+
+            # planning, a rate map and calibration on invented houses
+            import time as _t
+            wired = json.loads(house("wired_ends").model_dump_json())
+            wired.update({"id": "hall", "name": "Hall"})
+            call("POST", "/api/houses", {"id": "hall", "name": "Hall"})
+            call("PUT", "/api/houses/hall?expect_revision=1", wired)
+            call("POST", "/api/houses/demo/plans", {})
+            req = {"equipment": ["generic-mesh-ax", "generic-mesh-tri"], "k_max": 2, "candidate_step": 3.0, "grid": 1.0}
+            r = call("POST", "/api/houses/hall/plans", req)
+            job = r.json()["job"]
+            for _ in range(600):
+                st = c.get(f"/api/jobs/{job}", headers=hdr).json()
+                if st["state"] != "running":
+                    break
+                _t.sleep(0.1)
+            log.append({"method": "GET", "path": f"/api/jobs/{job}", "body": None, "status": 200, "response": st, "bytes": None, "poll": True})
+            call("GET", "/api/jobs/nope")
+            call("POST", "/api/houses/hall/ratemap", {"nodes": [{"equipment": "generic-mesh-ax", "position": [14.5, 2.0], "level": "L0", "height": 1.5}], "grid": 1.0})
+            call("POST", "/api/houses/hall/ratemap", {"nodes": [{"equipment": "nope", "position": [14.5, 2.0], "level": "L0", "height": 1.5}]})
+            cal = calibration_scenarios()[0]["house"]
+            cal.update({"id": "cal", "name": "Cal"})
+            call("POST", "/api/houses", {"id": "cal", "name": "Cal"})
+            call("PUT", "/api/houses/cal?expect_revision=1", cal)
+            call("POST", "/api/houses/cal/calibrate", "")
+            call("POST", "/api/houses/hall/calibrate", "")
         finally:
             for k, v in saved.items():
                 if v is None:

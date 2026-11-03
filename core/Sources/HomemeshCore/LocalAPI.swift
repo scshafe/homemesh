@@ -15,6 +15,8 @@ public final class LocalAPI: @unchecked Sendable {
     public let root: URL
     let now: @Sendable () -> Double
     private let lock = NSLock()
+    let jobsLock = NSLock()
+    var jobs: [String: PlanJob] = [:]
     static let maxBody = 8 * 1024 * 1024
 
     public init(root: URL, now: @escaping @Sendable () -> Double = { Date().timeIntervalSince1970 }) { self.root = root; self.now = now }
@@ -84,6 +86,10 @@ public final class LocalAPI: @unchecked Sendable {
         case ("GET", ["houses", "summary"]): return try Self.json(try summary())
         case ("POST", ["houses"]): return try Self.json(try createHouse(try body(raw)))
         case ("GET", ["catalogue"]): return try Self.json(try catalogue())
+        case ("GET", let r) where r.count == 2 && r[0] == "jobs": return try Self.json(try jobStatus(r[1]))
+        case ("POST", let r) where r.count == 3 && r[0] == "houses" && r[2] == "plans": return try Self.json(try startPlan(r[1], try body(raw)))
+        case ("POST", let r) where r.count == 3 && r[0] == "houses" && r[2] == "ratemap": return try Self.json(try rateMap(r[1], try body(raw)))
+        case ("POST", let r) where r.count == 3 && r[0] == "houses" && r[2] == "calibrate": return try Self.json(try calibrate(r[1], raw))
         case ("GET", let r) where r.count == 2 && r[0] == "houses": return try Self.json(try houseJSON(try get(r[1]).1))
         case ("PUT", let r) where r.count == 2 && r[0] == "houses": return try Self.json(try saveHouse(r[1], raw, expect: q["expect_revision"]))
         case ("POST", let r) where r.count == 3 && r[0] == "houses" && r[2] == "levels": return try Self.json(try addLevel(r[1], try body(raw)))
