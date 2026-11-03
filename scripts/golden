@@ -248,8 +248,47 @@ def plan_scenarios() -> list[dict]:
     return json.loads(json.dumps(out))
 
 
+def calibration_scenarios() -> list[dict]:
+    """Calibration fits on invented readings of an invented house: the fit, the accepted house and the planner's margin."""
+    import numpy as np
+    from homemesh import calibration as K
+    from homemesh.model import AccessPoint, Measurement
+
+    out = []
+    h = house("one_floor_box")
+    ap = AccessPoint(id="ap1", name="Existing", position=(1.0, 1.0), level="L0", height=1.5, eirp_dbm=23.0)
+    truth = h.model_copy(update={"materials": [m.model_copy(update={"loss": {b: v + (3.0 if m.id == "brick" else 1.0 if m.id == "drywall" else 0.0) for b, v in m.loss.items()}}) for m in h.materials]})
+    params = P.Params(n={"2.4": 2.6, "5": 2.8, "6": 3.0}, extra_loss={"2.4": 3.0, "5": 4.0, "6": 5.0})
+    rng = np.random.default_rng(7)
+    ms = []
+    k = 0
+    for band in ("5", "2.4"):
+        for i in range(30):
+            x, y = float(rng.uniform(0.6, 9.4)), float(rng.uniform(0.6, 7.4))
+            tx = (ap.position[0], ap.position[1], ap.height)
+            loss = float(P.path_loss(truth, tx, np.array([[x, y, 1.0]]), band, params)[0])
+            rssi = ap.eirp_dbm - loss + float(rng.normal(0, 2.0))
+            k += 1
+            ms.append(Measurement(id=f"m{k}", position=(round(x, 3), round(y, 3)), level="L0", device="phone", band=band, rssi=round(rssi, 2)))
+    h2 = h.model_copy(update={"access_points": [ap], "measurements": ms})
+    fits = K.fit(h2)
+    applied = K.apply(h2, fits, now=None)
+
+    def pf(p):
+        return {"mean": p.mean, "sd": p.sd, "prior_mean": p.prior_mean, "prior_sd": p.prior_sd, "identified": p.identified}
+
+    out.append({"name": "two bands, 30 readings each", "house": json.loads(h2.model_dump_json()),
+                "fits": {b: {"n_meas": f.n_meas, "n": pf(f.n), "extra_loss": pf(f.extra_loss), "materials": {k: pf(v) for k, v in f.materials.items()}, "sigma": f.sigma,
+                             "rmse_train": f.rmse_train, "rmse_cv": f.rmse_cv, "bias_cv": f.bias_cv, "residuals": f.residuals, "note": f.note} for b, f in fits.items()},
+                "applied_materials": json.loads(applied.model_dump_json())["materials"], "applied_calibration": {k: v for k, v in json.loads(applied.model_dump_json())["calibration"].items() if k != "at"},
+                "margin": K.margin_for(applied), "params": {"n": K.params_for(applied).n, "extra": K.params_for(applied).extra_loss}})
+    few = h2.model_copy(update={"measurements": ms[:5]})
+    out.append({"name": "too few readings", "house": json.loads(few.model_dump_json()), "fits": {}, "margin": K.margin_for(few)})
+    return json.loads(json.dumps(out))
+
+
 def files() -> dict[str, str]:
-    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios()), "plans.json": json.dumps(plan_scenarios())}
+    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios()), "plans.json": json.dumps(plan_scenarios()), "calibrations.json": json.dumps(calibration_scenarios())}
     for name in FIXTURES:
         out[f"{name}.house.json"] = (ROOT / "tests" / "fixtures" / f"{name}.json").read_text()
     return out

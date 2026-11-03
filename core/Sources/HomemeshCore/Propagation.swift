@@ -87,12 +87,25 @@ public struct PropagationModel: Sendable {
             let dx = rx[i].x - tx.x, dy = rx[i].y - tx.y, dz = rx[i].z - tx.z
             out[i] = base + 10 * n * log10(max((dx * dx + dy * dy + dz * dz).squareRoot(), 1))
         }
-        addWalls(tx: tx, rx: rx, band: band, into: &out)
-        addSlabs(tx: tx, rx: rx, band: band, into: &out)
+        walk(tx: tx, rx: rx, band: band, unit: false) { i, _, db in out[i] += db }
         return out
     }
 
-    private func addWalls(tx: Vec3, rx: [Vec3], band: Band, into out: inout [Double]) {
+    /// Per material, how many reference-thickness units of it each segment tx-rx crosses: path loss is linear in the material
+    /// losses, `loss = sum exposure_m * L_m`, and calibration regresses on this. The same geometry with every loss set to 1 dB.
+    public func exposures(tx: Vec3, rx: [Vec3], band: Band) -> [String: [Double]] {
+        var out: [String: [Double]] = [:]
+        walk(tx: tx, rx: rx, band: band, unit: true) { i, material, db in
+            if out[material] == nil { out[material] = [Double](repeating: 0, count: rx.count) }
+            out[material]![i] += db
+        }
+        return out
+    }
+
+    /// Every wall and slab the segment crosses, reported per receiver as (index, material, dB). `unit` charges 1 dB for every
+    /// material (and nothing extra for an `air` one) so the amounts count units of material.
+    func walk(tx: Vec3, rx: [Vec3], band: Band, unit: Bool, charge: (Int, String, Double) -> Void) {
+        func lossOf(_ id: String) -> Double { id == "air" ? 0 : (unit ? 1 : (materials[id]?.loss(band) ?? 0)) }
         for w in house.walls {
             let floor = elevation[w.level] ?? 0
             let zLo = floor + w.base_z, zHi = zLo + w.height
@@ -100,7 +113,7 @@ public struct PropagationModel: Sendable {
             let wlen = hypot(ex, ey)
             if wlen == 0 { continue }
             let px = w.a.x - tx.x, py = w.a.y - tx.y
-            let wallDb = loss(w.material, band) / ref(w.material)
+            let wallDb = lossOf(w.material) / ref(w.material)
             let thick = w.thickness
             for i in 0..<rx.count {
                 let dx = rx[i].x - tx.x, dy = rx[i].y - tx.y, dz = rx[i].z - tx.z
@@ -115,25 +128,22 @@ public struct PropagationModel: Sendable {
                 let dlen = hypot(dx, dy)
                 var cosT = abs((dx * -ey + dy * ex) / ((dlen > 0 ? dlen : 1) * wlen))
                 cosT = min(1, max(Self.cosMaxIncidence, cosT))
-                var through = true
-                var add = 0.0
                 let along = u * wlen, zrel = z - floor
+                var through = true
                 for o in w.openings where along >= o.offset && along <= o.offset + o.width && zrel >= o.sill && zrel <= o.sill + o.height {
                     through = false
-                    add += o.state == "open" ? 0 : loss(o.material, band)
+                    let db = o.state == "open" ? 0 : lossOf(o.material)
+                    if db != 0 { charge(i, o.material, db) }
                     break   // a point inside one opening is not charged for another
                 }
-                if through { add += wallDb * (thick / cosT) }
-                out[i] += add
+                if through && wallDb != 0 { charge(i, w.material, wallDb * (thick / cosT)) }
             }
         }
-    }
-
-    private func addSlabs(tx: Vec3, rx: [Vec3], band: Band, into out: inout [Double]) {
         for lv in house.levels {
             guard let slab = lv.slab else { continue }
             let zb = lv.elevation
-            let db = loss(slab.material, band) * slab.thickness / ref(slab.material)
+            let db = lossOf(slab.material) * slab.thickness / ref(slab.material)
+            if db == 0 { continue }
             let polys = holes[lv.id] ?? []
             for i in 0..<rx.count {
                 if !((tx.z - zb) * (rx[i].z - zb) < 0) { continue }
@@ -141,7 +151,7 @@ public struct PropagationModel: Sendable {
                 let s = (zb - tx.z) / (dz != 0 ? dz : 1)
                 let x = tx.x + s * (rx[i].x - tx.x), y = tx.y + s * (rx[i].y - tx.y)
                 if polys.contains(where: { Self.inPolygon(x, y, $0) }) { continue }
-                out[i] += db
+                charge(i, slab.material, db)
             }
         }
     }
