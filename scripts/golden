@@ -62,8 +62,104 @@ def rate_cases() -> list[dict]:
     return out
 
 
+def import_scenarios() -> list[dict]:
+    """Scan imports: the same synthetic RoomPlan JSON the Python tests use, with the house the Python import produces step by step."""
+    import copy
+    from homemesh import roomplan as R
+    from homemesh.materials import default_materials
+    from homemesh.model import Level, Slab, Stair
+    from tests.roomplan_synth import room, surface, two_rooms
+
+    def base(jog=0.3, two=False):
+        lv = [Level(id="L0", name="Ground", elevation=0.0, height=2.5)]
+        if two:
+            lv.append(Level(id="L1", name="First", elevation=2.8, height=2.5, slab=Slab(material="slab-wood", thickness=0.3)))
+        return House(id="h", name="h", synthetic=True, materials=default_materials(), jog_fold=jog, levels=lv)
+
+    def wrap(*rooms):
+        return {"format": "homemesh-capture-1", "rooms": list(rooms)}
+
+    def stairs_in(r, cx, cz, w=1.0, d=3.0, rise=2.7, axis=(1, 0)):
+        ux, uz = axis
+        r["objects"].append({"identifier": "st", "category": {"stairs": {}}, "dimensions": [w, rise, d],
+                             "transform": [ux, 0, uz, 0, 0, 1, 0, 0, -uz, 0, ux, 0, cx, 1.0, cz, 1]})
+        return r
+
+    def dump(h: House) -> dict:
+        return json.loads(h.model_dump_json())
+
+    def rep_dict(r) -> dict:
+        d = {k: getattr(r, k) for k in ("walls", "paired_walls", "openings", "skipped_openings", "rooms", "replaced", "curved_walls", "profile_walls", "folded_jogs", "furniture")}
+        d["stairs"] = r.stairs
+        d["notes"] = r.notes
+        return d
+
+    def run(name, house, steps):
+        cur, out = house, []
+        for st in steps:
+            op = st["op"]
+            if op == "import":
+                tr = R.Similarity2D(**st["transform"]) if st.get("transform") else None
+                cur, rep = R.import_capture(cur, st["data"], st["level"], st["blob"], tr, names=st.get("names"), descriptions=st.get("descriptions"),
+                                            room_levels=st.get("room_levels"))
+                out.append({**st, "expect": dump(cur), "report": rep_dict(rep)})
+            elif op == "apply_stair":
+                notes: list[str] = []
+                found = [dict(f) for f in R.stair_footprints(st["data"])]
+                cur = R.apply_stair(cur, st["data"], st["blob"], st["meta"], None, found, notes)
+                out.append({**st, "found": found, "expect": dump(cur), "notes": notes})
+            elif op == "retire":
+                cur, gone = R.retire_room(cur, st["data"], st["blob"], st["index"])
+                out.append({**st, "expect": dump(cur), "gone": gone})
+        return {"name": name, "house": dump(house), "steps": out}
+
+    B = "A" * 64
+    sc = []
+    sc.append(run("two rooms", base(), [{"op": "import", "data": two_rooms(), "level": "L0", "blob": B}]))
+    sc.append(run("two rooms, nested transforms", base(), [{"op": "import", "data": two_rooms(nested=True), "level": "L0", "blob": B}]))
+    sc.append(run("two rooms placed, named", base(), [{"op": "import", "data": two_rooms(), "level": "L0", "blob": B,
+                                                      "transform": {"scale": 1.0, "rotation": 30.0, "tx": 5.0, "ty": -3.0},
+                                                      "names": ["Kitchen", "Pantry"], "descriptions": ["the big one", ""]}]))
+    r = room(0, 0, 6, 4, "A")
+    r["walls"][0]["polygonCorners"] = [[-3, -1.25, 0], [3, -1.25, 0], [3, 0.25, 0], [0, 1.25, 0], [-3, 0.25, 0]]
+    r["walls"][1]["polygonCorners"] = [[-2, -1.25, 0], [2, -1.25, 0], [2, 1.25, 0], [-2, 1.25, 0]]
+    sc.append(run("gable wall keeps its outline", base(), [{"op": "import", "data": wrap(r), "level": "L0", "blob": B}]))
+    r = room(0, 0, 6, 4, "A")
+    r["walls"][0]["curve"] = {"radius": 4.0, "startAngle": -0.7, "endAngle": 0.7}
+    sc.append(run("curved wall becomes chords", base(), [{"op": "import", "data": wrap(r), "level": "L0", "blob": B}]))
+    r = room(0, 0, 6, 4, "A")
+    r["walls"][0]["curve"] = {"radius": 1.0, "startAngle": 0.0, "endAngle": 1.0}
+    sc.append(run("curve that cannot fit", base(), [{"op": "import", "data": wrap(r), "level": "L0", "blob": B}]))
+
+    def jogged():
+        r = room(0, 0, 6, 4, "A")
+        r["walls"][0:1] = [surface("wall", (1.5, 1.25, 0.0), (1, 0), 3.0, 2.5, "A-s1"), surface("wall", (3.0, 1.25, 0.1), (0, 1), 0.2, 2.5, "A-jog"),
+                           surface("wall", (4.5, 1.25, 0.2), (1, 0), 3.0, 2.5, "A-s2")]
+        return wrap(r)
+
+    sc.append(run("jog folded", base(), [{"op": "import", "data": jogged(), "level": "L0", "blob": B}]))
+    sc.append(run("jog not folded", base(jog=0.0), [{"op": "import", "data": jogged(), "level": "L0", "blob": B}]))
+    sc.append(run("jog then retire the room", base(), [{"op": "import", "data": jogged(), "level": "L0", "blob": B}, {"op": "retire", "data": jogged(), "blob": B, "index": 0}]))
+    r = room(0, 0, 1.6543, 3, "A", doors=[(1.6543, 1.5, 0, 1)])
+    sc.append(run("door at the very end of a wall", base(), [{"op": "import", "data": wrap(r), "level": "L0", "blob": B}]))
+    st = wrap(stairs_in(room(0, 0, 6, 4, "A"), 2.0, 1.5, rise=2.7), )
+    sc.append(run("stairs found, floors given", base(two=True), [
+        {"op": "import", "data": st, "level": "L0", "blob": B},
+        {"op": "apply_stair", "data": st, "blob": B, "meta": {"stair": {"from_level": "L0", "to_level": "L1"}}}]))
+    plain = wrap(room(0, 0, 6, 4, "A", doors=[(0.0, 1.5, 1, 0)]))
+    sc.append(run("stairs scan without a stairs object", base(two=True), [
+        {"op": "import", "data": plain, "level": "L0", "blob": B},
+        {"op": "apply_stair", "data": plain, "blob": B, "meta": {"stair": {"from_level": "L0", "to_level": "L1"}, "purpose": "stairs"}}]))
+    sc.append(run("re-import replaces and keeps names", base(), [
+        {"op": "import", "data": two_rooms(), "level": "L0", "blob": B, "names": ["Kitchen", "Pantry"]},
+        {"op": "import", "data": two_rooms(), "level": "L0", "blob": B, "names": ["Kitchen", "Larder"]}]))
+    sc.append(run("one scan on two floors", base(two=True), [{"op": "import", "data": two_rooms(), "level": "L0", "blob": B, "room_levels": [None, "L1"]}]))
+    sc.append(run("rescan one room", base(), [{"op": "import", "data": two_rooms(), "level": "L0", "blob": B}, {"op": "retire", "data": two_rooms(), "blob": B, "index": 1}]))
+    return json.loads(json.dumps(sc))
+
+
 def files() -> dict[str, str]:
-    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases())}
+    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios())}
     for name in FIXTURES:
         out[f"{name}.house.json"] = (ROOT / "tests" / "fixtures" / f"{name}.json").read_text()
     return out
