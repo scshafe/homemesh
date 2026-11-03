@@ -1,8 +1,10 @@
 # homemesh as a standalone iPhone app (design, for the owner's decision)
 
-Status: **proposal of 2026-11-03, docs only. Nothing here is accepted.** The current plans and code (server, web editor,
-`docs/design.md`, `docs/design-ios-app.md`) stay as they are until the owner accepts this design; the UI work now in flight
-(the five style changes, the VoiceOver route, the move to the `scshafe-ios` package) continues unchanged.
+Status: **accepted by the owner on 2026-11-03**, with every recommendation in section 13 accepted except Q6 (blueprints), which
+is still under discussion: nothing blueprint-specific is built or ported until the owner relays the answer. The answers are
+recorded in section 13. Phase 0 starts now and the phases follow under the standing order (planned-work PRs are auto-approved;
+only real design questions go to the owner). The UI work in flight (the five style changes, the VoiceOver route, the move to the
+`scshafe-ios` package) continues unchanged. The server, web editor and current iOS client stay the product until each phase's gate is met (section 7).
 
 Inputs: the owner's direction of 2026-11-02 (below) and the evaluation notes of the same day (an inventory of the server's functions,
 porting cost per function, what goes away, App Store needs, risks). Facts in the notes carry file references there; numbers
@@ -387,34 +389,28 @@ Nothing in the design depends on either, and the seams are cheap:
 - Licence and visibility: the Core is a separate package with its own tests, so it can move or be licensed on its own terms later. The one
   technical dependency is CI (section 10): a public repository keeps macOS Actions free. No code here assumes either choice.
 
-## 13. Open questions for the owner
+## 13. Open questions for the owner, and the answers (2026-11-03)
 
-Recommendation first in each.
+Every recommendation was accepted except Q6. The question text is kept; **Decision** lines are the owner's.
 
-1. **Accept the shape?** Core package plus thin app, server frozen then retired, Python kept as oracle (sections 2 and 7). *Recommend yes.*
-2. **Accuracy lines (section 3.1):** Good within 0.5 m loop residual, Check to 1 m, Fix first above. *Recommend adopting them provisionally and
-   tightening or loosening after the tape readings.*
-3. **Is 0.5 m the right line for you?** It is a model judgement, not a measurement of your house.
-4. **Keep "Guess for me"?** *Recommend dropping the geometric search in the standalone app; labelled doors only, plus drag.*
-5. **Floor-to-floor alignment** by staircase footprints only (as now). *Recommend yes.*
-6. **Blueprints:** keep as an aid and a no-LiDAR route (this design), or drop them as the earlier note considered once the tape readings
-   are in? *Recommend keep, iPad-first, and decide after the readings; it costs 2 to 3 of the weeks above.*
-7. **iPad:** a first-class layout in P3, or later? *Recommend in P3, since the editor is the main use of a large screen.*
-8. **Backup:** ship export/import only in v1 (option A) and add iCloud Drive (B) after; should USDZ blobs be excluded from the iPhone backup?
-   *Recommend A first, blobs included, revisit if size hurts.*
-9. **Real equipment models and sourced material priors** are content work (open since D12); the app is only as credible as they are. Who
-   supplies them, and are placeholders acceptable for the owner's own use? *Recommend placeholders for now, flagged "assumed" as today.*
-10. **Speed readings without a server:** typed figures from any speed-test app only, or a two-device test later? *Recommend typed.*
-11. **Diagnostics:** the on-phone event log and MetricKit stay local with a "share" button; no upload. *Recommend yes.*
-12. **Linux Swift spike:** may phase 0 install the open-source Swift toolchain on the agent's host (a download and an install
-    under the agent's home)? The answer changes the schedule more than any other single item.
-13. **Mac exit:** the owner's plan to leave the Mac affects the app-target build loop; is the Air staying as the build machine through P3?
-14. **Name and bundle id** for a store build (today `com.scshafe.homemesh-capture`, display "homemesh"); any change should come before
-    the first TestFlight.
-15. **Migration timing:** transitional import build after P1 (so houses can be inspected on the phone early), or only at P5? *Recommend after P1.*
+1. **Accept the shape?** Core package plus thin app, server frozen then retired, Python kept as oracle. **Decision: yes.**
+2. **Accuracy lines:** Good within 0.5 m loop residual, Check to 1 m, Fix first above. **Decision: adopted provisionally; tighten or loosen after the tape readings.**
+3. **Is 0.5 m the right line?** A model judgement, not a measurement. **Decision: stands provisionally with Q2.**
+4. **Keep "Guess for me"?** **Decision: dropped in the standalone app; labelled doors only, plus drag.**
+5. **Floor-to-floor alignment** by staircase footprints only. **Decision: yes.**
+6. **Blueprints:** keep as an aid and a no-LiDAR route, or drop once the tape readings are in? **Decision: OPEN, under discussion with the owner. Do not build or port anything blueprint-specific (the blueprint tools of section 4.3, blueprint blobs, the underlay, the blueprint import) until the owner relays the answer.** Everything else, including the editor's other tools and the document layout, proceeds; the layout leaves room for blueprint blobs without implementing them.
+7. **iPad:** first-class layout in P3. **Decision: yes.**
+8. **Backup:** export/import only in v1 (option A), iCloud Drive (B) after; USDZ blobs included in the phone backup, revisited if size hurts. **Decision: yes.**
+9. **Equipment models and material priors:** placeholders, flagged "assumed" as today. **Decision: yes.**
+10. **Speed readings without a server:** typed figures only. **Decision: yes.**
+11. **Diagnostics:** local event log and MetricKit with a share button, no upload. **Decision: yes.**
+12. **Linux Swift spike:** may phase 0 install the open-source Swift toolchain on the agent's host? **Decision: yes, under the agent's own home directory; no sudo, nothing system-wide.**
+13. **Mac exit:** **Decision: the Air stays** (the accepted Mac exit plan retires only the Pro and the Mini), so it remains available for device builds and installs; the build loop is still CI first.
+14. **Name and bundle id:** **Decision: keep `homemesh` and `com.scshafe.homemesh-capture` for now.**
+15. **Migration timing:** transitional import build after P1. **Decision: yes.**
 
 ## 14. What this design does not change
 
-No code, no existing document and no deployment changes with this PR. The server, the web editor and the iOS client remain the
-product until the owner accepts a design and a phase starts; this file then becomes the reference for that work and the
-sections above are copied into `design-ios-app.md` as they are built, in the repository's usual "As built" style.
+This file is the reference for the standalone work. The server, the web editor and the iOS client remain the product until each phase's
+gate is met; sections above are copied into `design-ios-app.md` (or a new design file for the package) as they are built, in the
+repository's usual "As built" style.
