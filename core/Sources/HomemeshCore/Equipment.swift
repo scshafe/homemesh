@@ -82,7 +82,8 @@ public struct Client: Codable, Sendable, Hashable {
 }
 
 public enum Catalogue {
-    public static func generic() -> [String: Equipment] {
+    /// In the order the Python catalogue lists them.
+    public static func genericList() -> [Equipment] {
         func ax(_ band: Band, _ w: Int, _ tx: Double, _ g: Double, dedicated: Bool = false) -> Radio { Radio(band: band, chains: 2, max_width: w, tx_dbm: tx, ant_gain_dbi: g, standard: .ax, dedicated_backhaul: dedicated) }
         let items = [
             Equipment(id: "generic-router-ax", name: "Generic dual-band AX router", kind: "router", radios: [ax(.b24, 20, 20, 3), ax(.b5, 80, 23, 4)],
@@ -93,14 +94,18 @@ public enum Catalogue {
                       radios: [ax(.b24, 20, 20, 3), ax(.b5, 80, 23, 4), ax(.b5, 80, 23, 4, dedicated: true)], ports: [Port(rate: 2500), Port(rate: 1000)], max_nodes: 5, max_hops: 3, price: 180,
                       notes: "A dedicated 5 GHz radio carries the node-to-node link."),
         ]
-        return Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return items
     }
 
-    public static func genericClients() -> [String: Client] {
+    public static func generic() -> [String: Equipment] { Dictionary(genericList().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) }
+
+    public static func genericClientList() -> [Client] {
         let items = [
             Client(id: "phone-2x2-ax", name: "Generic 2x2 AX phone", radios: ["2.4": ClientRadio(chains: 2, max_width: 20, standard: .ax), "5": ClientRadio(chains: 2, max_width: 80, standard: .ax)]),
             Client(id: "laptop-1x1-ac", name: "Generic 1x1 AC laptop", radios: ["2.4": ClientRadio(chains: 1, max_width: 20, standard: .n), "5": ClientRadio(chains: 1, max_width: 80, standard: .ac)]),
         ]
-        return Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return items
     }
+
+    public static func genericClients() -> [String: Client] { Dictionary(genericClientList().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) }
 }

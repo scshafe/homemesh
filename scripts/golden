@@ -295,8 +295,112 @@ def calibration_scenarios() -> list[dict]:
     return json.loads(json.dumps(out))
 
 
+def api_session() -> list[dict]:
+    """A recorded session against the Python API (FastAPI's test client): requests in order, with the status and body of each answer.
+    The Swift in-process API replays it and must answer the same (the `at` time stamps aside)."""
+    import os
+    import tempfile
+    from fastapi.testclient import TestClient
+    from homemesh import api, store
+    from tests.roomplan_synth import room, two_rooms
+    from tests.test_place import moved, wrap
+
+    log: list[dict] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST, api.DOOR_ADDR)}
+        os.environ[store.ENV] = tmp
+        os.environ[api.AUTH_HEADER] = "X-Door-User"
+        os.environ.pop(api.DEV, None)
+        os.environ[api.DOOR_ADDR] = "testclient"
+        os.environ[api.WEB_DIST] = os.path.join(tmp, "no-dist")
+        try:
+            c = TestClient(api.create_app())
+            hdr = {"X-Door-User": "owner"}
+
+            def call(method, path, body=None, raw=False):
+                kw = {"headers": hdr}
+                text = None
+                if body is not None:
+                    text = body if isinstance(body, str) else json.dumps(body)
+                    kw["content"] = text.encode()
+                    if not isinstance(body, str):
+                        kw["headers"] = {**hdr, "Content-Type": "application/json"}
+                r = c.request(method, path, **kw)
+                ctype = r.headers.get("content-type", "")
+                out = r.json() if ctype.startswith("application/json") else None
+                log.append({"method": method, "path": path, "body": text, "status": r.status_code, "response": out, "bytes": len(r.content) if out is None else None})
+                return r
+
+            a, b = two_rooms()["rooms"]
+            A = json.dumps(wrap(a))
+            B = json.dumps(wrap(moved(wrap(b), 37, 5, -3)["rooms"][0]))
+            call("GET", "/api/houses")
+            call("POST", "/api/houses", {"id": "demo", "name": "Demo"})
+            call("POST", "/api/houses", {"id": "demo", "name": "Again"})
+            call("GET", "/api/houses/summary")
+            call("GET", "/api/houses/nope")
+            call("POST", "/api/houses/demo/levels", {"name": "First"})
+            call("POST", "/api/houses/demo/levels", {"name": "Basement", "below": True, "height": 2.2})
+            call("POST", "/api/houses/demo/levels", {"name": " "})
+            order = ["L2", "L0", "L1"]
+            call("PUT", "/api/houses/demo/levels/order", {"order": order, "below_ground": ["L2"]})
+            call("PUT", "/api/houses/demo/levels/order", {"order": ["L0"]})
+            r = call("POST", "/api/houses/demo/captures?name=Kitchen%20scan&level=L0", A)
+            da = r.json()["blob"]
+            call("POST", "/api/houses/demo/captures?level=nowhere", A)
+            call("POST", "/api/houses/demo/captures", "not json")
+            call("PUT", f"/api/houses/demo/captures/{da}/rooms", {"names": ["Kitchen"], "descriptions": ["the big one"]})
+            call("PUT", f"/api/houses/demo/captures/{da}/rooms", {"names": ["a", "b"]})
+            call("GET", f"/api/houses/demo/captures/{da}/doors")
+            call("PUT", f"/api/houses/demo/captures/{da}/doors", {"labels": {"A-door0": "Pantry", "zzz": "x"}})
+            call("GET", "/api/houses/demo/captures")
+            call("GET", "/api/houses/demo/rooms")
+            call("GET", "/api/houses/demo/doors")
+            def rev():
+                return c.get("/api/houses/demo", headers=hdr).json()["revision"]
+
+            place = call("POST", f"/api/houses/demo/captures/{da}/place?level=L0").json()
+            imp = call("POST", f"/api/houses/demo/captures/{da}/import?level=L0", {"transform": place["transform"]}).json()
+            call("PUT", "/api/houses/demo?expect_revision=1", imp["house"])
+            call("PUT", f"/api/houses/demo?expect_revision={rev()}", imp["house"])
+            call("GET", "/api/houses/demo/rooms")
+            r = call("POST", "/api/houses/demo/captures?name=Pantry%20scan&level=L0", B)
+            db = r.json()["blob"]
+            call("PUT", f"/api/houses/demo/captures/{db}/rooms", {"names": ["Pantry"]})
+            call("POST", f"/api/houses/demo/captures/{db}/place?level=L0")
+            call("PUT", f"/api/houses/demo/captures/{db}/doors", {"labels": {"B-door0": "Kitchen"}})
+            call("GET", "/api/houses/demo/doors?level=L0")
+            pb = call("POST", f"/api/houses/demo/captures/{db}/place?level=L0").json()
+            ib = call("POST", f"/api/houses/demo/captures/{db}/import?level=L0", {"transform": pb["transform"]}).json()
+            call("PUT", f"/api/houses/demo?expect_revision={rev()}", ib["house"])
+            call("GET", "/api/houses/demo/rooms")
+            call("GET", "/api/houses/demo")
+            call("POST", f"/api/houses/demo/captures/{db}/import?level=L0", {"transform": {"rotation": 10.0, "tx": 1.0, "ty": 2.0}})
+            call("PUT", f"/api/houses/demo/captures/{db}/level", {"level": "L1"})
+            call("PUT", f"/api/houses/demo/captures/{db}/level", {"level": "zzz"})
+            call("PUT", f"/api/houses/demo/captures/{da}/stair", {"from_level": "L0", "to_level": "L1"})
+            call("PUT", f"/api/houses/demo/captures/{da}/stair", {"from_level": "L0", "to_level": "L0"})
+            call("POST", "/api/houses/demo/stairs", {"from_level": "L0", "to_level": "L1", "polygon": [[1, 1], [2, 1], [2, 3], [1, 3]]})
+            call("GET", "/api/houses/demo/revisions")
+            call("POST", "/api/houses/demo/revisions/2/restore?expect_revision=1")
+            call("POST", f"/api/houses/demo/revisions/2/restore?expect_revision={rev()}")
+            call("POST", f"/api/houses/demo/revisions/99/restore?expect_revision={rev()}")
+            call("GET", "/api/houses/demo/revisions")
+            call("GET", "/api/catalogue")
+            call("GET", f"/api/houses/demo/blobs/{da}")
+            call("GET", f"/api/houses/demo/blobs/{'0' * 64}")
+            call("GET", "/api/houses")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    return json.loads(json.dumps(log))
+
+
 def files() -> dict[str, str]:
-    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios()), "plans.json": json.dumps(plan_scenarios()), "calibrations.json": json.dumps(calibration_scenarios())}
+    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios()), "plans.json": json.dumps(plan_scenarios()), "calibrations.json": json.dumps(calibration_scenarios()), "api_session.json": json.dumps(api_session())}
     for name in FIXTURES:
         out[f"{name}.house.json"] = (ROOT / "tests" / "fixtures" / f"{name}.json").read_text()
     return out
