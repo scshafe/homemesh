@@ -158,8 +158,66 @@ def import_scenarios() -> list[dict]:
     return json.loads(json.dumps(sc))
 
 
+def place_scenarios() -> list[dict]:
+    """Placement by labelled doors, the doors checklist, the first scan of a floor and an empty plan, from the Python engine."""
+    import copy
+    import math
+    from homemesh import connections, place
+    from homemesh.materials import default_materials
+    from homemesh.model import Level, Slab, Stair
+    from homemesh.roomplan import import_capture, stair_footprints
+    from tests.roomplan_synth import room, two_rooms
+    from tests.test_place import empty_house, moved, wrap
+    from tests.test_stairs import two_level_house, with_stairs
+
+    def dump(h):
+        return json.loads(h.model_dump_json())
+
+    a, b = two_rooms()["rooms"]
+    A, B = "A" * 64, "B" * 64
+    out = []
+
+    def add(name, house, scan, level, blob, **kw):
+        res = place.propose(house, scan, level, blob, **kw)
+        out.append({"name": name, "house": dump(house), "scan": scan, "level": level, "blob": blob,
+                    "names": kw.get("names"), "door_labels": kw.get("door_labels") or {}, "plan_labels": kw.get("plan_labels") or {}, "expect": res})
+
+    house, _ = import_capture(empty_house(), wrap(a), "L0", A, names=["Kitchen"])
+    scan = wrap(moved(wrap(b), 37, 5, -3)["rooms"][0])
+    plan_labels = {A + "#A-door0": "Pantry"}
+    add("labelled connection", house, scan, "L0", B, names=["Pantry"], door_labels={"B-door0": "kitchen"}, plan_labels=plan_labels)
+    add("no labels", house, scan, "L0", B, names=["Pantry"])
+    add("one way", house, scan, "L0", B, names=["Pantry"], door_labels={"B-door0": "Kitchen"})
+    add("elsewhere", house, scan, "L0", B, names=["Pantry"], door_labels={"B-door0": "Garage"}, plan_labels=plan_labels)
+    add("outside", house, scan, "L0", B, names=["Pantry"], door_labels={"B-door0": "Outside"}, plan_labels=plan_labels)
+    a2 = room(0, 0, 4, 3, "A", doors=[(4.0, 1.0, 0, 1), (4.0, 2.2, 0, 1)])
+    b2 = room(4.12, 0, 8.12, 3, "B", doors=[(4.12, 1.0, 0, 1), (4.12, 2.2, 0, 1)])
+    house2, _ = import_capture(empty_house(), wrap(a2), "L0", A, names=["Kitchen"])
+    scan2 = wrap(moved(wrap(b2), 20, 2, 3)["rooms"][0])
+    add("two connections", house2, scan2, "L0", B, names=["Pantry"], door_labels={"B-door0": "Kitchen", "B-door1": "Kitchen"},
+        plan_labels={A + "#A-door0": "Pantry", A + "#A-door1": "Pantry"})
+    add("empty plan", empty_house(), wrap(moved(wrap(b), 20, 0, 0)["rooms"][0]), "L0", B)
+    th = two_level_house()
+    lower = wrap(with_stairs(room(0, 0, 6, 4, "A"), 2.0, 1.5))
+    th, rep = import_capture(th, lower, "L0", A)
+    poly = [tuple(p) for p in rep.stairs[0]["polygon"]]
+    th = th.model_copy(update={"stairs": [Stair(id="s1", from_level="L0", to_level="L1", polygon=poly)]})
+    upper = moved(wrap(with_stairs(room(10, 10, 15, 14, "U"), 11.5, 12.0)), 53, 4, -2)
+    add("first scan of a floor by the staircase", th, upper, "L1", "U" * 64)
+
+    metas = [
+        {"blob": "k" * 64, "name": "Kitchen scan", "level": "L0", "at": 1, "rooms": ["Kitchen"], "doors": [{"id": "d1", "room": 0, "number": 1}, {"id": "d2", "room": 0, "number": 2}],
+         "door_labels": {"d1": "Pantry", "d2": "Outside"}},
+        {"blob": "p" * 64, "name": "Pantry scan", "level": "L0", "at": 2, "rooms": ["Pantry"], "doors": [{"id": "e1", "room": 0, "number": 1}], "door_labels": {"e1": "Kitchen"}},
+        {"blob": "h" * 64, "name": "Hall scan", "level": "L0", "at": 3, "rooms": ["Hall"], "doors": [{"id": "f1", "room": 0, "number": 1}, {"id": "f2", "room": 0, "number": 2}],
+         "door_labels": {"f1": "Study"}},
+        {"blob": "s" * 64, "name": "stairs", "level": "L0", "at": 4, "rooms": ["S"], "doors": [], "purpose": "stairs"},
+    ]
+    return json.loads(json.dumps({"scenarios": out, "checklist": {"metas": metas, "expect": connections.checklist(metas)}}))
+
+
 def files() -> dict[str, str]:
-    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios())}
+    out = {"propagation.json": json.dumps(propagation_cases()), "rates.json": json.dumps(rate_cases()), "imports.json": json.dumps(import_scenarios()), "places.json": json.dumps(place_scenarios())}
     for name in FIXTURES:
         out[f"{name}.house.json"] = (ROOT / "tests" / "fixtures" / f"{name}.json").read_text()
     return out
