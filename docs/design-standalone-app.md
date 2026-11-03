@@ -464,3 +464,26 @@ tested as pure code. The gesture layer, the loupe and the touch feel are not par
 
 **Consequences for the plan.** No change to the phases or the estimates. Phase 1 (model, store, import) is next; the package already holds
 the geometry, propagation, rates, layout and edit core it will build on.
+
+## 16. As built: P1 core and P2 (2026-11-03)
+
+In `core/` (`HomemeshCore`), all with golden parity against the Python engine on synthetic data (`scripts/golden`, `tests/test_golden.py` keeps the vectors current):
+
+- **Model** (`Model.swift`, `Validation.swift`): every type of `homemesh/model.py` as strict `Codable` (all fields written, defaults for building in code,
+  nil fields left out); `House.validate()` ports `validate_refs` and the field rules. Every fixture decodes, encodes and compares equal to the Python
+  output. Blueprints are left out (`underlays` decode and are not kept), as decided.
+- **Store** (`Store.swift`, `SHA256.swift`): one folder per house, `house.json`, `revisions/<n>.json` (the newest `keep`, default 20), atomic writes, a stale
+  revision is a conflict, an invalid house is refused, restore writes an old revision as the next one, content-addressed blobs (SHA-256 written here so the Core
+  needs only Foundation).
+- **Scan import** (`ScanImport.swift`, `Stack.swift`): a port of `roomplan.py`: surfaces to walls, face-pair merge, chords for curves, jog folding, openings clamped
+  into their walls, rooms, furniture, stairs (and `apply_stair` with the rise setting floor heights), re-scan retire, split scans on two floors, `register`. Seventeen
+  scenarios (the Python tests' synthetic scans, including re-import and re-scan steps) match the Python output to 2e-4 m.
+- **Placement** (`Placement.swift`, `Connections.swift`): placement by labelled doors (the same pairing, side rule, wall-thickness offset and least-squares fit as
+  `place.py`), the unlabelled answer listing what is missing, the empty-plan and staircase cases, and the doors checklist. Eight scenarios match, including the
+  reasons. There is no candidate search (Q4). Two deliberate differences: the room-overlap figure is the exact area of the overlap of the convex room hulls
+  (Python samples a grid), and a plan door's label is found whatever its kind, so an arch counts as a door as the design says (Python's lookup missed arches).
+- **Layout** (`Layout.swift`): the global stitching of section 3 (spanning tree plus least squares, loop residuals) is the addition for re-solving a whole
+  floor; the per-scan placement above is what the scan flow uses.
+
+Next: the app target depends on this package (P1 app side: open a house from local files read-only, the transitional import build), then the editor (P3).
+
