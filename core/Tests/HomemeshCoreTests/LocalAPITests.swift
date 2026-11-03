@@ -6,7 +6,8 @@ import Testing
     let log = try JSONSerialization.jsonObject(with: golden("api_session")) as! [JObject]
     #expect(log.count >= 50)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("homemesh-api-\(UUID().uuidString)")
-    let api = LocalAPI(root: root, now: { 1_700_000_000 })
+    let ticks = Ticks()
+    let api = LocalAPI(root: root, now: { 1_700_000_000 + ticks.next() })
     var lastJobPath: String?
     for (n, rec) in log.enumerated() {
         let method = rec["method"] as! String
@@ -57,4 +58,11 @@ func simplified(_ p: [[Double]]) -> [[Double]] {
         }
     }
     return pts
+}
+
+/// A clock that moves one second per reading, as the recorded session's did.
+final class Ticks: @unchecked Sendable {
+    private var n = 0.0
+    private let lock = NSLock()
+    func next() -> Double { lock.withLock { n += 1; return n } }
 }

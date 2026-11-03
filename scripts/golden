@@ -310,11 +310,12 @@ def api_session() -> list[dict]:
 
     log: list[dict] = []
     counter = itertools.count(1)
+    clock = itertools.count(1)   # one second per scan stored: the list of scans is newest first, so the times must differ
 
     class _Id:
         def __init__(self, n): self.hex = f"{n:032x}"
 
-    with tempfile.TemporaryDirectory() as tmp, mock.patch("homemesh.captures.time.time", return_value=1_700_000_000.0), \
+    with tempfile.TemporaryDirectory() as tmp, mock.patch("homemesh.captures.time.time", side_effect=lambda: 1_700_000_000.0 + next(clock)), \
             mock.patch("homemesh.jobs.uuid.uuid4", side_effect=lambda: _Id(next(counter))):
         saved = {k: os.environ.get(k) for k in (store.ENV, api.AUTH_HEADER, api.DEV, api.WEB_DIST, api.DOOR_ADDR)}
         os.environ[store.ENV] = tmp
