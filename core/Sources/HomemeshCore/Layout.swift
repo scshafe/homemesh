@@ -69,9 +69,9 @@ public enum Layout {
         while !queue.isEmpty {
             let s = queue.removeFirst()
             for (i, c) in connections.enumerated() where !inTree[i] {
-                var placed: DoorRef, new: DoorRef, flip: Bool
-                if c.a.scan == s, poses[c.b.scan] == nil { placed = c.a; new = c.b; flip = false }
-                else if c.b.scan == s, poses[c.a.scan] == nil { placed = c.b; new = c.a; flip = true }
+                var placed: DoorRef, new: DoorRef
+                if c.a.scan == s, poses[c.b.scan] == nil { placed = c.a; new = c.b }
+                else if c.b.scan == s, poses[c.a.scan] == nil { placed = c.b; new = c.a }
                 else { continue }
                 let ps = poses[s]!
                 let nw = ps.rotate(placed.normal)
