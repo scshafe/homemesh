@@ -87,7 +87,7 @@ public struct PropagationModel: Sendable {
             let dx = rx[i].x - tx.x, dy = rx[i].y - tx.y, dz = rx[i].z - tx.z
             out[i] = base + 10 * n * log10(max((dx * dx + dy * dy + dz * dz).squareRoot(), 1))
         }
-        walk(tx: tx, rx: rx, band: band, unit: false) { i, _, db in out[i] += db }
+        walk(tx: tx, rx: rx, band: band, unit: false) { i, _, db, _, _ in out[i] += db }
         return out
     }
 
@@ -95,16 +95,26 @@ public struct PropagationModel: Sendable {
     /// losses, `loss = sum exposure_m * L_m`, and calibration regresses on this. The same geometry with every loss set to 1 dB.
     public func exposures(tx: Vec3, rx: [Vec3], band: Band) -> [String: [Double]] {
         var out: [String: [Double]] = [:]
-        walk(tx: tx, rx: rx, band: band, unit: true) { i, material, db in
+        walk(tx: tx, rx: rx, band: band, unit: true) { i, material, db, _, _ in
             if out[material] == nil { out[material] = [Double](repeating: 0, count: rx.count) }
             out[material]![i] += db
         }
         return out
     }
 
+    /// The largest-first list of (kind, element id, dB) for one transmitter/receiver pair: what costs signal between them.
+    public func explainPoint(tx: Vec3, rx: Vec3, band: Band) -> [(kind: String, id: String, db: Double)] {
+        var totals: [(kind: String, id: String, db: Double)] = []
+        walk(tx: tx, rx: [rx], band: band, unit: false) { _, _, db, slab, id in
+            let kind = slab ? "slab" : "wall"
+            if let k = totals.firstIndex(where: { $0.kind == kind && $0.id == id }) { totals[k].db += db } else { totals.append((kind, id, db)) }
+        }
+        return totals.enumerated().sorted { $0.element.db != $1.element.db ? $0.element.db > $1.element.db : $0.offset < $1.offset }.map(\.element)
+    }
+
     /// Every wall and slab the segment crosses, reported per receiver as (index, material, dB). `unit` charges 1 dB for every
     /// material (and nothing extra for an `air` one) so the amounts count units of material.
-    func walk(tx: Vec3, rx: [Vec3], band: Band, unit: Bool, charge: (Int, String, Double) -> Void) {
+    func walk(tx: Vec3, rx: [Vec3], band: Band, unit: Bool, charge: (_ receiver: Int, _ material: String, _ db: Double, _ slab: Bool, _ element: String) -> Void) {
         func lossOf(_ id: String) -> Double { id == "air" ? 0 : (unit ? 1 : (materials[id]?.loss(band) ?? 0)) }
         for w in house.walls {
             let floor = elevation[w.level] ?? 0
@@ -133,10 +143,10 @@ public struct PropagationModel: Sendable {
                 for o in w.openings where along >= o.offset && along <= o.offset + o.width && zrel >= o.sill && zrel <= o.sill + o.height {
                     through = false
                     let db = o.state == "open" ? 0 : lossOf(o.material)
-                    if db != 0 { charge(i, o.material, db) }
+                    if db != 0 { charge(i, o.material, db, false, w.id) }
                     break   // a point inside one opening is not charged for another
                 }
-                if through && wallDb != 0 { charge(i, w.material, wallDb * (thick / cosT)) }
+                if through && wallDb != 0 { charge(i, w.material, wallDb * (thick / cosT), false, w.id) }
             }
         }
         for lv in house.levels {
@@ -151,7 +161,7 @@ public struct PropagationModel: Sendable {
                 let s = (zb - tx.z) / (dz != 0 ? dz : 1)
                 let x = tx.x + s * (rx[i].x - tx.x), y = tx.y + s * (rx[i].y - tx.y)
                 if polys.contains(where: { Self.inPolygon(x, y, $0) }) { continue }
-                charge(i, slab.material, db)
+                charge(i, slab.material, db, true, lv.id)
             }
         }
     }

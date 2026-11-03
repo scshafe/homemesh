@@ -48,3 +48,35 @@ import Testing
         }
     }
 }
+
+@Test func explanationsMatchThePythonOracleExceptTheStabilityDraws() throws {
+    let scenarios = try JSONSerialization.jsonObject(with: golden("plans")) as! [JObject]
+    for sc in scenarios {
+        let name = sc["name"] as! String
+        let house = try House.load(JSONSerialization.data(withJSONObject: sc["house"]!))
+        let n = sc["n"] as! [String: Double], extra = sc["extra_loss"] as! [String: Double]
+        let params = PropParams(n: Dictionary(uniqueKeysWithValues: n.map { (Band(rawValue: $0.key)!, $0.value) }), extraLoss: Dictionary(uniqueKeysWithValues: extra.map { (Band(rawValue: $0.key)!, $0.value) }))
+        let ctx = try PlanContext(house: house, catalogue: Catalogue.generic(), client: Catalogue.genericClients()["phone-2x2-ax"]!, params: params, step: 1.0)
+        var cfg = PlanConfig()
+        cfg.equipment = sc["equipment"] as! [String]; cfg.k_max = sc["k_max"] as! Int; cfg.candidate_step = sc["candidate_step"] as! Double
+        cfg.policy.trust_unknown_jacks = sc["trust_unknown_jacks"] as! Bool
+        let results = try Planner.search(ctx, cfg)
+        let gw = NodePlacement(equipment: cfg.gateway_equipment, position: house.entry!.position, level: house.entry!.level, height: cfg.gateway_height)
+        for w in sc["explanations"] as! [JObject] {
+            let i = w["index"] as! Int
+            let ex = try Explain.explain(ctx, gateway: gw, best: results[i], runnerUp: results[i + 1], cfg: cfg, samples: 12)
+            let tag = "\(name) #\(i + 1)"
+            for (z, y) in zip(ex.zones, w["zones"] as! [JObject]) {
+                #expect(z.limiter == y["limiter"] as! String, "\(tag): \(z.zone) limiter")
+                #expect(abs(z.mean_rate - (y["mean_rate"] as! Double)) < 1e-4 && abs(z.frac_target - (y["frac_target"] as! Double)) < 1e-9 && abs(z.utility - (y["utility"] as! Double)) < 1e-6, "\(tag): \(z.zone) numbers")
+                if z.limiter != "access" { #expect(z.detail == y["detail"] as! String, "\(tag): \(z.zone) detail \"\(z.detail)\"") }
+            }
+            let contrib = w["node_contribution"] as! [[Double]]
+            #expect(ex.node_contribution.count == contrib.count, "\(tag): contributions")
+            for (a, b) in zip(ex.node_contribution, contrib) { #expect(a.node == Int(b[0]) && abs(a.drop - b[1]) < 1e-6, "\(tag): contribution") }
+            #expect(ex.vs_runner_up == w["vs"] as! [String], "\(tag): vs runner-up")
+            #expect(ex.depends_on_jacks == w["depends_on_jacks"] as! [String], "\(tag): jacks")
+            if let s = ex.stability { #expect((0...1).contains(s), "\(tag): stability") }
+        }
+    }
+}

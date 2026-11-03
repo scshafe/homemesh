@@ -232,7 +232,15 @@ def plan_scenarios() -> list[dict]:
         ctx = Context(h, cat.equipment, cat.clients["phone-2x2-ax"], params=params, step=1.0)
         cfg = PlanConfig(equipment=("generic-mesh-ax", "generic-mesh-tri"), k_max=k_max, candidate_step=step, policy=Policy(trust_unknown_jacks=trust))
         results = search(ctx, cfg, cat.equipment)
-        out.append({"name": name, "house": json.loads(h.model_dump_json()), "n": params.n, "extra_loss": params.extra_loss, "client": "phone-2x2-ax", "grid": 1.0, "equipment": list(cfg.equipment),
+        from homemesh.explain import explain
+        from homemesh.network import Placement
+        gw = Placement(cfg.gateway_equipment, h.entry.position, h.entry.level, cfg.gateway_height)
+        exps = []
+        for i in range(min(3, len(results) - 1)):
+            ex = explain(ctx, gw, results[i], results[i + 1], cfg, samples=12)
+            exps.append({"index": i, "zones": [{"zone": z.zone, "limiter": z.limiter, "detail": z.detail, "mean_rate": z.mean_rate, "frac_target": z.frac_target, "utility": z.utility} for z in ex.zones],
+                         "node_contribution": [[n, c] for n, c in ex.node_contribution], "vs": ex.vs_runner_up, "stability": ex.stability, "depends_on_jacks": ex.depends_on_jacks, "lines": ex.lines})
+        out.append({"explanations": exps, "name": name, "house": json.loads(h.model_dump_json()), "n": params.n, "extra_loss": params.extra_loss, "client": "phone-2x2-ax", "grid": 1.0, "equipment": list(cfg.equipment),
                     "k_max": k_max, "candidate_step": step, "trust_unknown_jacks": trust, "count": len(results),
                     "results": [serialise(r) for r in results[:12]]})
 
