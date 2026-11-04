@@ -8,6 +8,7 @@ public indirect enum Edit: Sendable {
     case removeWall(Wall)                 // carries the wall so the inverse can put it back
     case replaceWall(old: Wall, new: Wall)
     case group([Edit])
+    case snapshot(before: House, after: House)    // a whole change of the house, as the wall and opening operations make
 
     public var inverse: Edit {
         switch self {
@@ -15,6 +16,7 @@ public indirect enum Edit: Sendable {
         case .removeWall(let w): .addWall(w)
         case .replaceWall(let o, let n): .replaceWall(old: n, new: o)
         case .group(let es): .group(es.reversed().map(\.inverse))
+        case .snapshot(let b, let a): .snapshot(before: a, after: b)
         }
     }
 }
@@ -27,6 +29,13 @@ public struct Document: Sendable {
     public var canRedo: Bool { !redoStack.isEmpty }
 
     public init(_ house: House) { self.house = house }
+
+    mutating func record(_ before: House, _ after: House) {
+        house = after
+        undoStack.append(.snapshot(before: before, after: after))
+        if undoStack.count > 200 { undoStack.removeFirst(undoStack.count - 200) }
+        redoStack.removeAll()
+    }
 
     /// Applies an edit and records it for undo (a new edit clears redo).
     public mutating func apply(_ e: Edit) {
@@ -54,6 +63,7 @@ public struct Document: Sendable {
         case .replaceWall(_, let n):
             if let i = h.walls.firstIndex(where: { $0.id == n.id }) { h.walls[i] = n }
         case .group(let es): for x in es { run(x, on: &h) }
+        case .snapshot(_, let after): h = after
         }
     }
 
