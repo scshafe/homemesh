@@ -504,3 +504,24 @@ In `core/`, with golden parity against Python on synthetic data (`scripts/golden
   call from several tasks (the caches are locked), so a progress screen with cancel is a wrapper in the app. Phone timings still need a device run.
 - Not ported yet: CSV measurement import, "measure here next" suggestions, rate-map serialisation for the screens (the grids are in `PlanContext`).
 
+## 18. As built: the in-process API, the app on the phone, and the editor's first tools (2026-11-03)
+
+- **`LocalAPI`** (`core/Sources/HomemeshCore/LocalAPI*.swift`, `Captures.swift`, `Normalize.swift`): the server's API in process. The paths, JSON and status codes the screens
+  use: houses (list, summary, create, save with `expect_revision`), floors (add, order), staircases, scans (upload, USDZ, room names, floor, staircase floors, door labels),
+  the room list, the doors checklist, placement, import, revisions and restore, blobs, the catalogue, plan jobs (a worker task, polled), rate maps and calibration.
+  A recorded session of 61 requests against the Python API (FastAPI's test client, invented houses) is replayed in `LocalAPITests`: every answer matches, apart from time stamps,
+  job ids, the rank-stability percentage and access-limited detail text. The layout on disk is the server's (`houses/<id>/house.json`, `revisions/`, `blobs/`, `captures/`),
+  so a house folder moves between the two as it is. A document with fields left out (the passthrough editor adds objects with only the fields it knows) is filled with the
+  model's defaults before it is read (`Normalize`). Blueprints are dropped on reading.
+- **The app** (`ios/`): `HomemeshCore` is a package dependency; the client has a transport (the server, or `LocalAPI`), so no screen changed. Settings has "Keep the houses on this
+  phone" (off until a house is copied over), the demo houses from the bundle, and a house screen menu "Copy to this phone": it copies the document, every scan's index and every
+  file one at a time, refuses to overwrite, then checks the copy against the server's own counts and says what differs. With the switch on there is no sign-in and no diagnostics upload.
+- **Editing operations in the Core** (`WallOps.swift`, `AreaOps.swift`, `HitTest.swift`, `Snap.swift`, `EditOps.swift`): move a wall end (joined walls follow), move walls,
+  split, merge, close small gaps, square up (to the direction most wall length agrees on), set thickness/material/height for several walls, delete; add, slide, resize and remove
+  doors, windows and doorways; lines from typed lengths; fill a gap (the closing walls and the outline of an open room from its walls); zones (add, move, insert and remove
+  corners, copy to a floor); staircases (add, turn round, step count); floors (copy walls, set height); hit testing; `Document.perform` makes each a single undoable step.
+- **Editor tools in the app**: Walls (tap corners, snapped to corners, walls and right angles, tap the first corner to close; material and thickness chosen above the plan), "By
+  numbers" (typed directions and lengths), Doors and windows (tap a wall), and a Fix menu (square up, close small gaps). They run the Core operations on the document the screens
+  edit and save the result as the next revision, so Undo (revisions) works as before. Not done yet: dragging wall ends with a loupe, sliding and resizing openings by touch, the
+  fill-the-gap tool's screen, duplicating a zone to another floor from the screen, the iPad layout.
+
