@@ -31,7 +31,7 @@ struct Client: Sendable {
         case .local(let api):
             do { return try api.handle(method, path, body: body ?? Data()) }
             catch let e as APIError {
-                if e.status == 409 { throw Uploader.Failure(message: "Changed elsewhere; reload and try again") }
+                if e.status == 409 && (e.detail.hasPrefix("stale revision") || e.detail.contains("changed elsewhere")) { throw Uploader.Failure(message: "Changed elsewhere; reload and try again") }
                 throw Uploader.Failure(message: e.detail)
             }
         case .server(let s, let t): server = s; token = t

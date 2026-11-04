@@ -26,7 +26,7 @@ final class LocalLibraryTests: XCTestCase {
         XCTAssertEqual(houses.map(\.id), ["home"])
         XCTAssertEqual(houses[0].levels.map(\.name), ["Ground", "First"])
         do { _ = try await client.createHouse(id: "home", name: "Again"); XCTFail("a second house with the same id must be refused") }
-        catch { XCTAssertTrue("\(error)".contains("exists") || error.localizedDescription.contains("exists")) }
+        catch { XCTAssertTrue(error.localizedDescription.contains("exists"), error.localizedDescription) }
     }
 
     func testAScanUploadedToTheLibraryCanBeNamedAndItsDoorsRead() async throws {
