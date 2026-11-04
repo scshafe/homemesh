@@ -122,3 +122,50 @@ func same(_ a: Vec2, _ b: Vec2, _ tol: Double = 1e-9) -> Bool { (a - b).length <
     doc.redo(); doc.redo()
     #expect(doc.house.walls.first { $0.id == "e0" }!.material == "concrete" && !doc.canRedo)
 }
+
+@Test func zonesAreAddedEditedAndCopiedAsOneStepEach() throws {
+    let h = try box()
+    let (a, id) = try #require(ZoneOps.add(h, kind: "demand", level: "L0", polygon: [Vec2(1, 1), Vec2(3, 1), Vec2(3, 3), Vec2(1, 3)], name: "Desk"))
+    #expect(a.zones.last?.need != nil && a.validate() == [])
+    let moved = try #require(ZoneOps.moveVertex(a, zone: id, vertex: 2, to: Vec2(4, 4)))
+    #expect(moved.zones.last!.polygon[2] == Vec2(4, 4))
+    let more = try #require(ZoneOps.insertVertex(moved, zone: id, after: 0))
+    #expect(more.zones.last!.polygon.count == 5 && more.zones.last!.polygon[1] == Vec2(2, 1))
+    #expect(ZoneOps.removeVertex(a, zone: id, vertex: 0)!.zones.last!.polygon.count == 3)
+    #expect(ZoneOps.removeVertex(ZoneOps.removeVertex(a, zone: id, vertex: 0)!, zone: id, vertex: 0) == nil, "an area keeps three corners")
+    #expect(ZoneOps.add(h, kind: "nonsense", level: "L0", polygon: [Vec2(0, 0)]) == nil)
+    #expect(ZoneOps.add(h, kind: "forbid", level: "L0", polygon: [Vec2(1, 1)])!.0.zones.last!.polygon.count == 1)
+    var two = h
+    two.levels.append(Level(id: "L1", name: "First", elevation: 2.8, height: 2.5, slab: Slab(material: "slab-wood", thickness: 0.3)))
+    let (dup, did) = try #require(ZoneOps.duplicate(two, zone: "z-office", to: "L1"))
+    #expect(dup.zones.first { $0.id == did }!.level == "L1" && dup.validate() == [])
+    #expect(ZoneOps.delete(a, zone: id)!.zones.count == h.zones.count)
+}
+
+@Test func staircasesAreAddedTurnedAndCounted() throws {
+    var h = try box()
+    h.levels.append(Level(id: "L1", name: "First", elevation: 2.8, height: 2.5, slab: Slab(material: "slab-wood", thickness: 0.3)))
+    let (a, id) = try #require(StairOps.add(h, level: "L0", target: "L1", bottom: Vec2(1, 1), top: Vec2(1, 4)))
+    let s = a.stairs.last!
+    #expect(s.from_level == "L0" && s.to_level == "L1" && s.polygon.count == 4 && s.low == Vec2(1, 1))
+    let down = try #require(StairOps.add(h, level: "L1", target: "L0", bottom: Vec2(1, 1), top: Vec2(1, 4))).0.stairs.last!
+    #expect(down.from_level == "L0" && down.to_level == "L1", "the lower floor holds the footprint whichever floor it was drawn on")
+    let turned = try #require(StairOps.turn(a, stair: id))
+    #expect(turned.stairs.last!.low!.y > 3.9)
+    #expect(try #require(StairOps.turn(turned, stair: id)).stairs.last!.low!.y < 1.1)
+    #expect(StairOps.setSteps(a, stair: id, steps: 16)!.stairs.last!.steps == 16 && StairOps.setSteps(a, stair: id, steps: 1) == nil)
+    #expect(StairOps.add(h, level: "L0", target: "L0", bottom: Vec2(0, 0), top: Vec2(0, 3)) == nil)
+    #expect(a.validate() == [])
+}
+
+@Test func aFloorCanStartAsACopyOfAnother() throws {
+    var h = try box()
+    h.levels.append(Level(id: "L1", name: "First", elevation: 2.8, height: 2.5, slab: Slab(material: "slab-wood", thickness: 0.3)))
+    let (out, n) = try #require(FloorOps.copyWalls(h, from: "L0", to: "L1"))
+    #expect(n == 5 && out.walls.filter { $0.level == "L1" }.count == 5 && Set(out.walls.map(\.id)).count == out.walls.count)
+    #expect(out.validate() == [])
+    #expect(FloorOps.copyWalls(h, from: "L1", to: "L0") == nil, "nothing to copy")
+    let taller = try #require(FloorOps.setHeight(out, level: "L0", height: 3.0))
+    #expect(abs(taller.levels[1].elevation - (3.0 + 0.3)) < 1e-9, "the floor above moves up with it")
+    #expect(FloorOps.setHeight(out, level: "L0", height: 9) == nil)
+}
