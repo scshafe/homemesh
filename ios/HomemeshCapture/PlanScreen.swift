@@ -1,12 +1,15 @@
+import HomemeshCore
 import SwiftUI
 
 enum PlanTool: String, CaseIterable, Identifiable {
-    case select = "Select", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", entry = "Internet", measure = "Measure", stair = "Stair", zone = "Zone"
+    case select = "Select", wall = "Walls", opening = "Doors and windows", outlet = "Outlet", jack = "Jack", accessPoint = "Access point", entry = "Internet", measure = "Measure", stair = "Stair", zone = "Zone"
     var id: String { rawValue }
 
     var symbol: String {
         switch self {
         case .select: "cursorarrow"
+        case .wall: "pencil.line"
+        case .opening: "door.left.hand.open"
         case .outlet: "powerplug"
         case .jack: "cable.connector"
         case .accessPoint: "wifi.router"
@@ -43,6 +46,11 @@ struct PlanScreen: View {
     @State private var bounds = CGRect(x: -1, y: -1, width: 2, height: 2)
     @State private var detent = PresentationDetent.height(220)
     @State private var zoneForm = false
+    @State private var wallMaterial = "drywall"
+    @State private var wallThickness = "0.1"
+    @State private var openingKind = "door"
+    @State private var snapNote = ""
+    @State private var numbersForm = false
     @State private var stairForm = false
 
     private var markers: [PlanMarker] {
@@ -88,6 +96,12 @@ struct PlanScreen: View {
                         Text(draft.isEmpty ? "Tap the bottom of the stairs, then the top." : "Now tap the top of the stairs.").font(.footnote)
                     }
                 }
+                if tool == .wall { wallBar }
+                if tool == .opening {
+                    HStack {
+                        Picker("Kind", selection: $openingKind) { Text("Door").tag("door"); Text("Window").tag("window"); Text("Open doorway").tag("arch") }.pickerStyle(.segmented)
+                    }.padding(.horizontal)
+                }
                 PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
                            bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), stairLayouts: stairsHere.compactMap { stairLayout($0, plan) }, draft: draft,
                            selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone,
@@ -121,6 +135,8 @@ struct PlanScreen: View {
         .toolbar {
             ToolbarItemGroup(placement: .bottomBar) {
                 toolButton(.select)
+                toolButton(.wall)
+                toolButton(.opening)
                 Menu {
                     ForEach(PlanTool.placing) { t in
                         Button { tool = t } label: { Label(t.rawValue, systemImage: t.symbol) }
@@ -132,6 +148,10 @@ struct PlanScreen: View {
                 toolButton(.measure)
                 toolButton(.stair)
                 toolButton(.zone)
+                Menu {
+                    Button { fix { WallOps.squareUp($0, level: level).0 } } label: { Label("Square up the walls", systemImage: "square.dashed.inset.filled") }
+                    Button { fix { WallOps.closeGaps($0, level: level).0 } } label: { Label("Close small gaps between walls", systemImage: "link") }
+                } label: { Label("Fix", systemImage: "wand.and.stars") }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -145,6 +165,9 @@ struct PlanScreen: View {
                     .disabled(undoTarget == nil)
                     .accessibilityHint("Goes back to the plan as it was before the last change")
             }
+        }
+        .sheet(isPresented: $numbersForm) {
+            NumbersSheet(start: draft.last) { pts, closed in draft = pts; finishWalls(closed: closed) }
         }
         .sheet(isPresented: $zoneForm) {
             if let plan {
@@ -229,7 +252,9 @@ struct PlanScreen: View {
     private var hint: some View {
         if tool == .select {
             Text("Tap a wall, a thing, a piece of furniture, a staircase or a zone.").font(.footnote).foregroundStyle(.secondary)
-        } else if tool != .stair && tool != .zone {
+        } else if tool == .opening {
+            Text("Tap a wall to put a \(openingKind == "arch" ? "doorway" : openingKind) there.").font(.footnote).foregroundStyle(.secondary)
+        } else if tool != .stair && tool != .zone && tool != .wall {
             Text("Tap the plan to put the \(tool.rawValue.lowercased()) there.").font(.footnote).foregroundStyle(.secondary)
         }
     }
@@ -267,6 +292,8 @@ struct PlanScreen: View {
             } else if let z = plan.zones.first(where: { $0.level == level && ($0.polygon.count >= 3 ? Geometry.contains(p, polygon: $0.polygon) : dist($0.polygon[0], p) <= max(tol, 0.3)) }) {
                 selectedZone = z.id
             }
+        case .wall: tapWall(p, tol: tol)
+        case .opening: addOpening(at: p, tol: tol, plan: plan)
         case .outlet:
             let id = d.add("outlets", prefix: "o", ["position": [p.x, p.y], "level": level, "z": 0.3])
             selectedMarker = PlanMarker(id: id, kind: .outlet, at: p)
@@ -300,6 +327,89 @@ struct PlanScreen: View {
     private func finishZone(_ plan: PlanHouse) {
         makeZone(kind: zoneKind, polygon: draft)
         draft = []
+    }
+
+    // MARK: editing walls and openings with the on-device engine
+
+    /// Runs an operation of the engine on the house as the screen has it and saves the result as the next revision.
+    private func edit(_ change: (HomemeshCore.House) -> HomemeshCore.House?) {
+        guard let d = doc, let core = try? d.core(), let new = change(core) else { return }
+        commit(new)
+    }
+
+    private func commit(_ new: HomemeshCore.House) {
+        guard let nd = try? HouseDoc(core: new) else { return }
+        Task { await save(nd) }
+    }
+
+    private func tapWall(_ p: Pt, tol: Double) {
+        guard let d = doc, let core = try? d.core() else { return }
+        let r = Snap.resolve(Vec2(p.x, p.y), walls: core.walls.filter { $0.level == level }, tolerance: tol, from: draft.last.map { Vec2($0.x, $0.y) })
+        snapNote = r.label
+        let q = Pt(r.point.x, r.point.y)
+        if draft.count >= 3, hypot(p.x - draft[0].x, p.y - draft[0].y) <= tol { finishWalls(closed: true); return }
+        if let last = draft.last, hypot(q.x - last.x, q.y - last.y) < 0.02 { return }
+        draft.append(q)
+    }
+
+    /// The traced corners become walls with the chosen material and thickness, at the floor's height.
+    private func finishWalls(closed: Bool) {
+        let pts = draft.map { Vec2($0.x, $0.y) }
+        let t = Double(wallThickness.replacingOccurrences(of: ",", with: ".")) ?? 0.1
+        draft = []
+        snapNote = ""
+        guard pts.count >= 2 else { return }
+        edit { h in
+            let height = h.levels.first { $0.id == level }?.height ?? 2.5
+            var taken = Set(h.walls.map(\.id))
+            var n = h.walls.count
+            let walls = Draw.trace(points: pts, closed: closed, level: level, material: wallMaterial, thickness: t > 0 ? t : 0.1, height: height) {
+                repeat { n += 1 } while taken.contains("w\(n)")
+                taken.insert("w\(n)")
+                return "w\(n)"
+            }
+            if walls.isEmpty { return nil }
+            var out = h
+            out.walls += walls
+            return out
+        }
+    }
+
+    private func addOpening(at p: Pt, tol: Double, plan: PlanHouse) {
+        guard let id = nearestWall(p, tol: tol, plan: plan), let w = plan.walls.first(where: { $0.id == id }), let d = doc, let core = try? d.core() else {
+            status = .warning("Tap a wall to put it on.")
+            return
+        }
+        let (_, t) = Snap.project(Vec2(p.x, p.y), Vec2(w.a.x, w.a.y), Vec2(w.b.x, w.b.y))
+        guard let (new, _) = WallOps.addOpening(core, wall: id, kind: openingKind, along: t * w.length) else { status = .warning("There is no room for it there."); return }
+        commit(new)
+        selectedWall = id
+    }
+
+    private func fix(_ change: @escaping (HomemeshCore.House) -> HomemeshCore.House) {
+        guard let d = doc, let core = try? d.core() else { return }
+        let new = change(core)
+        if new.walls == core.walls { status = .info("Nothing to fix."); return }
+        commit(new)
+    }
+
+    private var wallBar: some View {
+        let mats = doc?.materials ?? []
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Picker("Material", selection: $wallMaterial) { ForEach(mats.indices, id: \.self) { Text(mats[$0].name).tag(mats[$0].id) } }.pickerStyle(.menu)
+                TextField("Thickness (m)", text: $wallThickness).keyboardType(.decimalPad).frame(width: 110).textFieldStyle(.roundedBorder)
+                Spacer()
+                Button("By numbers…") { numbersForm = true }
+            }
+            HStack {
+                Text(draft.isEmpty ? "Tap where the first corner goes. It snaps to corners, walls and right angles."
+                     : "\(draft.count) corner(s)\(snapNote.isEmpty ? "" : " · \(snapNote)"). Tap the first corner to close.").font(.footnote)
+                Spacer()
+                Button("Undo corner") { draft.removeLast() }.disabled(draft.isEmpty)
+                Button("Done") { finishWalls(closed: false) }.disabled(draft.count < 2)
+            }.font(.footnote)
+        }.padding(.horizontal)
     }
 
     /// A zone from a drawn outline or from the form.

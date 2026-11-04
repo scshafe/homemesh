@@ -129,6 +129,15 @@ struct HouseView: View {
         }
         .suiMessage($note)
         .navigationTitle(model.summary(houseId)?.name ?? houseId)
+        .toolbar {
+            if !model.useLocal {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Copy to this phone", systemImage: "iphone.and.arrow.forward") { Task { await copyToPhone() } }
+                    } label: { Label("More", systemImage: "ellipsis.circle") }
+                }
+            }
+        }
         .sheet(isPresented: $choosingStaircase) {
             ScanStaircaseSheet(levels: levels) { from, to in staircase = StairPair(from: from, to: to) }
         }
@@ -148,6 +157,22 @@ struct HouseView: View {
         }
         .task { waiting = UploadQueue.all(house: houseId); await sendWaiting(); await load() }
         .refreshable { await model.refresh(); await sendWaiting(); await load() }
+    }
+
+    /// Copies this house, its scans and their files from the server to this phone, then checks the copy against the server's own count.
+    private func copyToPhone() async {
+        note = .busy("Copying the house to this phone…")
+        do {
+            let report = try await LocalLibrary.copy(house: houseId, from: model.client(), progress: { text in Task { @MainActor in note = .busy(text) } })
+            let mb = String(format: "%.1f", Double(report.bytes) / 1_048_576)
+            if report.differences.isEmpty {
+                note = .success("Copied: \(report.scans) scan(s), \(report.files) file(s), \(mb) MB. The copy matches the server. Switch on \"Keep the houses on this phone\" in Settings to use it.")
+            } else {
+                note = .warning("Copied, but the copy differs from the server: " + report.differences.joined(separator: "; "))
+            }
+        } catch {
+            note = .danger("Could not copy the house: \(error.localizedDescription)")
+        }
     }
 
     /// Tries the queued scans of this house in order; stops at the first failure and keeps the rest.

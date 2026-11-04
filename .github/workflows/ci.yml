@@ -51,6 +51,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Build the core package with warnings as errors
+        run: swift build --package-path core -Xswiftc -warnings-as-errors
       - name: Test the core package
         run: swift test --package-path core
 

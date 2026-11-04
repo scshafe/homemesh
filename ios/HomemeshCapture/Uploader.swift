@@ -1,3 +1,4 @@
+import HomemeshCore
 import Foundation
 
 /// Uploads a scan to the homemesh backend: the capture JSON first, then the USDZ, both with the Pocket ID id token as the bearer token
@@ -13,6 +14,8 @@ struct Uploader: Sendable {
     let house: String   // trimmed by the caller
     /// Returns a token with at least two minutes left; signs in again if it has to.
     let token: @Sendable () async throws -> String
+    /// When set, the scan goes into the on-device library instead of to a server.
+    var local: LocalAPI? = nil
 
     private func url(_ path: String, query: [URLQueryItem] = []) throws -> URL {
         var base = server.trimmingCharacters(in: .whitespaces)
@@ -72,6 +75,7 @@ struct Uploader: Sendable {
     func upload(json: Data, usdz: URL?, name: String, level: String = "", replaces: String = "", purpose: String = "", stairFrom: String = "", stairTo: String = "",
                 progress: (@Sendable (Double) -> Void)? = nil) async throws -> String {
         let path = "/api/houses/\(house.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? house)/captures"
+        if let local { return try uploadLocal(local, path: path, json: json, usdz: usdz, name: name, level: level, replaces: replaces, purpose: purpose, stairFrom: stairFrom, stairTo: stairTo, progress: progress) }
         let usdzSize = usdz.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
         let total = Double(max(1, json.count + usdzSize))   // real bytes: the model is most of the upload
         let jsonSize = json.count
@@ -83,6 +87,27 @@ struct Uploader: Sendable {
             _ = try await post(try url("\(path)/\(blob)/usdz"), body: try Data(contentsOf: usdz), type: "model/vnd.usdz+zip",
                               sent: progress.map { p in { @Sendable n in p(Double(jsonSize + Int(n)) / total) } })
         }
+        return blob
+    }
+
+    /// The same two steps as the server upload (the scan, then its model), into the on-device library.
+    private func uploadLocal(_ api: LocalAPI, path: String, json: Data, usdz: URL?, name: String, level: String, replaces: String, purpose: String, stairFrom: String, stairTo: String,
+                             progress: (@Sendable (Double) -> Void)?) throws -> String {
+        var q = URLComponents()
+        var items = [URLQueryItem(name: "name", value: name)]
+        if !level.isEmpty { items.append(URLQueryItem(name: "level", value: level)) }
+        if !replaces.isEmpty { items.append(URLQueryItem(name: "replaces", value: replaces)) }
+        if !purpose.isEmpty { items.append(URLQueryItem(name: "purpose", value: purpose)) }
+        if !stairFrom.isEmpty && !stairTo.isEmpty { items += [URLQueryItem(name: "stair_from", value: stairFrom), URLQueryItem(name: "stair_to", value: stairTo)] }
+        q.queryItems = items
+        let created: Data
+        do { created = try api.handle("POST", path + "?" + (q.percentEncodedQuery ?? ""), body: json) } catch let e as APIError { throw Failure(message: e.detail) }
+        guard let blob = (try JSONSerialization.jsonObject(with: created) as? [String: Any])?["blob"] as? String else { throw Failure(message: "Unexpected answer") }
+        progress?(0.1)
+        if let usdz {
+            do { _ = try api.handle("POST", "\(path)/\(blob)/usdz", body: try Data(contentsOf: usdz)) } catch let e as APIError { throw Failure(message: e.detail) }
+        }
+        progress?(1)
         return blob
     }
 }

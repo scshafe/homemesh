@@ -1,12 +1,22 @@
+import HomemeshCore
 import Foundation
 
 /// JSON calls to the backend through the door, with the Pocket ID id token as the bearer token.
 /// (Uploads of scans stay in `Uploader`.)
 struct Client: Sendable {
-    let server: String
-    let token: @Sendable () async throws -> String
+    /// Where the calls go: the homemesh server through the door, or the on-device API (same paths, same JSON, nothing leaves the phone).
+    enum Transport: Sendable {
+        case server(String, token: @Sendable () async throws -> String)
+        case local(LocalAPI)
+    }
+    let transport: Transport
 
-    private func url(_ path: String) throws -> URL {
+    init(server: String, token: @escaping @Sendable () async throws -> String) { transport = .server(server, token: token) }
+    init(local: LocalAPI) { transport = .local(local) }
+
+    var isLocal: Bool { if case .local = transport { true } else { false } }
+
+    private func url(_ path: String, server: String) throws -> URL {
         var base = server.trimmed
         while base.hasSuffix("/") { base.removeLast() }
         guard let u = URL(string: base + path), u.scheme == "https" else {
@@ -16,7 +26,17 @@ struct Client: Sendable {
     }
 
     func call(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval = 60) async throws -> Data {
-        var r = URLRequest(url: try url(path))
+        let server: String, token: @Sendable () async throws -> String
+        switch transport {
+        case .local(let api):
+            do { return try api.handle(method, path, body: body ?? Data()) }
+            catch let e as APIError {
+                if e.status == 409 && (e.detail.hasPrefix("stale revision") || e.detail.contains("changed elsewhere")) { throw Uploader.Failure(message: "Changed elsewhere; reload and try again") }
+                throw Uploader.Failure(message: e.detail)
+            }
+        case .server(let s, let t): server = s; token = t
+        }
+        var r = URLRequest(url: try url(path, server: server))
         r.httpMethod = method
         if let body {
             r.httpBody = body
