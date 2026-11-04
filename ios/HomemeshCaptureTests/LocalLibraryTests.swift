@@ -47,3 +47,23 @@ final class LocalLibraryTests: XCTestCase {
         XCTAssertEqual(placement.confidence, "auto")   // the first scan of an empty floor lands as it is
     }
 }
+
+final class EditorBridgeTests: XCTestCase {
+    func testAnOperationOfTheEngineRunsOnTheDocumentTheScreensEdit() throws {
+        let url = try XCTUnwrap(Bundle(for: LocalLibraryTests.self).url(forResource: "one_floor_box", withExtension: "json"))
+        let doc = try HouseDoc(data: Data(contentsOf: url))
+        let core = try doc.core()
+        let before = core.walls.count
+        let split = try XCTUnwrap(WallOps.split(core, wall: "p0", at: Vec2(5, 2)))
+        let after = try HouseDoc(core: split)
+        XCTAssertEqual(try after.core().walls.count, before + 1)
+        XCTAssertEqual(try after.core().validate(), [])
+        // a wall traced on the plan becomes walls with the chosen material, and the house stays sound
+        var next = 0
+        let walls = Draw.trace(points: [Vec2(1, 1), Vec2(3, 1), Vec2(3, 3)], closed: true, level: "L0", material: "drywall", thickness: 0.1, height: 2.5) { next += 1; return "n\(next)" }
+        XCTAssertEqual(walls.count, 3)
+        var h = core
+        h.walls += walls
+        XCTAssertEqual(h.validate(), [])
+    }
+}
