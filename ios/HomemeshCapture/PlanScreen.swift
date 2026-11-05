@@ -915,7 +915,7 @@ struct WallInspector: View {
         let o = doc.openings(of: wall.id)
         kinds = o.map(\.kind)
         widths = o.map { String(format: "%.2f", $0.width) }
-        starts = o.map { String(format: "%.2f", $0.offset) }
+        starts = wall.openings.map { String(format: "%.2f", $0.offset) }
         ends = [wall.a.x, wall.a.y, wall.b.x, wall.b.y].map { String(format: "%.2f", $0) }
     }
 
