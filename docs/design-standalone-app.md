@@ -380,7 +380,7 @@ iCloud, iPad, catalogue content) at 20 to 30; this plan makes the editor first-c
 | **P5 Migration and retire** | transitional import build, verification, cut-over build without server code; archive and retire the deployment (owner session) | all owner houses migrated and verified; server stopped; Python engine kept as oracle | 1 to 2 |
 | **P6 Release readiness** | export/import package UI, demo house, onboarding, privacy manifest, diagnostics by share sheet, TestFlight, listing | what a store submission needs; none of it depends on the business model | 2 to 3 |
 
-**P3 status:** in progress (export/import to Files was built ahead of the rest of P3 by the owner's decision of 2026-11-05; see section 7).
+P3 status: complete (2026-11-05)
 
 Order and overlap: P1 before everything; P3's operations (Core) can run alongside P4's engine if work is split, since they only meet in the document; P2
 needs P1's import; the phone app shows P4 results only after P1 and P3's document exist. **Throughout**, the current server and web
@@ -527,8 +527,7 @@ In `core/`, with golden parity against Python on synthetic data (`scripts/golden
   corners, copy to a floor); staircases (add, turn round, step count); floors (copy walls, set height); hit testing; `Document.perform` makes each a single undoable step.
 - **Editor tools in the app**: Walls (tap corners, snapped to corners, walls and right angles, tap the first corner to close; material and thickness chosen above the plan), "By
   numbers" (typed directions and lengths), Doors and windows (tap a wall), and a Fix menu (square up, close small gaps). They run the Core operations on the document the screens
-  edit and save the result as the next revision, so Undo (revisions) works as before. Not done yet: dragging wall ends with a loupe, sliding and resizing openings by touch, the
-  fill-the-gap tool's screen, duplicating a zone to another floor from the screen, the iPad layout.
+  edit and save the result as the next revision, so Undo (revisions) works as before. Finished in the P3 closing PRs (section 20).
 
 
 ## 19. As built: a house as one file (2026-11-05)
@@ -541,3 +540,14 @@ In `core/`, with golden parity against Python on synthetic data (`scripts/golden
   **Import** (houses list, "+", "Import a house from Files…") copies it in file by file, never over a house with the same id, leaves nothing behind on a failure, and compares the
   copy's counts with the manifest's, listing any difference in words.
 - Not checked without a device: the Files picker and mover (system UI), the time for a house with large scans (the checksum is Foundation-only Swift), the wording on screen.
+
+## 20. As built: the rest of the editor (2026-11-05)
+
+- **Fill a gap** (Fix menu): choose the walls round an unscanned space, see how many walls close it and the area, then add them (one revision). **Copy a zone to another floor** (zone inspector).
+- **Outlets, jacks and access points by list**: "Add without drawing" takes a room, a wall side and metres along; the marker inspector has x/y fields and "move to the middle of a room".
+- **Dragging**: with a wall or zone selected, handles show on wall ends, each opening's middle and edges, and zone corners; a one-finger drag from a handle moves it with a magnifier above
+  the finger, wall ends snap, and lifting runs the engine's operation (joined walls follow; an impossible change says so). Every drag has a typed route: the wall inspector has end
+  coordinates and each opening's start.
+- **iPad**: in a regular-width window the inspector is a 360 pt panel beside the plan. **Keyboard**: Command-1 to Command-0 pick the tools, Command-Z undoes, Escape lets go,
+  Command-Delete deletes the selected wall. **Pencil**: a double tap switches between Select and the last drawing tool; the Pencil draws and drags as a finger does.
+- Not checked without a device: the feel of dragging and the loupe, the iPad layout, shortcuts with a hardware keyboard, the Pencil double tap.

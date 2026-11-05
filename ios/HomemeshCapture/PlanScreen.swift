@@ -20,6 +20,9 @@ enum PlanTool: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Command-1 for Select, Command-2 for Walls … Command-0 for Zone.
+    var shortcut: KeyEquivalent { KeyEquivalent(Character(String((Self.allCases.firstIndex(of: self)! + 1) % 10))) }
+
     /// The tools that put a thing on the plan, grouped in one menu.
     static let placing: [PlanTool] = [.outlet, .jack, .accessPoint, .entry]
 }
@@ -53,6 +56,8 @@ struct PlanScreen: View {
     @State private var numbersForm = false
     @State private var stairForm = false
     @State private var placeForm = false
+    @State private var drawingTool = PlanTool.wall   // what the Pencil's double tap goes back to
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var drag: (handle: PlanHandle, at: Pt)?   // a handle being dragged, and where it is now
     @State private var coreWalls: [HomemeshCore.Wall] = []   // for snapping while dragging
     @State private var gapForm = false
@@ -77,7 +82,11 @@ struct PlanScreen: View {
 
     private var stairsHere: [PlanStair] { plan?.stairs.filter { $0.from_level == level || $0.to_level == level } ?? [] }
 
+    /// On a wide screen (iPad) the inspector sits beside the plan instead of covering it.
+    private var sidePanel: Bool { sizeClass == .regular }
+
     var body: some View {
+        HStack(spacing: 0) {
         VStack(spacing: 8) {
             if let plan {
                 if tool == .zone {
@@ -121,9 +130,13 @@ struct PlanScreen: View {
                 ProgressView()
             }
         }
-        .onChange(of: tool) { draft = []; clearSelection() }
-        .suiMessage(Binding(get: { inspecting ? nil : status }, set: { status = $0 }), undo: { Task { await undo() } })
-        .sheet(isPresented: Binding(get: { inspecting }, set: { if !$0 { clearSelection() } })) {
+        sidePanelView
+        }
+        .onChange(of: tool) { draft = []; clearSelection(); if tool != .select { drawingTool = tool } }
+        .onPencilDoubleTap { _ in tool = tool == .select ? drawingTool : .select }
+        .background { shortcuts }
+        .suiMessage(Binding(get: { inspecting && !sidePanel ? nil : status }, set: { status = $0 }), undo: { Task { await undo() } })
+        .sheet(isPresented: Binding(get: { inspecting && !sidePanel }, set: { if !$0 { clearSelection() } })) {
             if let plan {
                 NavigationStack {
                     inspector(plan)
@@ -145,7 +158,7 @@ struct PlanScreen: View {
                 toolButton(.opening)
                 Menu {
                     ForEach(PlanTool.placing) { t in
-                        Button { tool = t } label: { Label(t.rawValue, systemImage: t.symbol) }
+                        Button { tool = t } label: { Label(t.rawValue, systemImage: t.symbol) }.keyboardShortcut(t.shortcut, modifiers: .command)
                     }
                 } label: {
                     Label(PlanTool.placing.contains(tool) ? tool.rawValue : "Put on the plan", systemImage: PlanTool.placing.contains(tool) ? tool.symbol : "mappin.and.ellipse")
@@ -170,6 +183,7 @@ struct PlanScreen: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Undo", systemImage: "arrow.uturn.backward") { Task { await undo() } }
+                    .keyboardShortcut("z", modifiers: .command)
                     .disabled(undoTarget == nil)
                     .accessibilityHint("Goes back to the plan as it was before the last change")
             }
@@ -208,6 +222,32 @@ struct PlanScreen: View {
         .task { await load() }
     }
 
+    @ViewBuilder
+    private var sidePanelView: some View {
+        if sidePanel, inspecting, let plan {
+            Divider()
+            NavigationStack {
+                inspector(plan)
+                    .navigationTitle(inspectorTitle(plan))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { clearSelection() } } }
+            }
+            .suiMessage($status)
+            .frame(width: 360)
+        }
+    }
+
+    /// Keyboard shortcuts (an iPad with a keyboard): the tools on Command-1 to Command-0, Escape to let go, Command-Delete for the selected wall.
+    private var shortcuts: some View {
+        Group {
+            Button("Let go") { draft = []; clearSelection() }.keyboardShortcut(.cancelAction)
+            Button("Delete the selected wall") {
+                if let id = selectedWall { edit { WallOps.delete($0, walls: [id]) }; clearSelection() }
+            }.keyboardShortcut(.delete, modifiers: .command)
+        }
+        .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
+    }
+
     /// Everything on this floor that can be selected, as a list: the alternative to tapping the drawing.
     private func chooser(_ plan: PlanHouse) -> some View {
         Menu("Choose from a list") {
@@ -243,6 +283,7 @@ struct PlanScreen: View {
     private func toolButton(_ t: PlanTool) -> some View {
         Button { tool = t } label: { Label(t.rawValue, systemImage: t.symbol).symbolVariant(tool == t ? .fill : .none) }
             .accessibilityAddTraits(tool == t ? .isSelected : [])
+            .keyboardShortcut(t.shortcut, modifiers: .command)
     }
 
     private var inspecting: Bool {
@@ -287,7 +328,9 @@ struct PlanScreen: View {
     private func inspector(_ plan: PlanHouse) -> some View {
         if let doc {
             if let id = selectedWall, let wall = plan.walls.first(where: { $0.id == id }) {
-                WallInspector(houseId: houseId, wall: wall, doc: doc, level: level, onSaved: { new in Task { await save(new) } }, status: $status)
+                WallInspector(houseId: houseId, wall: wall, doc: doc, level: level, onSaved: { new in Task { await save(new) } }, status: $status,
+                              onMoveEnd: { end, x, y in edit { WallOps.moveEndpoint($0, wall: wall.id, end: end, to: Vec2(x, y)) } },
+                              onSlide: { k, start in edit { WallOps.slideOpening($0, wall: wall.id, index: k, to: start + (wall.openings.indices.contains(k) ? wall.openings[k].width / 2 : 0)) } })
             } else if let m = selectedMarker {
                 MarkerInspector(marker: m, doc: doc, rooms: plan.rooms.filter { $0.level == level }, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedMarker = nil })
             } else if let id = selectedStair, let st = plan.stairs.first(where: { $0.id == id }) {
@@ -802,6 +845,10 @@ struct WallInspector: View {
     let level: String
     let onSaved: (HouseDoc) -> Void
     @Binding var status: SuiMessage?
+    var onMoveEnd: ((Int, Double, Double) -> Void)?   // end 0 or 1, new x and y in metres
+    var onSlide: ((Int, Double) -> Void)?             // opening index, new start in metres from the first end
+    @State private var ends = ["", "", "", ""]        // x and y of the first end, x and y of the second
+    @State private var starts: [String] = []
     @State private var thickness = ""
     @State private var material = ""
     @State private var kinds: [String] = []
@@ -821,6 +868,21 @@ struct WallInspector: View {
                 Button("Save this wall") { apply(all: false) }
                 Button("Use for every wall on this floor still on the defaults") { apply(all: true) }
             }
+            if let onMoveEnd {
+                Section("Ends, in plan metres") {
+                    ForEach(0..<2, id: \.self) { e in
+                        HStack {
+                            Text(e == 0 ? "First" : "Second")
+                            TextField("x", text: $ends[e * 2]).keyboardType(.numbersAndPunctuation).accessibilityLabel("\(e == 0 ? "First" : "Second") end, x")
+                            TextField("y", text: $ends[e * 2 + 1]).keyboardType(.numbersAndPunctuation).accessibilityLabel("\(e == 0 ? "First" : "Second") end, y")
+                            Button("Move") {
+                                let n = ends[e * 2 ... e * 2 + 1].map { Double($0.replacingOccurrences(of: ",", with: ".")) }
+                                if let x = n[0], let y = n[1] { onMoveEnd(e, x, y) } else { status = .warning("Give both numbers in metres.") }
+                            }.buttonStyle(.borderless)
+                        }
+                    }
+                }
+            }
             if !kinds.isEmpty {
                 Section("Openings") {
                     ForEach(kinds.indices, id: \.self) { i in
@@ -830,13 +892,21 @@ struct WallInspector: View {
                             Button("Save") { saveOpening(i) }.buttonStyle(.borderless)
                             Button("Delete", role: .destructive) { deleteOpening(i) }.buttonStyle(.borderless)
                         }
+                        if let onSlide, starts.indices.contains(i) {
+                            HStack {
+                                TextField("starts (m from the first end)", text: $starts[i]).keyboardType(.decimalPad)
+                                Button("Slide") {
+                                    if let v = Double(starts[i].replacingOccurrences(of: ",", with: ".")) { onSlide(i, v) } else { status = .warning("Give the distance in metres.") }
+                                }.buttonStyle(.borderless)
+                            }.font(.footnote)
+                        }
                     }
                 }
             }
             MeasureCheckSection(houseId: houseId, wall: wall, level: level, doc: doc, onSaved: onSaved, status: $status)
         }
         .onAppear(perform: load)
-        .onChange(of: wall.id) { load() }
+        .onChange(of: wall) { load() }
     }
 
     private func load() {
@@ -845,6 +915,8 @@ struct WallInspector: View {
         let o = doc.openings(of: wall.id)
         kinds = o.map(\.kind)
         widths = o.map { String(format: "%.2f", $0.width) }
+        starts = o.map { String(format: "%.2f", $0.offset) }
+        ends = [wall.a.x, wall.a.y, wall.b.x, wall.b.y].map { String(format: "%.2f", $0) }
     }
 
     private func apply(all: Bool) {
