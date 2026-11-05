@@ -1,4 +1,6 @@
+import HomemeshCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct HousesView: View {
     @EnvironmentObject var model: AppModel
@@ -6,6 +8,8 @@ struct HousesView: View {
     @State private var newName = ""
     @State private var creating = false
     @State private var path: String?
+    @State private var importing = false
+    @State private var note: SuiMessage?
 
     var body: some View {
         List {
@@ -37,7 +41,17 @@ struct HousesView: View {
         .navigationTitle("homemesh")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { Button("Settings", systemImage: "gearshape") { showSettings = true } }
-            ToolbarItem(placement: .topBarTrailing) { Button("New house", systemImage: "plus") { newName = ""; creating = true }.disabled(!model.configured) }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("New house", systemImage: "plus") { newName = ""; creating = true }.disabled(!model.configured)
+                    Button("Import a house from Files…", systemImage: "square.and.arrow.down") { importing = true }
+                } label: { Label("Add", systemImage: "plus") }
+            }
+        }
+        .suiMessage($note)
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.data]) { result in
+            guard case .success(let url) = result else { return }
+            Task { await importHouse(url) }
         }
         .sheet(isPresented: $showSettings, onDismiss: { Task { await model.refresh() } }) { SettingsView() }
         .sheet(isPresented: $creating) {
@@ -47,5 +61,20 @@ struct HousesView: View {
         }
         .task { await model.refresh() }
         .refreshable { await model.refresh() }
+    }
+
+    private func importHouse(_ url: URL) async {
+        note = .busy("Reading the file…")
+        do {
+            let r = try await LocalLibrary.importPackage(from: url)
+            if r.differences.isEmpty {
+                note = .success("Imported \(r.id): \(LocalLibrary.describe(r)). It matches what the file says. \(model.useLocal ? "" : "Switch on \"Keep the houses on this phone\" in Settings to see it.")")
+            } else {
+                note = .warning("Imported \(r.id), but it differs from the file: " + r.differences.joined(separator: "; "))
+            }
+            await model.refresh()
+        } catch {
+            note = .danger("Could not import the file: \(error.localizedDescription)")
+        }
     }
 }
