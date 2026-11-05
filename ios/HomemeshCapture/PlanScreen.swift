@@ -53,6 +53,8 @@ struct PlanScreen: View {
     @State private var numbersForm = false
     @State private var stairForm = false
     @State private var placeForm = false
+    @State private var drag: (handle: PlanHandle, at: Pt)?   // a handle being dragged, and where it is now
+    @State private var coreWalls: [HomemeshCore.Wall] = []   // for snapping while dragging
     @State private var gapForm = false
 
     private var markers: [PlanMarker] {
@@ -104,10 +106,11 @@ struct PlanScreen: View {
                         Picker("Kind", selection: $openingKind) { Text("Door").tag("door"); Text("Window").tag("window"); Text("Open doorway").tag("arch") }.pickerStyle(.segmented)
                     }.padding(.horizontal)
                 }
-                PlanCanvas(walls: plan.walls.filter { $0.level == level }, rooms: plan.rooms.filter { $0.level == level },
+                PlanCanvas(walls: shownWalls(plan), rooms: plan.rooms.filter { $0.level == level },
                            bounds: bounds, selected: selectedWall, markers: markers, stairs: stairsHere.map(\.polygon), stairLayouts: stairsHere.compactMap { stairLayout($0, plan) }, draft: draft,
-                           selectedMarker: selectedMarker?.id, zones: plan.zones.filter { $0.level == level }, selectedZone: selectedZone,
-                           furniture: plan.furniture.filter { $0.level == level }, selectedFurniture: selectedFurniture, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) })
+                           selectedMarker: selectedMarker?.id, zones: shownZones(plan), selectedZone: selectedZone,
+                           furniture: plan.furniture.filter { $0.level == level }, selectedFurniture: selectedFurniture, onTapPlan: { p, tol in tap(p, tol: tol, plan: plan) },
+                           handles: tool == .select ? handles(plan) : [], onHandleDrag: { h, p, done, tol in dragHandle(h, p, done, tol: tol, plan: plan) })
                     .background(Color(.secondarySystemBackground))
                     .accessibilityAction(named: "Add a zone from rooms, walls or corners") { zoneForm = true }
                     .accessibilityAction(named: "Add a staircase by floors and room") { stairForm = true }
@@ -382,6 +385,68 @@ struct PlanScreen: View {
         status = .success("Copied to \(plan?.levels.first { $0.id == target }?.name ?? target).")
     }
 
+    // MARK: dragging handles
+
+    /// The walls of this floor as drawn, the dragged end where the finger has it.
+    private func shownWalls(_ plan: PlanHouse) -> [PlanWall] {
+        let here = plan.walls.filter { $0.level == level }
+        guard let d = drag, case .wallEnd(let w, let end) = d.handle.kind else { return here }
+        return here.map { $0.id == w ? PlanHandles.moved($0, end: end, to: d.at) : $0 }
+    }
+
+    private func shownZones(_ plan: PlanHouse) -> [PlanZone] {
+        let here = plan.zones.filter { $0.level == level }
+        guard let d = drag, case .zoneCorner(let z, let i) = d.handle.kind else { return here }
+        return here.map { $0.id == z ? PlanHandles.moved($0, corner: i, to: d.at) : $0 }
+    }
+
+    /// The grab points of the selected wall or zone.
+    private func handles(_ plan: PlanHouse) -> [PlanHandle] {
+        var out: [PlanHandle] = []
+        if let id = selectedWall, let w = shownWalls(plan).first(where: { $0.id == id }) { out = PlanHandles.forWall(w) }
+        else if let id = selectedZone, let z = shownZones(plan).first(where: { $0.id == id }) { out = PlanHandles.forZone(z) }
+        guard let d = drag else { return out }
+        return out.map { $0.id == d.handle.id ? PlanHandle(kind: $0.kind, at: d.at) : $0 }
+    }
+
+    private func dragHandle(_ h: PlanHandle, _ p: Pt, _ done: Bool, tol: Double, plan: PlanHouse) {
+        var target = p
+        switch h.kind {
+        case .wallEnd(let w, let end):
+            if let wall = coreWalls.first(where: { $0.id == w }) {
+                let r = Snap.resolve(Vec2(p.x, p.y), walls: coreWalls.filter { $0.level == level && $0.id != w }, tolerance: tol, from: end == 0 ? wall.b : wall.a)
+                target = Pt(r.point.x, r.point.y)
+                snapNote = r.label
+            }
+        case .openingMove(let w, _), .openingEdge(let w, _, _):
+            if let pw = plan.walls.first(where: { $0.id == w }) { target = PlanHandles.point(on: pw, at: PlanHandles.along(pw, p)) }
+        case .zoneCorner: break
+        }
+        if !done { drag = (h, target); return }
+        drag = nil
+        snapNote = ""
+        commit(h, to: target, plan: plan)
+    }
+
+    private func commit(_ h: PlanHandle, to t: Pt, plan: PlanHouse) {
+        let v = Vec2(t.x, t.y)
+        switch h.kind {
+        case .wallEnd(let w, let end):
+            edit { WallOps.moveEndpoint($0, wall: w, end: end, to: v) }
+        case .zoneCorner(let z, let i):
+            edit { ZoneOps.moveVertex($0, zone: z, vertex: i, to: v) }
+        case .openingMove(let w, let k):
+            guard let pw = plan.walls.first(where: { $0.id == w }) else { return }
+            edit { WallOps.slideOpening($0, wall: w, index: k, to: PlanHandles.along(pw, t)) }
+        case .openingEdge(let w, let k, let far):
+            guard let pw = plan.walls.first(where: { $0.id == w }), pw.openings.indices.contains(k) else { return }
+            let o = pw.openings[k], s = PlanHandles.along(pw, t)
+            let width = far ? s - o.offset : o.offset + o.width - s            // the other edge stays where it is
+            let centre = far ? o.offset + width / 2 : o.offset + o.width - width / 2
+            edit { house in WallOps.resizeOpening(house, wall: w, index: k, width: width).flatMap { WallOps.slideOpening($0, wall: w, index: k, to: centre) } }
+        }
+    }
+
     private func finishZone(_ plan: PlanHouse) {
         makeZone(kind: zoneKind, polygon: draft)
         draft = []
@@ -391,7 +456,8 @@ struct PlanScreen: View {
 
     /// Runs an operation of the engine on the house as the screen has it and saves the result as the next revision.
     private func edit(_ change: (HomemeshCore.House) -> HomemeshCore.House?) {
-        guard let d = doc, let core = try? d.core(), let new = change(core) else { return }
+        guard let d = doc, let core = try? d.core() else { return }
+        guard let new = change(core) else { status = .warning("That change does not fit there."); return }
         commit(new)
     }
 
@@ -510,6 +576,7 @@ struct PlanScreen: View {
         do {
             let data = try await model.client().call("GET", "/api/houses/\(houseId)")
             doc = try HouseDoc(data: data)
+            coreWalls = (try? doc?.core().walls) ?? []
             let p = try JSONDecoder().decode(PlanHouse.self, from: data)
             plan = p
             if stairTarget.isEmpty { stairTarget = p.levels.first { $0.id != level }?.id ?? "" }

@@ -772,3 +772,40 @@ final class PlanFormTests: XCTestCase {
         XCTAssertEqual(s.bottom.x, 2.5, accuracy: 1e-9)          // width clamped to 3 m: centre line 1.5 m in from the east wall
     }
 }
+
+final class PlanHandleTests: XCTestCase {
+    private func wall(_ id: String = "w1", openings: [PlanOpening] = []) -> PlanWall {
+        PlanWall(id: id, level: "L", a: Pt(0, 0), b: Pt(4, 0), thickness: 0.1, height: nil, base_z: nil, profile: nil, openings: openings, prov: nil)
+    }
+
+    func testAWallHasTwoEndsAndEachOpeningThree() {
+        XCTAssertEqual(PlanHandles.forWall(wall()).count, 2)
+        let w = wall(openings: [PlanOpening(kind: "door", offset: 1, width: 0.8)])
+        let hs = PlanHandles.forWall(w)
+        XCTAssertEqual(hs.count, 5)
+        XCTAssertTrue(hs.contains { $0.kind == .openingMove(wall: "w1", index: 0) && $0.at == Pt(1.4, 0) })
+        XCTAssertTrue(hs.contains { $0.kind == .openingEdge(wall: "w1", index: 0, far: true) && $0.at == Pt(1.8, 0) })
+    }
+
+    func testAlongIsKeptInsideTheWall() {
+        let w = wall()
+        XCTAssertEqual(PlanHandles.along(w, Pt(2.5, 3)), 2.5, accuracy: 1e-9)
+        XCTAssertEqual(PlanHandles.along(w, Pt(-1, 0)), 0)
+        XCTAssertEqual(PlanHandles.along(w, Pt(9, 0)), 4)
+        XCTAssertEqual(PlanHandles.point(on: w, at: 1), Pt(1, 0))
+    }
+
+    func testMovingOneEndKeepsTheOther() {
+        let m = PlanHandles.moved(wall(), end: 1, to: Pt(4, 1))
+        XCTAssertEqual(m.a, Pt(0, 0))
+        XCTAssertEqual(m.b, Pt(4, 1))
+        let z = PlanZone(id: "z1", level: "L", polygon: [Pt(0, 0), Pt(1, 0), Pt(1, 1)], kind: "allow", name: "")
+        XCTAssertEqual(PlanHandles.moved(z, corner: 2, to: Pt(0, 2)).polygon, [Pt(0, 0), Pt(1, 0), Pt(0, 2)])
+    }
+
+    func testTheNearestHandleWithinReachIsGrabbed() {
+        let hs = PlanHandles.forWall(wall())
+        XCTAssertEqual(PlanHandles.nearest(hs, to: Pt(3.9, 0.1), radius: 0.3)?.kind, .wallEnd(wall: "w1", end: 1))
+        XCTAssertNil(PlanHandles.nearest(hs, to: Pt(2, 0), radius: 0.3))
+    }
+}
