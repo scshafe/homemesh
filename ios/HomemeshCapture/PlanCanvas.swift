@@ -59,6 +59,8 @@ struct PlanCanvas: View {
     var onTapPlan: ((Pt, Double) -> Void)?    // a tap, in plan metres, with a tolerance of about 24 points in metres
     var onDrag: ((Pt) -> Void)?       // plan metres moved since the gesture began
     var onDragEnd: (() -> Void)?
+    var handles: [PlanHandle] = []     // grab points of the selected thing; a drag that starts on one moves it
+    var onHandleDrag: ((PlanHandle, Pt, Bool, Double) -> Void)?   // the handle, where the finger is in plan metres, whether it has lifted, and a snapping distance in metres
 
     /// What the picture shows, in words, for VoiceOver.
     private var summary: String {
@@ -75,6 +77,8 @@ struct PlanCanvas: View {
     @State private var panBase = CGSize.zero
     @State private var userZoom: CGFloat = 1     // pinch
     @State private var pan = CGSize.zero          // two fingers (one finger when nothing else uses it), in points
+    @State private var grabbed: PlanHandle?
+    @State private var loupe: CGPoint?            // where the finger is while a handle is dragged: a magnified view is drawn above it
 
     private func mapping(_ size: CGSize) -> (CGFloat, (Pt) -> CGPoint) {
         let s = min(size.width / bounds.width, size.height / bounds.height) * 0.85 * zoom * userZoom
@@ -85,6 +89,9 @@ struct PlanCanvas: View {
     var body: some View {
         GeometryReader { geo in
             let (scale, map) = mapping(geo.size)
+            let toPlan = { (loc: CGPoint) -> Pt in
+                Pt(bounds.midX + Double((loc.x - geo.size.width / 2 - pan.width) / scale), bounds.midY - Double((loc.y - geo.size.height / 2 - pan.height) / scale))
+            }
             Canvas { ctx, _ in
                 if let h = heat {
                     for iy in 0..<h.ny {
@@ -227,6 +234,32 @@ struct PlanCanvas: View {
                     path.addLine(to: map(g.b))
                     ctx.stroke(path, with: .color(SuiColor.danger.opacity(0.8)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 }
+                for h in handles {
+                    let c = map(h.at), r: CGFloat = h.id == grabbed?.id ? 10 : 7
+                    let rect = CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+                    ctx.fill(Path(ellipseIn: rect), with: .color(Color(.systemBackground)))
+                    ctx.stroke(Path(ellipseIn: rect), with: .color(SuiColor.accent), lineWidth: 2.5)
+                }
+                if let f = loupe {   // a magnifier above the finger, which would otherwise hide what it is placing
+                    let radius: CGFloat = 52, zoom: CGFloat = 2.5
+                    let centre = CGPoint(x: min(max(f.x, radius + 4), geo.size.width - radius - 4), y: f.y > radius * 2 + 30 ? f.y - radius - 34 : f.y + radius + 34)
+                    let lens = CGRect(x: centre.x - radius, y: centre.y - radius, width: 2 * radius, height: 2 * radius)
+                    ctx.drawLayer { layer in
+                        layer.clip(to: Path(ellipseIn: lens))
+                        layer.fill(Path(lens), with: .color(Color(.systemBackground)))
+                        func big(_ p: Pt) -> CGPoint { let q = map(p); return CGPoint(x: centre.x + (q.x - f.x) * zoom, y: centre.y + (q.y - f.y) * zoom) }
+                        for w in walls {
+                            var path = Path()
+                            path.move(to: big(w.a)); path.addLine(to: big(w.b))
+                            layer.stroke(path, with: .color(w.id == selected ? SuiColor.accent : Color.primary), lineWidth: max(2, CGFloat(w.thickness) * scale * zoom))
+                        }
+                        var cross = Path()
+                        cross.move(to: CGPoint(x: centre.x - 8, y: centre.y)); cross.addLine(to: CGPoint(x: centre.x + 8, y: centre.y))
+                        cross.move(to: CGPoint(x: centre.x, y: centre.y - 8)); cross.addLine(to: CGPoint(x: centre.x, y: centre.y + 8))
+                        layer.stroke(cross, with: .color(SuiColor.accent), lineWidth: 1.5)
+                    }
+                    ctx.stroke(Path(ellipseIn: lens), with: .color(SuiColor.accent), lineWidth: 2)
+                }
             }
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
@@ -234,10 +267,18 @@ struct PlanCanvas: View {
             .accessibilityHint(onTapPlan == nil ? "" : "The drawing cannot be explored by touch with VoiceOver; use the lists and menus around it")
             .overlay {
                 PlanGestures(
-                    onTap: { loc in
-                        let mx = bounds.midX, my = bounds.midY
-                        let p = Pt(mx + Double((loc.x - geo.size.width / 2 - pan.width) / scale), my - Double((loc.y - geo.size.height / 2 - pan.height) / scale))
-                        onTapPlan?(p, Double(24 / scale))
+                    onTap: { loc in onTapPlan?(toPlan(loc), Double(24 / scale)) },
+                    onGrab: { loc in
+                        guard onHandleDrag != nil, let h = PlanHandles.nearest(handles, to: toPlan(loc), radius: Double(30 / scale)) else { return false }
+                        grabbed = h
+                        loupe = loc
+                        return true
+                    },
+                    onGrabMove: { loc, done in
+                        guard let h = grabbed else { return }
+                        loupe = done ? nil : loc
+                        if done { grabbed = nil }
+                        onHandleDrag?(h, toPlan(loc), done, Double(24 / scale))
                     },
                     onDrag: { t in
                         if onDrag != nil { onDrag?(Pt(Double(t.width / scale), Double(-t.height / scale))) } else { pan = CGSize(width: panBase.width + t.width, height: panBase.height + t.height) }
@@ -268,6 +309,8 @@ struct PlanCanvas: View {
 /// two-finger pan never reach the one-finger drag (which moves the scan in the placement view).
 struct PlanGestures: UIViewRepresentable {
     var onTap: (CGPoint) -> Void
+    var onGrab: (CGPoint) -> Bool = { _ in false }            // a one-finger drag starts here: true when it takes the drag (a handle)
+    var onGrabMove: (CGPoint, Bool) -> Void = { _, _ in }     // where the grabbing finger is, and whether it has lifted
     var onDrag: (CGSize) -> Void
     var onDragBegan: () -> Void
     var onDragEnd: () -> Void
@@ -296,11 +339,22 @@ struct PlanGestures: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: PlanGestures
+        private var grabbing = false
         init(_ p: PlanGestures) { parent = p }
 
         @objc func tap(_ g: UITapGestureRecognizer) { parent.onTap(g.location(in: g.view)) }
 
         @objc func one(_ g: UIPanGestureRecognizer) {
+            let at = g.location(in: g.view)
+            if g.state == .began {   // the recognizer starts after a few points of travel: the touch began where it was minus that
+                let t = g.translation(in: g.view)
+                grabbing = parent.onGrab(CGPoint(x: at.x - t.x, y: at.y - t.y))
+            }
+            if grabbing {
+                if g.state == .began || g.state == .changed { parent.onGrabMove(at, false) }
+                else if g.state == .ended || g.state == .cancelled { parent.onGrabMove(at, true); grabbing = false }
+                return
+            }
             switch g.state {
             case .began: parent.onDragBegan(); parent.onDrag(g.translation(in: g.view).asSize)
             case .changed: parent.onDrag(g.translation(in: g.view).asSize)
