@@ -293,7 +293,7 @@ are end-to-end encrypted (verify against Apple's documentation before stating it
    house is on the phone through "Copy to this phone" and the counts match (an owner step on a device); (2) export to Files exists, so there is a
    second copy (§19, built first); (3) the rest of the editor (P3) has landed. When all three hold the agent tells the owner, then removes the server
    path from the app (sign-in, the upload queue, the server transport and the switch). The owner runs one final data export, then stops the
-   deployment and removes its Pocket ID client and door through the owner session (owner work). Until then the server path stays unchanged. Stopping the deployment and archiving the web app The `deploy/`
+   deployment and removes its Pocket ID client and door through the owner session (owner work). Until then the server path stays unchanged. The web app is archived; the `deploy/`
    directory, the Pocket ID door arrangements and the runner lane are removed in a PR the owner asks for.
 3. **Kept for good:** the Python engine (`homemesh/` without the FastAPI layer) and its tests, under `tests/` or a `reference/` folder, as
    the **oracle** that generates the golden vectors. A change to the Swift engine that disagrees with Python is a bug in one of them,
