@@ -48,6 +48,31 @@ extension Geometry {
     }
 }
 
+extension Geometry {
+    /// A spot in a room without touching the plan: the middle of it, or `along` metres from the start of one side (west to east on the
+    /// north and south sides, south to north on the east and west sides), set in from the wall by `inset`. Clamped to the room's extent.
+    static func pointInRoom(_ room: [Pt], side: Side?, along: Double, inset: Double = 0.1) -> Pt? {
+        guard room.count >= 3 else { return nil }
+        let b = bounds(room)
+        guard let side else { return Pt(b.midX, b.midY) }
+        let ix = min(inset, b.width / 2), iy = min(inset, b.height / 2)
+        switch side {
+        case .north: return Pt(b.minX + min(max(along, 0), b.width), b.maxY - iy)
+        case .south: return Pt(b.minX + min(max(along, 0), b.width), b.minY + iy)
+        case .east: return Pt(b.maxX - ix, b.minY + min(max(along, 0), b.height))
+        case .west: return Pt(b.minX + ix, b.minY + min(max(along, 0), b.height))
+        }
+    }
+
+    /// The area enclosed by a polygon, in square metres.
+    static func area(_ poly: [Pt]) -> Double {
+        guard poly.count >= 3 else { return 0 }
+        var s = 0.0
+        for i in poly.indices { let a = poly[i], b = poly[(i + 1) % poly.count]; s += a.x * b.y - b.x * a.y }
+        return abs(s) / 2
+    }
+}
+
 /// Makes a zone without touching the plan: from chosen rooms, chosen walls, or corners typed in metres.
 struct ZoneFormSheet: View {
     enum Source: String, CaseIterable, Identifiable { case rooms = "Rooms", walls = "Walls", corners = "Corners"; var id: String { rawValue } }
@@ -190,6 +215,98 @@ struct StairFormSheet: View {
             .onAppear {
                 if target.isEmpty { target = levels.first { $0.id != here }?.id ?? "" }
                 if roomId.isEmpty { roomId = rooms.first?.id ?? "" }
+            }
+        }
+    }
+}
+
+/// Puts an outlet, a jack or an access point on the plan without touching it: the room, which wall it is against (or the middle), how far along.
+struct PlaceThingSheet: View {
+    enum Thing: String, CaseIterable, Identifiable { case outlet = "Outlet", jack = "Jack", accessPoint = "Access point"; var id: String { rawValue } }
+
+    let rooms: [PlanRoom]    // on this floor
+    let onMake: (_ thing: Thing, _ at: Pt) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var thing = Thing.outlet
+    @State private var roomId = ""
+    @State private var side: Geometry.Side?
+    @State private var along = "1.0"
+
+    private var spot: Pt? {
+        guard let room = rooms.first(where: { $0.id == roomId }) else { return nil }
+        return Geometry.pointInRoom(room.polygon, side: side, along: Double(along.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")) ?? 0)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("What") {
+                    Picker("What", selection: $thing) { ForEach(Thing.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
+                }
+                Section {
+                    if rooms.isEmpty { SuiNote(.neutral, "No rooms on this floor yet.") }
+                    Picker("Room", selection: $roomId) { ForEach(rooms) { Text($0.name.isEmpty ? $0.id : $0.name).tag($0.id) } }
+                    Picker("Against the wall on the", selection: $side) {
+                        Text("Nowhere: the middle").tag(Geometry.Side?.none)
+                        ForEach(Geometry.Side.allCases) { Text($0.rawValue).tag(Geometry.Side?.some($0)) }
+                    }
+                    if side != nil { TextField("Metres along that wall", text: $along).keyboardType(.decimalPad) }
+                } header: { Text("Where") } footer: { Text("Along a wall is counted from its west or south end. The exact spot can be changed afterwards.") }
+            }
+            .navigationTitle("Put on the plan")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Add") { if let p = spot { onMake(thing, p); dismiss() } }.disabled(spot == nil) }
+            }
+            .onAppear { if roomId.isEmpty { roomId = rooms.first?.id ?? "" } }
+        }
+    }
+}
+
+/// Fills a gap: choose the walls round an unscanned space and see what would close it before adding the closing walls.
+struct FillGapSheet: View {
+    let walls: [PlanWall]    // on this floor
+    let preview: (Set<String>) -> (closing: Int, area: Double)?
+    let onMake: (Set<String>) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var picked: Set<String> = []
+
+    private var result: (closing: Int, area: Double)? { picked.count >= 2 ? preview(picked) : nil }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(walls) { w in
+                        Button {
+                            if picked.contains(w.id) { picked.remove(w.id) } else { picked.insert(w.id) }
+                        } label: {
+                            HStack {
+                                Text(String(format: "Wall %@, %.1f m", w.id, w.length)).foregroundStyle(.primary)
+                                Spacer()
+                                if picked.contains(w.id) { Image(systemName: "checkmark").foregroundStyle(SuiColor.accent) }
+                            }
+                        }
+                        .accessibilityAddTraits(picked.contains(w.id) ? .isSelected : [])
+                    }
+                } header: { Text("The walls round the space") } footer: { Text("Choose the walls on every side that was scanned. The walls that join their loose ends are added.") }
+                Section {
+                    if let r = result {
+                        Text(r.closing == 0 ? String(format: "These walls already close a space of %.1f m².", r.area)
+                             : String(format: "Adds %d wall(s) and closes a space of %.1f m².", r.closing, r.area))
+                    } else {
+                        Text(picked.count < 2 ? "Choose at least two walls." : "These walls do not enclose a space: their loose ends cannot be paired.").foregroundStyle(.secondary)
+                    }
+                }.font(.footnote)
+            }
+            .navigationTitle("Fill the gap")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Add") { onMake(picked); dismiss() }.disabled((result?.closing ?? 0) == 0) }
             }
         }
     }

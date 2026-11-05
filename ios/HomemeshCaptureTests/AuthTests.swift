@@ -752,6 +752,20 @@ final class PlanFormTests: XCTestCase {
         XCTAssertEqual(s.top, Pt(3, 2.5))
     }
 
+    func testAThingInTheMiddleOrAgainstAWall() throws {
+        XCTAssertEqual(Geometry.pointInRoom(square, side: nil, along: 0), Pt(2, 1.5))
+        XCTAssertEqual(Geometry.pointInRoom(square, side: .north, along: 1.2), Pt(1.2, 2.9))
+        XCTAssertEqual(Geometry.pointInRoom(square, side: .east, along: 9), Pt(3.9, 3))   // clamped to the room
+        XCTAssertEqual(Geometry.pointInRoom(square, side: .south, along: -1), Pt(0, 0.1))
+        XCTAssertNil(Geometry.pointInRoom([Pt(0, 0), Pt(1, 0)], side: nil, along: 0))
+    }
+
+    func testAreaOfAPolygon() {
+        XCTAssertEqual(Geometry.area(square), 12, accuracy: 1e-9)
+        XCTAssertEqual(Geometry.area(square.reversed()), 12, accuracy: 1e-9)
+        XCTAssertEqual(Geometry.area([Pt(0, 0), Pt(1, 1)]), 0)
+    }
+
     func testStairIsClampedToTheRoom() throws {
         let s = try XCTUnwrap(Geometry.stairInRoom(square, side: .east, length: 10, width: 9))
         XCTAssertEqual(s.top.y - s.bottom.y, 3, accuracy: 1e-9)   // the room is 3 m deep

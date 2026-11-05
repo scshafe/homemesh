@@ -4,8 +4,10 @@ import SwiftUI
 struct ZoneInspector: View {
     let zone: PlanZone
     let doc: HouseDoc
+    var levels: [HouseLite.Level] = []   // the other floors
     let onSaved: (HouseDoc) -> Void
     let onRemoved: () -> Void
+    var onCopy: ((String) -> Void)?
     @State private var kind = "allow"
     @State private var name = ""
     @State private var weight = "1"
@@ -39,6 +41,11 @@ struct ZoneInspector: View {
                     TextField("Allowed heights in metres, comma separated", text: $heights).keyboardType(.numbersAndPunctuation)
                 }
                 Button("Save") { save() }
+                if let onCopy, !levels.isEmpty {
+                    Menu("Copy to another floor") {
+                        ForEach(levels, id: \.id) { l in Button(l.name) { onCopy(l.id) } }
+                    }
+                }
                 Button("Delete", role: .destructive) { var d = doc; d.remove("zones", zone.id); onSaved(d); onRemoved() }
             }
         }

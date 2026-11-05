@@ -52,6 +52,8 @@ struct PlanScreen: View {
     @State private var snapNote = ""
     @State private var numbersForm = false
     @State private var stairForm = false
+    @State private var placeForm = false
+    @State private var gapForm = false
 
     private var markers: [PlanMarker] {
         guard let plan else { return [] }
@@ -109,6 +111,7 @@ struct PlanScreen: View {
                     .background(Color(.secondarySystemBackground))
                     .accessibilityAction(named: "Add a zone from rooms, walls or corners") { zoneForm = true }
                     .accessibilityAction(named: "Add a staircase by floors and room") { stairForm = true }
+                    .accessibilityAction(named: "Add an outlet, jack or access point by room") { placeForm = true }
                 if tool == .select { chooser(plan) }
                 hint
             } else {
@@ -151,14 +154,16 @@ struct PlanScreen: View {
                 Menu {
                     Button { fix { WallOps.squareUp($0, level: level).0 } } label: { Label("Square up the walls", systemImage: "square.dashed.inset.filled") }
                     Button { fix { WallOps.closeGaps($0, level: level).0 } } label: { Label("Close small gaps between walls", systemImage: "link") }
+                    Button { gapForm = true } label: { Label("Fill a gap with walls…", systemImage: "square.dashed") }
                 } label: { Label("Fix", systemImage: "wand.and.stars") }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { zoneForm = true } label: { Label("Zone from rooms, walls or corners", systemImage: "square.dashed") }
                     Button { stairForm = true } label: { Label("Staircase by floors and room", systemImage: "figure.stairs") }
+                    Button { placeForm = true } label: { Label("Outlet, jack or access point by room", systemImage: "mappin.and.ellipse") }
                 } label: { Label("Add without drawing", systemImage: "list.bullet.rectangle") }
-                    .accessibilityHint("Adds a zone or a staircase from lists and fields, without touching the plan")
+                    .accessibilityHint("Adds a zone, a staircase, an outlet, a jack or an access point from lists and fields, without touching the plan")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Undo", systemImage: "arrow.uturn.backward") { Task { await undo() } }
@@ -179,6 +184,22 @@ struct PlanScreen: View {
                 StairFormSheet(levels: plan.levels, here: level, rooms: plan.rooms.filter { $0.level == level }) { target, bottom, top, width in
                     makeStair(target: target, bottom: bottom, top: top, width: width, plan: plan)
                 }
+            }
+        }
+        .sheet(isPresented: $placeForm) {
+            if let plan {
+                PlaceThingSheet(rooms: plan.rooms.filter { $0.level == level }) { thing, p in
+                    switch thing {
+                    case .outlet: putThing(.outlet, at: p)
+                    case .jack: putThing(.jack, at: p)
+                    case .accessPoint: putThing(.accessPoint, at: p)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $gapForm) {
+            if let plan {
+                FillGapSheet(walls: plan.walls.filter { $0.level == level }, preview: gapPreview, onMake: fillGap)
             }
         }
         .task { await load() }
@@ -265,13 +286,13 @@ struct PlanScreen: View {
             if let id = selectedWall, let wall = plan.walls.first(where: { $0.id == id }) {
                 WallInspector(houseId: houseId, wall: wall, doc: doc, level: level, onSaved: { new in Task { await save(new) } }, status: $status)
             } else if let m = selectedMarker {
-                MarkerInspector(marker: m, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedMarker = nil })
+                MarkerInspector(marker: m, doc: doc, rooms: plan.rooms.filter { $0.level == level }, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedMarker = nil })
             } else if let id = selectedStair, let st = plan.stairs.first(where: { $0.id == id }) {
                 StairInspector(stair: st, doc: doc, here: level, rise: plan.levels.first { $0.id == st.from_level }.flatMap { a in plan.levels.first { $0.id == st.to_level }.map { abs($0.elevation - a.elevation) } }, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedStair = nil })
             } else if let id = selectedFurniture, let f = plan.furniture.first(where: { $0.id == id }) {
                 FurnitureInspector(item: f, doc: doc, onSaved: { new in Task { await save(new) } }, onClose: { selectedFurniture = nil })
             } else if let id = selectedZone, let z = plan.zones.first(where: { $0.id == id }) {
-                ZoneInspector(zone: z, doc: doc, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedZone = nil })
+                ZoneInspector(zone: z, doc: doc, levels: plan.levels.filter { $0.id != level }, onSaved: { new in Task { await save(new) } }, onRemoved: { selectedZone = nil }, onCopy: { duplicateZone(z.id, to: $0) })
             }
         }
     }
@@ -294,18 +315,7 @@ struct PlanScreen: View {
             }
         case .wall: tapWall(p, tol: tol)
         case .opening: addOpening(at: p, tol: tol, plan: plan)
-        case .outlet:
-            let id = d.add("outlets", prefix: "o", ["position": [p.x, p.y], "level": level, "z": 0.3])
-            selectedMarker = PlanMarker(id: id, kind: .outlet, at: p)
-            Task { await save(d) }
-        case .jack:
-            let id = d.add("jacks", prefix: "j", ["position": [p.x, p.y], "level": level, "z": 0.3, "type": "cat6", "state": "unknown", "poe": false])
-            selectedMarker = PlanMarker(id: id, kind: .jack, at: p)
-            Task { await save(d) }
-        case .accessPoint:
-            let id = d.add("access_points", prefix: "ap", ["position": [p.x, p.y], "level": level, "name": "Access point", "height": 1.5])
-            selectedMarker = PlanMarker(id: id, kind: .accessPoint, at: p)
-            Task { await save(d) }
+        case .outlet, .jack, .accessPoint: putThing(tool, at: p)
         case .zone:
             draft.append(p)
         case .measure:
@@ -322,6 +332,54 @@ struct PlanScreen: View {
             makeStair(target: stairTarget, bottom: draft[0], top: draft[1], width: 1.0, plan: plan)
             draft = []
         }
+    }
+
+    /// An outlet, a jack or an access point at `p`, selected afterwards so its details can be filled in.
+    private func putThing(_ kind: PlanTool, at p: Pt) {
+        guard var d = doc else { return }
+        switch kind {
+        case .outlet:
+            let id = d.add("outlets", prefix: "o", ["position": [p.x, p.y], "level": level, "z": 0.3])
+            selectedMarker = PlanMarker(id: id, kind: .outlet, at: p)
+        case .jack:
+            let id = d.add("jacks", prefix: "j", ["position": [p.x, p.y], "level": level, "z": 0.3, "type": "cat6", "state": "unknown", "poe": false])
+            selectedMarker = PlanMarker(id: id, kind: .jack, at: p)
+        default:
+            let id = d.add("access_points", prefix: "ap", ["position": [p.x, p.y], "level": level, "name": "Access point", "height": 1.5])
+            selectedMarker = PlanMarker(id: id, kind: .accessPoint, at: p)
+        }
+        Task { await save(d) }
+    }
+
+    /// What filling a gap round these walls would add: the closing walls and the area they enclose.
+    private func gapPreview(_ ids: Set<String>) -> (closing: Int, area: Double)? {
+        guard let d = doc, let core = try? d.core(), let r = WallOps.fillGap(core, walls: ids) else { return nil }
+        return (r.closing.count, Geometry.area(r.outline.map { Pt($0.x, $0.y) }))
+    }
+
+    /// Adds the walls that close the gap, with fresh ids, at the height and thickness of the walls they join.
+    private func fillGap(_ ids: Set<String>) {
+        edit { h in
+            guard let r = WallOps.fillGap(h, walls: ids), !r.closing.isEmpty else { return nil }
+            var taken = Set(h.walls.map(\.id))
+            var n = h.walls.count
+            var out = h
+            for var w in r.closing {
+                repeat { n += 1 } while taken.contains("w\(n)")
+                w.id = "w\(n)"
+                taken.insert(w.id)
+                out.walls.append(w)
+            }
+            return out
+        }
+    }
+
+    /// A copy of a zone on another floor.
+    private func duplicateZone(_ id: String, to target: String) {
+        guard let d = doc, let core = try? d.core(), let (new, nid) = ZoneOps.duplicate(core, zone: id, to: target) else { return }
+        _ = nid
+        commit(new)
+        status = .success("Copied to \(plan?.levels.first { $0.id == target }?.name ?? target).")
     }
 
     private func finishZone(_ plan: PlanHouse) {
@@ -497,8 +555,11 @@ struct PlanScreen: View {
 struct MarkerInspector: View {
     let marker: PlanMarker
     let doc: HouseDoc
+    var rooms: [PlanRoom] = []
     let onSaved: (HouseDoc) -> Void
     let onRemoved: () -> Void
+    @State private var px = ""
+    @State private var py = ""
     @State private var height = ""
     @State private var name = ""
     @State private var type = "cat6"
@@ -519,6 +580,7 @@ struct MarkerInspector: View {
 
     var body: some View {
         Form {
+            whereSection
             Section(title) {
                 switch marker.kind {
                 case .outlet:
@@ -554,6 +616,25 @@ struct MarkerInspector: View {
         .onChange(of: marker.id) { load() }
     }
 
+    /// Where it is, in plan metres, and a list of rooms to move it into.
+    @ViewBuilder
+    private var whereSection: some View {
+        Section("Where") {
+            field("x (m)", $px)
+            field("y (m)", $py)
+            if !rooms.isEmpty {
+                Menu("Move to the middle of a room") {
+                    ForEach(rooms) { r in
+                        Button(r.name.isEmpty ? r.id : r.name) {
+                            if let c = Geometry.pointInRoom(r.polygon, side: nil, along: 0) { px = String(format: "%.2f", c.x); py = String(format: "%.2f", c.y) }
+                        }
+                    }
+                }
+            }
+            Text("Press Save below to move it.").font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
     private var title: String {
         switch marker.kind { case .outlet: "Outlet \(marker.id)"; case .jack: "Jack \(marker.id)"; case .accessPoint: "Access point \(marker.id)"; case .entry: "Where the internet comes in"; case .measurement, .suggestion, .door, .planDoor: "Measurement \(marker.id)" }
     }
@@ -566,6 +647,9 @@ struct MarkerInspector: View {
 
     private func load() {
         let it = (marker.kind == .entry ? doc.object("entry") : doc.item(collection, marker.id)) ?? [:]
+        let pos = it["position"] as? [Double]
+        px = pos.map { String(format: "%.2f", $0[0]) } ?? String(format: "%.2f", marker.at.x)
+        py = pos.map { String(format: "%.2f", $0[1]) } ?? String(format: "%.2f", marker.at.y)
         rssi = (it["rssi"] as? Double).map { String(format: "%g", $0) } ?? ""
         rate = (it["throughput"] as? Double).map { String(format: "%g", $0) } ?? ""
         band = it["band"] as? String ?? "5"
@@ -583,15 +667,17 @@ struct MarkerInspector: View {
 
     private func save() {
         var d = doc
+        let moved: [Double]? = num(px).flatMap { x in num(py).map { [x, $0] } }
         switch marker.kind {
-        case .outlet: d.set(collection, marker.id, ["z": num(height) ?? 0.3])
-        case .jack: d.set(collection, marker.id, ["type": type, "state": state, "poe": poe, "z": num(height) ?? 0.3])
-        case .accessPoint: d.set(collection, marker.id, ["name": name, "height": num(height) ?? 1.5, "eirp_dbm": num(eirp) ?? 23])
+        case .outlet: d.set(collection, marker.id, ["z": num(height) ?? 0.3, "position": moved])
+        case .jack: d.set(collection, marker.id, ["type": type, "state": state, "poe": poe, "z": num(height) ?? 0.3, "position": moved])
+        case .accessPoint: d.set(collection, marker.id, ["name": name, "height": num(height) ?? 1.5, "eirp_dbm": num(eirp) ?? 23, "position": moved])
         case .measurement, .suggestion, .door, .planDoor:
-            d.set(collection, marker.id, ["band": band, "rssi": num(rssi), "throughput": num(rate), "device": device.trimmed.isEmpty ? "iPhone" : device.trimmed])
+            d.set(collection, marker.id, ["band": band, "rssi": num(rssi), "throughput": num(rate), "device": device.trimmed.isEmpty ? "iPhone" : device.trimmed, "position": moved])
         case .entry:
             var e = doc.object("entry") ?? [:]
             e["kind"] = entryKind
+            if let m = moved { e["position"] = m }
             if let v = num(wanDown), v > 0 { e["wan_down"] = v } else { e.removeValue(forKey: "wan_down") }
             if let v = num(wanUp), v > 0 { e["wan_up"] = v } else { e.removeValue(forKey: "wan_up") }
             d.setObject("entry", e)
