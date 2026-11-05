@@ -289,8 +289,11 @@ are end-to-end encrypted (verify against Apple's documentation before stating it
 1. **Now to parity: frozen, not removed.** Take no new features in `homemesh/` (server), `web/` or the deployment, except fixes the owner
    asks for and the one-time export in section 8. The deployment stays up so the owner's houses remain editable on the PC until the
    phone app can do the same. (The current iOS work keeps using it.)
-2. **At parity** (the phase-5 gate below: every owner house migrated and the phone reproduces its plan results): stop the deployment through the
-   owner session (it is owner work), keep one final data export, and archive the web app. The `deploy/`
+2. **Retired earlier than "parity" (owner decision 2026-11-05).** The server is retired as soon as three things are true: (1) the owner's real
+   house is on the phone through "Copy to this phone" and the counts match (an owner step on a device); (2) export to Files exists, so there is a
+   second copy (§19, built first); (3) the rest of the editor (P3) has landed. When all three hold the agent tells the owner, then removes the server
+   path from the app (sign-in, the upload queue, the server transport and the switch). The owner runs one final data export, then stops the
+   deployment and removes its Pocket ID client and door through the owner session (owner work). Until then the server path stays unchanged. Stopping the deployment and archiving the web app The `deploy/`
    directory, the Pocket ID door arrangements and the runner lane are removed in a PR the owner asks for.
 3. **Kept for good:** the Python engine (`homemesh/` without the FastAPI layer) and its tests, under `tests/` or a `reference/` folder, as
    the **oracle** that generates the golden vectors. A change to the Swift engine that disagrees with Python is a bug in one of them,
@@ -376,6 +379,8 @@ iCloud, iPad, catalogue content) at 20 to 30; this plan makes the editor first-c
 | **P4 Simulation and planning** | Sim, Net, Planner, Calibrate, catalogue; progress and cancel; results screens on local results | golden parity on grids, scores and rankings; plan times measured on the phone; thermal check | 4 to 5 |
 | **P5 Migration and retire** | transitional import build, verification, cut-over build without server code; archive and retire the deployment (owner session) | all owner houses migrated and verified; server stopped; Python engine kept as oracle | 1 to 2 |
 | **P6 Release readiness** | export/import package UI, demo house, onboarding, privacy manifest, diagnostics by share sheet, TestFlight, listing | what a store submission needs; none of it depends on the business model | 2 to 3 |
+
+**P3 status:** in progress (export/import to Files was built ahead of the rest of P3 by the owner's decision of 2026-11-05; see section 7).
 
 Order and overlap: P1 before everything; P3's operations (Core) can run alongside P4's engine if work is split, since they only meet in the document; P2
 needs P1's import; the phone app shows P4 results only after P1 and P3's document exist. **Throughout**, the current server and web
@@ -525,3 +530,14 @@ In `core/`, with golden parity against Python on synthetic data (`scripts/golden
   edit and save the result as the next revision, so Undo (revisions) works as before. Not done yet: dragging wall ends with a loupe, sliding and resizing openings by touch, the
   fill-the-gap tool's screen, duplicating a zone to another floor from the screen, the iPad layout.
 
+
+## 19. As built: a house as one file (2026-11-05)
+
+- **`HousePackage`** (`core/Sources/HomemeshCore/HousePackage.swift`): a house as one `.homemesh` file. Entries are the current document, the index of every scan and every
+  stored file (scan JSON and USDZ), then a manifest with each file's size and SHA-256 and the counts the house had (levels, walls, rooms, access points, scans, zones,
+  stairs, revision), then an end marker; a file cut short has no manifest and is refused. The revision history is not in the file (the undo steps of the phone stay on the
+  phone). It is plain data, read and written with Foundation only, so it builds and is tested on Linux (round trip, truncation, one flipped byte).
+- **Export** writes the file, reads it back through the same checker, and only then offers it to Files (house screen, More, "Export to Files…", with the phone's library on).
+  **Import** (houses list, "+", "Import a house from Files…") copies it in file by file, never over a house with the same id, leaves nothing behind on a failure, and compares the
+  copy's counts with the manifest's, listing any difference in words.
+- Not checked without a device: the Files picker and mover (system UI), the time for a house with large scans (the checksum is Foundation-only Swift), the wording on screen.

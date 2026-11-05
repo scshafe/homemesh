@@ -77,4 +77,24 @@ enum LocalLibrary {
         } else { diffs.append("the server did not list this house, so it could not be compared") }
         return CopyReport(scans: metas.count, files: digests.count, bytes: bytes, differences: diffs)
     }
+
+    /// A summary of a package written or read, in words.
+    static func describe(_ r: HousePackage.Report) -> String {
+        "\(r.files) file(s), " + String(format: "%.1f MB", Double(r.bytes) / 1_048_576)
+    }
+
+    /// Writes house `id` as one file in the temporary folder (to be moved to Files), reads it back and checks it.
+    static func export(house id: String, api: LocalAPI = LocalLibrary.api) async throws -> (url: URL, report: HousePackage.Report) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(id).homemesh")
+        do { return (url, try await Task.detached { try HousePackage.export(house: id, from: api, to: url) }.value) }
+        catch let e as APIError { throw Uploader.Failure(message: e.detail) }
+    }
+
+    /// Copies the house in a package file into the library (never over a house with the same id) and compares it with what the file says.
+    static func importPackage(from url: URL, api: LocalAPI = LocalLibrary.api) async throws -> HousePackage.Report {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do { return try await Task.detached { try HousePackage.importPackage(from: url, into: api) }.value }
+        catch let e as APIError { throw Uploader.Failure(message: e.detail) }
+    }
 }

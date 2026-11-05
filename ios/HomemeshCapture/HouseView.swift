@@ -1,3 +1,4 @@
+import HomemeshCore
 import QuickLook
 import SwiftUI
 
@@ -15,6 +16,8 @@ struct HouseView: View {
     @State private var staircase: StairPair?
     @State private var askStairs: CaptureMeta?
     @State private var note: SuiMessage?
+    @State private var exported: URL?
+    @State private var exportReport: HousePackage.Report?
     @State private var waiting: [PendingUpload] = []
     @State private var sending = false
     @State private var sendingId = ""
@@ -130,13 +133,19 @@ struct HouseView: View {
         .suiMessage($note)
         .navigationTitle(model.summary(houseId)?.name ?? houseId)
         .toolbar {
-            if !model.useLocal {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    if model.useLocal {
+                        Button("Export to Files…", systemImage: "square.and.arrow.up") { Task { await exportToFiles() } }
+                    } else {
                         Button("Copy to this phone", systemImage: "iphone.and.arrow.forward") { Task { await copyToPhone() } }
-                    } label: { Label("More", systemImage: "ellipsis.circle") }
-                }
+                    }
+                } label: { Label("More", systemImage: "ellipsis.circle") }
             }
+        }
+        .fileMover(isPresented: Binding(get: { exported != nil }, set: { if !$0 { exported = nil } }), file: exported) { result in
+            if case .failure(let e) = result, (e as? CocoaError)?.code != .userCancelled { note = .danger("Could not save the file: \(e.localizedDescription)") }
+            else if case .success = result, let r = exportReport { note = .success("Saved to Files: \(LocalLibrary.describe(r)). The file was read back and matches the house here.") }
         }
         .sheet(isPresented: $choosingStaircase) {
             ScanStaircaseSheet(levels: levels) { from, to in staircase = StairPair(from: from, to: to) }
@@ -160,6 +169,23 @@ struct HouseView: View {
     }
 
     /// Copies this house, its scans and their files from the server to this phone, then checks the copy against the server's own count.
+    /// Writes the house as one file, checks it by reading it back, and offers it to the Files app.
+    private func exportToFiles() async {
+        note = .busy("Writing the house to a file…")
+        do {
+            let out = try await LocalLibrary.export(house: houseId)
+            exportReport = out.report
+            if out.report.differences.isEmpty {
+                note = nil
+                exported = out.url
+            } else {
+                note = .warning("The file does not match the house: " + out.report.differences.joined(separator: "; "))
+            }
+        } catch {
+            note = .danger("Could not export the house: \(error.localizedDescription)")
+        }
+    }
+
     private func copyToPhone() async {
         note = .busy("Copying the house to this phone…")
         do {
