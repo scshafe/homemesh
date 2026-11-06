@@ -1,20 +1,18 @@
 # homemesh agent notes
 
-- Model a home in 3D, mark its ethernet jacks and the owner's placement
-  rules, simulate Wi-Fi mesh arrangements and rank them. `docs/brief.md` is
-  fixed; `docs/design.md` is the designer's (the first PR), kept in step
-  with the code. Build nothing past the skeleton until the owner accepts the
-  design.
-- A web app on the tailnet: a browser 3D view and a Python backend, deployed
-  later on the PC through the runner lane. An iOS RoomPlan capture app comes
-  later.
-- House data never enters git: no blueprints, photos, video, scans, RoomPlan
-  exports or models of a real house in the repository, its issues, its CI
-  logs or its fixtures. They live in a data directory outside git (`data/`
-  is ignored). Test fixtures are synthetic houses.
-- Deploying, tailnet nodes, node shares and runner registration are the
-  owner session's work: put what you need in the PR and ask.
-- Public, MIT. CI runs on GitHub: wait for it before merging.
+- Model a home, mark its ethernet jacks and the owner's placement rules, simulate Wi-Fi mesh arrangements and rank them. `docs/brief.md` is
+  fixed; `docs/design.md` is the original design; `docs/design-standalone-app.md` is the accepted design of what the repository is now.
+- **A standalone iPhone app.** `ios/` is the app (RoomPlan capture, an editor, the plan and 3D views), `core/` is `HomemeshCore`, the
+  Foundation-only Swift engine it runs (it also builds and tests on Linux). Houses live on the phone. **Nothing is deployed and there is no
+  server**: the web app, the FastAPI layer and `deploy/` were retired on 2026-11-05.
+- The Python code in `homemesh/` is kept only as the **oracle**: `scripts/golden` writes the golden vectors the Swift core is tested against
+  (`core/Tests/HomemeshCoreTests/Golden/`), and `tests/test_golden.py` fails when they are stale. A Swift change that disagrees with Python is a
+  bug in one of the two. `Golden/api_session.json` is a frozen recording of the retired API, replayed by the Swift tests.
+- House data never enters git: no blueprints, photos, video, scans, RoomPlan exports or models of a real house in the repository, its issues,
+  its CI logs or its fixtures. Test fixtures are synthetic houses.
+- Never write the tailnet name. The iOS app builds only in CI (macOS job); Swift toolchains for `core/` are under `~/swift`.
+- Merging deploys nothing (`dev.toml` `[deploy]` lane `none`). Say in each PR what only a device can show (the scan, touch handling, the Files app).
+- Public, MIT. CI runs on GitHub: wait for it before merging (Linux `verify` and `core`, macOS `ios`).
 
 <!-- scshafe-dev:begin landing -->
 ## Verify and landing
@@ -35,8 +33,4 @@ How a change lands:
 3. Merge your own PR with a merge commit, one change at a time: `gh pr merge <N> --merge --subject "Merge #<N>: <title>"`. Never squash or rebase (both are off on the repository), and pass `--subject`: `gh pr merge` does not make the `Merge #N: <title>` subject by itself.
 
 The project's agent may merge its own PR and push `main`; there is no approval gate.
-
-Merging deploys to production ([deploy] lane `runner`: `.github/workflows/deploy.yml` verifies on a GitHub-hosted runner, deploys through the host entrypoint on the `homemesh-prod` self-hosted runner, then checks health).
-Watch the run yourself with `gh run list -w deploy`, `gh run watch <id>` and `gh run view <id> --log` (a public repository's deploy log is a summary only); say in your reply what the run did, naming the merge commit.
-Roll back by merging a `git revert`, or by dispatching `deploy.yml` with `sha=<older commit on main>` and `allow_rollback=true` (`gh workflow run deploy.yml -f sha=<sha> -f allow_rollback=true`).
 <!-- scshafe-dev:end landing -->
