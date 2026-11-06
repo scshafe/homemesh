@@ -1,8 +1,8 @@
 import RoomPlan
 import SwiftUI
 
-/// Scan one or more rooms, name each right after it is scanned, then upload with the names.
-/// One scan view and AR session serve all rooms of one scan (they share a frame); after an upload or a discard
+/// Scan one or more rooms, name each right after it is scanned, then save them into the house with the names.
+/// One scan view and AR session serve all rooms of one scan (they share a frame); after a save or a discard
 /// the scan view is replaced by a fresh one, so the next scan starts a new session and never a paused one.
 struct ScanScreen: View {
     let houseId: String
@@ -173,10 +173,10 @@ struct ScanScreen: View {
                 .accessibilityLabel("Back")
             Spacer()
             if !allRooms.isEmpty {
-                Button { Task { await upload() } } label: { Text("Save").font(.headline).padding(.horizontal, 12).frame(height: 44) }
+                Button { Task { await saveScan() } } label: { Text("Save").font(.headline).padding(.horizontal, 12).frame(height: 44) }
                     .buttonStyle(.glassProminent)
                     .disabled(busy || phase != .idle || !allNamed)
-                    .accessibilityHint("Saves the scan to \(model.summary(houseId)?.name ?? houseId) and uploads it")
+                    .accessibilityHint("Saves the scan to \(model.summary(houseId)?.name ?? houseId) on this phone")
             }
         }
         .padding(.top, 4)
@@ -308,15 +308,22 @@ struct ScanScreen: View {
         controller.start()
     }
 
-    /// The scan is first saved on the phone (so nothing is lost if the upload fails or there is no signal), then sent.
-    private func upload() async {
+    /// The scan goes straight into the house on this phone. If that fails the rooms stay on the screen, so nothing is lost.
+    private func saveScan() async {
         busy = true
         defer { busy = false }
         do {
             status = .busy("Preparing…")
             let groups = earlier + (rooms.isEmpty ? [] : [rooms])
             let baros = earlierBaro + (rooms.isEmpty ? [] : [baro])
-            var items: [(PendingUpload, [String])] = []
+            struct Built {
+                let json: Data
+                let usdz: URL
+                let name: String
+                let stair: (from: String, to: String)?
+                let roomNames: [String]
+            }
+            var built: [Built] = []
             FloorSuggestion.remember(level, house: houseId)
             for (gi, g) in groups.enumerated() {   // one scan per session: each session has its own frame
                 let (json, usdz) = try await ScanPayload.build(rooms: g, names: names.mapValues { $0.trimmed }, baro: gi < baros.count ? baros[gi] : nil,
@@ -324,35 +331,29 @@ struct ScanScreen: View {
                                                                 doorLabels: doorLabels.filter { l in ScanDoors.doors(g).contains { $0.id == l.key } })
                 var stair: (from: String, to: String)?
                 if let staircase { stair = (staircase.from, staircase.to) }
-                else if !ScanFindings.stairRises(g).isEmpty, !effectiveStairTo.isEmpty, !items.contains(where: { $0.0.stairFrom != nil }) { stair = (level, effectiveStairTo) }
-                let item = try UploadQueue.enqueue(house: houseId, name: scanTitle(g), level: level, replaces: items.isEmpty ? (replacing?.key ?? "") : "", json: json, usdz: usdz,
-                                                   stair: stair, purpose: staircase == nil ? nil : "stairs")
-                items.append((item, g.map { names[$0.identifier.uuidString]?.trimmed ?? "" }))
+                else if !ScanFindings.stairRises(g).isEmpty, !effectiveStairTo.isEmpty, !built.contains(where: { $0.stair != nil }) { stair = (level, effectiveStairTo) }
+                built.append(Built(json: json, usdz: usdz, name: scanTitle(g), stair: stair, roomNames: g.map { names[$0.identifier.uuidString]?.trimmed ?? "" }))
             }
             let first = replacing.flatMap { $0.description.isEmpty ? nil : $0.description }
-            resetScan()
-            status = .busy("Saved on this phone. Uploading…")
+            status = .busy("Saving on this phone…")
             var last = ""
-            for (n, (item, roomNames)) in items.enumerated() {
-                let (fractions, report) = AsyncStream.makeStream(of: Double.self)
-                let count = items.count
-                let watcher = Task { for await f in fractions { status?.progress = (Double(n) + f) / Double(count) } }
-                defer { report.finish(); watcher.cancel() }
-                let id = try await UploadQueue.send(item, with: model.uploader(house: houseId), progress: { report.yield($0) })
+            for (n, b) in built.enumerated() {
+                let id = try await model.uploader(house: houseId).upload(json: b.json, usdz: b.usdz, name: b.name, level: level, replaces: n == 0 ? (replacing?.key ?? "") : "",
+                                                                         purpose: staircase == nil ? "" : "stairs", stairFrom: b.stair?.from ?? "", stairTo: b.stair?.to ?? "")
                 last = id
                 if n == 0, let first {   // the description carries over to the new scan's room
-                    _ = try? await model.client().nameRooms(house: houseId, blob: id, names: roomNames, descriptions: roomNames.indices.map { $0 == 0 ? first : "" })
+                    _ = try? await model.client().nameRooms(house: houseId, blob: id, names: b.roomNames, descriptions: b.roomNames.indices.map { $0 == 0 ? first : "" })
                 }
             }
-            status = .success(items.count > 1
-                ? "Uploaded \(items.count) scans (they are separate frames). Place each on the plan next."
-                : "Uploaded (scan \(last.prefix(8))). Place the rooms on the plan next.")
-            Diagnostics.event("upload", ["ok": true, "scans": items.count])
-            await DiagnosticsUploader.shared.flush()
+            resetScan()
+            status = .success(built.count > 1
+                ? "Saved \(built.count) scans (they are separate frames). Place each on the plan next."
+                : "Saved (scan \(last.prefix(8))). Place the rooms on the plan next.")
+            Diagnostics.event("save", ["ok": true, "scans": built.count])
             onUploaded()
         } catch {
-            Diagnostics.event("upload", ["ok": false, "error": (error as NSError).domain + " " + String((error as NSError).code)])
-            status = .danger("Not uploaded yet: \(error.localizedDescription). The scan is saved on this phone; the house screen has it under \"Waiting to upload\".")
+            Diagnostics.event("save", ["ok": false, "error": (error as NSError).domain + " " + String((error as NSError).code)])
+            status = .danger("Not saved: \(error.localizedDescription). The rooms are still here; try Save again.")
         }
     }
 }

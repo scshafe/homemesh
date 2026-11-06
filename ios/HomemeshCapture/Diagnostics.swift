@@ -5,8 +5,7 @@ import UIKit
 
 /// The app's own rolling event log, kept in the app container as JSON lines, written and flushed per event so it
 /// survives a crash. It never holds names or scan content: phases, errors with domain and code, counts, timings.
-/// Capped at about 2 MB (the oldest half goes when it is full). Uploaded to the server on launch and after scan uploads
-/// (`DiagnosticsUploader`); the server keeps it so the owner does not have to fetch logs from the phone.
+/// Capped at about 2 MB (the oldest half goes when it is full). It stays on the phone; Settings can put it in a file to share.
 final class EventLog: @unchecked Sendable {
     static let shared = EventLog(url: EventLog.defaultURL)
     static let cap = 2 * 1024 * 1024
@@ -50,6 +49,17 @@ final class EventLog: @unchecked Sendable {
         try? data[(nl + 1)...].write(to: url, options: .atomic)
     }
 
+    /// The last `bytes` of the log, from the start of a line.
+    func tail(bytes: Int) -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        if data.count <= bytes { return data }
+        let from = data.count - bytes
+        guard let nl = data[from...].firstIndex(of: 0x0A) else { return nil }
+        return data[(nl + 1)...]
+    }
+
     /// The events with `t` greater than `cursor`, as JSON lines, and the newest `t` among them.
     func lines(after cursor: Double) -> (data: Data, newest: Double)? {
         lock.lock()
@@ -70,19 +80,6 @@ enum Diagnostics {
     /// Records one event (see `EventLog`). Safe from any thread.
     static func event(_ name: String, _ fields: [String: Any] = [:]) {
         EventLog.shared.append(name, fields)
-    }
-
-    static var enabled: Bool {
-        get { UserDefaults.standard.object(forKey: "diagnosticsEnabled") as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: "diagnosticsEnabled") }
-    }
-
-    /// A stable id for this install (not tied to the person or the house): `ios-1a2b3c4d`.
-    static var device: String {
-        if let s = UserDefaults.standard.string(forKey: "diagnosticsDevice") { return s }
-        let s = "ios-" + UUID().uuidString.prefix(8).lowercased()
-        UserDefaults.standard.set(s, forKey: "diagnosticsDevice")
-        return s
     }
 
     /// The app, device and OS, once per launch.
@@ -110,33 +107,24 @@ enum Diagnostics {
     }
 }
 
-/// Sends the event log and MetricKit payloads to the server's `/api/diagnostics`.
+/// MetricKit's crash and hang reports, kept on the phone beside the event log (nothing is sent anywhere) and put together for the share sheet.
 @MainActor
-final class DiagnosticsUploader: NSObject, MXMetricManagerSubscriber {
-    static let shared = DiagnosticsUploader()
-    private var client: (() -> Client)?
-    private var sending = false
-    private static let cursorKey = "diagnosticsCursor"
+final class DiagnosticsCollector: NSObject, MXMetricManagerSubscriber {
+    static let shared = DiagnosticsCollector()
 
-    /// Subscribes to MetricKit (payloads of past crashes and hangs arrive at launch) and remembers how to reach the server.
-    func start(client: @escaping () -> Client) {
-        self.client = client
+    /// Subscribes to MetricKit; payloads of past crashes and hangs arrive at launch.
+    func start() {
         MXMetricManager.shared.add(self)
         for p in MXMetricManager.shared.pastDiagnosticPayloads { stash(p.jsonRepresentation()) }
-        Task { await flush() }
     }
 
     nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
         let blobs = payloads.map { $0.jsonRepresentation() }
-        Task { @MainActor in
-            for b in blobs { self.stash(b) }
-            await self.flush()
-        }
+        Task { @MainActor in for b in blobs { self.stash(b) } }
     }
 
-    // Payloads wait in a folder until the server has them.
-    private var pendingDir: URL {
-        let d = EventLog.defaultURL.deletingLastPathComponent().appendingPathComponent("diagnostics-pending", isDirectory: true)
+    private var dir: URL {
+        let d = EventLog.defaultURL.deletingLastPathComponent().appendingPathComponent("diagnostics-reports", isDirectory: true)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
@@ -144,36 +132,20 @@ final class DiagnosticsUploader: NSObject, MXMetricManagerSubscriber {
     private func stash(_ json: Data) {
         guard !json.isEmpty else { return }
         let name = "\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(6)).json"
-        try? json.write(to: pendingDir.appendingPathComponent(name), options: .atomic)
+        try? json.write(to: dir.appendingPathComponent(name), options: .atomic)
     }
 
-    /// Uploads the new events and any waiting MetricKit payloads; failures are kept for the next time. Does nothing when
-    /// the Settings switch is off.
-    func flush() async {
-        guard Diagnostics.enabled, !sending, let client = client?() else { return }
-        sending = true
-        defer { sending = false }
-        let dev = Diagnostics.device
-        let cursor = UserDefaults.standard.double(forKey: Self.cursorKey)
-        if let (data, newest) = EventLog.shared.lines(after: cursor) {
-            do {
-                _ = try await client.call("POST", "/api/diagnostics?device=\(dev)&kind=events", body: data)
-                UserDefaults.standard.set(newest, forKey: Self.cursorKey)
-            } catch {
-                Self.log.error("event upload failed: \(error.localizedDescription, privacy: .public)")
-            }
+    /// One text file: the recent events, then the crash and hang reports. Written to the temporary folder.
+    func report() throws -> URL {
+        var out = Data("homemesh diagnostics \(Date())\n\n== events (JSON lines) ==\n".utf8)
+        if let events = EventLog.shared.tail(bytes: 400_000) { out.append(events) }
+        let files = ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for u in files.suffix(10) {
+            out.append(Data("\n== crash or hang report \(u.lastPathComponent) ==\n".utf8))
+            if let d = try? Data(contentsOf: u) { out.append(d) }
         }
-        for url in (try? FileManager.default.contentsOfDirectory(at: pendingDir, includingPropertiesForKeys: nil)) ?? [] {
-            guard let data = try? Data(contentsOf: url) else { continue }
-            do {
-                _ = try await client.call("POST", "/api/diagnostics?device=\(dev)&kind=metrickit", body: data)
-                try? FileManager.default.removeItem(at: url)
-            } catch {
-                Self.log.error("diagnostic payload upload failed: \(error.localizedDescription, privacy: .public)")
-                break
-            }
-        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("homemesh-diagnostics.txt")
+        try out.write(to: url, options: .atomic)
+        return url
     }
-
-    private static let log = Logger(subsystem: "homemesh.capture", category: "diagnostics")
 }

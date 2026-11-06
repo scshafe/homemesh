@@ -18,10 +18,6 @@ struct HouseView: View {
     @State private var note: SuiMessage?
     @State private var exported: URL?
     @State private var exportReport: HousePackage.Report?
-    @State private var waiting: [PendingUpload] = []
-    @State private var sending = false
-    @State private var sendingId = ""
-    @State private var sendFraction: Double?
 
     private var levels: [LevelRef] { model.summary(houseId)?.levels ?? [] }
     private var unplaced: Int { rooms.filter { $0.placed == nil }.count }
@@ -79,21 +75,6 @@ struct HouseView: View {
                     }
                 }
             }
-            if !waiting.isEmpty {
-                Section("Waiting to upload (saved on this phone)") {
-                    ForEach(waiting) { p in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                VStack(alignment: .leading) { Text(p.name); Text(p.created, style: .relative).font(.caption).foregroundStyle(.secondary) }
-                                Spacer()
-                                Button("Upload") { Task { await sendWaiting() } }.buttonStyle(.borderless).disabled(sending)
-                                Button("Delete", role: .destructive) { UploadQueue.remove(p); waiting = UploadQueue.all(house: houseId) }.buttonStyle(.borderless).disabled(sending)
-                            }
-                            if sending, p.id == sendingId { ProgressView(value: sendFraction ?? 0) }
-                        }
-                    }
-                }
-            }
             ForEach(levels.reversed()) { lv in   // the top floor first
                 Section {
                     let here = rooms.filter { $0.level == lv.id }
@@ -135,11 +116,7 @@ struct HouseView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    if model.useLocal {
-                        Button("Export to Files…", systemImage: "square.and.arrow.up") { Task { await exportToFiles() } }
-                    } else {
-                        Button("Copy to this phone", systemImage: "iphone.and.arrow.forward") { Task { await copyToPhone() } }
-                    }
+                    Button("Export to Files…", systemImage: "square.and.arrow.up") { Task { await exportToFiles() } }
                 } label: { Label("More", systemImage: "ellipsis.circle") }
             }
         }
@@ -164,11 +141,10 @@ struct HouseView: View {
                          isTaken: { n in levels.contains { $0.name.lowercased() == n.lowercased() } },
                          save: { await model.addLevel(house: houseId, name: $0) })
         }
-        .task { waiting = UploadQueue.all(house: houseId); await sendWaiting(); await load() }
-        .refreshable { await model.refresh(); await sendWaiting(); await load() }
+        .task { await load() }
+        .refreshable { await model.refresh(); await load() }
     }
 
-    /// Copies this house, its scans and their files from the server to this phone, then checks the copy against the server's own count.
     /// Writes the house as one file, checks it by reading it back, and offers it to the Files app.
     private func exportToFiles() async {
         note = .busy("Writing the house to a file…")
@@ -184,39 +160,6 @@ struct HouseView: View {
         } catch {
             note = .danger("Could not export the house: \(error.localizedDescription)")
         }
-    }
-
-    private func copyToPhone() async {
-        note = .busy("Copying the house to this phone…")
-        do {
-            let report = try await LocalLibrary.copy(house: houseId, from: model.client(), progress: { text in Task { @MainActor in note = .busy(text) } })
-            let mb = String(format: "%.1f", Double(report.bytes) / 1_048_576)
-            if report.differences.isEmpty {
-                note = .success("Copied: \(report.scans) scan(s), \(report.files) file(s), \(mb) MB. The copy matches the server. Switch on \"Keep the houses on this phone\" in Settings to use it.")
-            } else {
-                note = .warning("Copied, but the copy differs from the server: " + report.differences.joined(separator: "; "))
-            }
-        } catch {
-            note = .danger("Could not copy the house: \(error.localizedDescription)")
-        }
-    }
-
-    /// Tries the queued scans of this house in order; stops at the first failure and keeps the rest.
-    private func sendWaiting() async {
-        waiting = UploadQueue.all(house: houseId)
-        guard !waiting.isEmpty, !sending else { return }
-        sending = true
-        defer { sending = false }
-        for p in waiting {
-            sendingId = p.id; sendFraction = 0
-            let (fractions, report) = AsyncStream.makeStream(of: Double.self)
-            let watcher = Task { for await f in fractions { sendFraction = f } }
-            defer { report.finish(); watcher.cancel() }
-            do { _ = try await UploadQueue.send(p, with: model.uploader(house: houseId), progress: { report.yield($0) }) }
-            catch { note = .danger("A saved scan is not uploaded yet: \(error.localizedDescription)"); break }
-            note = .success("Uploaded \(p.name).")
-        }
-        waiting = UploadQueue.all(house: houseId)
     }
 
     private func row(_ r: RoomItem) -> some View {

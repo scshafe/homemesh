@@ -293,7 +293,7 @@ are end-to-end encrypted (verify against Apple's documentation before stating it
    house is on the phone through "Copy to this phone" and the counts match (an owner step on a device); (2) export to Files exists, so there is a
    second copy (§19, built first); (3) the rest of the editor (P3) has landed. When all three hold the agent tells the owner, then removes the server
    path from the app (sign-in, the upload queue, the server transport and the switch). The owner runs one final data export, then stops the
-   deployment and removes its Pocket ID client and door through the owner session (owner work). Until then the server path stays unchanged. The web app is archived; the `deploy/`
+   deployment and removes its Pocket ID client and door through the owner session (owner work). **Done on 2026-11-05 (§21).** The web app is archived; the `deploy/`
    directory, the Pocket ID door arrangements and the runner lane are removed in a PR the owner asks for.
 3. **Kept for good:** the Python engine (`homemesh/` without the FastAPI layer) and its tests, under `tests/` or a `reference/` folder, as
    the **oracle** that generates the golden vectors. A change to the Swift engine that disagrees with Python is a bug in one of them,
@@ -381,6 +381,8 @@ iCloud, iPad, catalogue content) at 20 to 30; this plan makes the editor first-c
 | **P6 Release readiness** | export/import package UI, demo house, onboarding, privacy manifest, diagnostics by share sheet, TestFlight, listing | what a store submission needs; none of it depends on the business model | 2 to 3 |
 
 P3 status: complete (2026-11-05)
+
+**P5 status:** the server was retired on 2026-11-05, earlier than planned and without the copy step (the owner started a fresh house in local mode); the cut-over build is §21.
 
 Order and overlap: P1 before everything; P3's operations (Core) can run alongside P4's engine if work is split, since they only meet in the document; P2
 needs P1's import; the phone app shows P4 results only after P1 and P3's document exist. **Throughout**, the current server and web
@@ -551,3 +553,22 @@ In `core/`, with golden parity against Python on synthetic data (`scripts/golden
 - **iPad**: in a regular-width window the inspector is a 360 pt panel beside the plan. **Keyboard**: Command-1 to Command-0 pick the tools, Command-Z undoes, Escape lets go,
   Command-Delete deletes the selected wall. **Pencil**: a double tap switches between Select and the last drawing tool; the Pencil draws and drags as a finger does.
 - Not checked without a device: the feel of dragging and the loupe, the iPad layout, shortcuts with a hardware keyboard, the Pencil double tap.
+
+## 21. As built: the server is retired (2026-11-05)
+
+The owner archived the stack's final state, disabled the deploy workflow and stopped the deployment; the runner, the Pocket ID clients, the tailnet node and the
+infra entries are removed in the owner session. This repository's side:
+
+- **App:** local is the only mode. Gone: sign-in (`Auth`), the server transport in `Client`, server uploads and the upload queue, the diagnostics upload, the server
+  address and Pocket ID settings, the "Keep the houses on this phone" switch and "Copy to this phone". `Client` and `Uploader` stay as the thin layer over
+  `LocalAPI`, so the screens did not change. Saving a scan writes it straight into the house; if that fails the rooms stay on the screen. Scans an earlier build had queued
+  (Files, homemesh, Uploads) are saved into their house at the next launch and removed. Diagnostics stay on the phone: Settings can put the event log and the crash and hang
+  reports into one file for the share sheet.
+- **Repository:** removed the web app (`web/`), `deploy/`, the `Dockerfile`, `.github/workflows/deploy.yml`, `docs/deploy.md`, the FastAPI layer (`homemesh/api.py`), the
+  server-side diagnostics store and CLI, and the blueprint reader (`homemesh/blueprint.py`; blueprints were dropped in §13), with their tests. `dev.toml` `[deploy]` is lane
+  `none`; `AGENTS.md` says nothing is deployed. `requirements.lock` is just pydantic and numpy.
+- **Kept as the oracle:** the engine in `homemesh/` (model, propagation, rates, scan import, placement, planner, calibration, explanation, the job runner whose `serialise` the
+  plan vectors use) and its tests. `scripts/golden` writes the vectors and `tests/test_golden.py` checks them. `Golden/api_session.json` is a frozen recording of the old
+  API that the Swift `LocalAPI` still replays; nothing regenerates it. The Python tests that went through the HTTP layer (`test_api`, `test_captures`) were removed; the
+  Swift `LocalAPITests` replay the recorded session in their place.
+- **Old docs** (`design.md`, `design-ios-app.md`, the earlier sections of this one) still describe the server where they were written; read them as history.

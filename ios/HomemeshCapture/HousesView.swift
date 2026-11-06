@@ -27,14 +27,8 @@ struct HousesView: View {
         }
         .overlay {
             if model.houses.isEmpty && model.message.isEmpty {
-                if model.configured {
-                    SuiEmpty(title: "No houses yet", symbol: "house", detail: "Create one, then scan its rooms.") {
-                        Button("New house") { newName = ""; creating = true }.buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    SuiEmpty(title: "Not set up", symbol: "gearshape", detail: "Give the app your server and sign-in details first.") {
-                        Button("Settings") { showSettings = true }.buttonStyle(.borderedProminent)
-                    }
+                SuiEmpty(title: "No houses yet", symbol: "house", detail: "Create one, then scan its rooms. Or look around the demo house first (Settings).") {
+                    Button("New house") { newName = ""; creating = true }.buttonStyle(.borderedProminent)
                 }
             }
         }
@@ -43,7 +37,7 @@ struct HousesView: View {
             ToolbarItem(placement: .topBarLeading) { Button("Settings", systemImage: "gearshape") { showSettings = true } }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("New house", systemImage: "plus") { newName = ""; creating = true }.disabled(!model.configured)
+                    Button("New house", systemImage: "plus") { newName = ""; creating = true }
                     Button("Import a house from Files…", systemImage: "square.and.arrow.down") { importing = true }
                 } label: { Label("Add", systemImage: "plus") }
             }
@@ -68,7 +62,7 @@ struct HousesView: View {
         do {
             let r = try await LocalLibrary.importPackage(from: url)
             if r.differences.isEmpty {
-                note = .success("Imported \(r.id): \(LocalLibrary.describe(r)). It matches what the file says. \(model.useLocal ? "" : "Switch on \"Keep the houses on this phone\" in Settings to see it.")")
+                note = .success("Imported \(r.id): \(LocalLibrary.describe(r)). It matches what the file says.")
             } else {
                 note = .warning("Imported \(r.id), but it differs from the file: " + r.differences.joined(separator: "; "))
             }

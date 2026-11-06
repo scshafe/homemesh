@@ -5,8 +5,7 @@ schema_version = 1
 id = "homemesh"
 class = "managed"
 
-# A deployed application that is not (yet) an scshafe-app: it graduates to
-# the app kind (class "scshafe-app") when M0 migrates it.
+# Not deployed any more (see [deploy]); kept as a service-kind project because the Python engine and its tests are the oracle for the Swift core.
 [app]
 kind = "service"
 
@@ -16,19 +15,10 @@ kind = "service"
 [verify]
 command = "./scripts/verify"
 
-# SERVICE-01: how this service reaches production. lane = "autodeploy"
-# (Lubuntu's mc-autodeploy redeploys main), "runner" (a deploy workflow on a
-# self-hosted runner: the project's own file, reviewed by hand) or "none"
-# (not deployed); stack = its infra stack, host = where it runs (both
-# optional). SERVICE-02: ci.yml never deploys; the lane does.
+# The server was retired on 2026-11-05 (docs/design-standalone-app.md section 7): nothing is deployed. The iPhone app keeps its houses on
+# the phone, and this repository is the app (ios/), the on-device engine (core/) and the Python engine kept as its test oracle.
 [deploy]
-lane = "runner"
-stack = "homemesh"
-layout = "app"
-host = "pc"
-tailnet_node = "homemesh"
-door = "pocket-id"
-verify_on = "hosted"
+lane = "none"
 
 [skills]
 # BASE-05 asks for .agents/skills; the catalog is M4. Recorded gap.
