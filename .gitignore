@@ -43,15 +43,10 @@ __pycache__/
 /build/
 /dist/
 
-# Node (the web front end)
-node_modules/
-
 .DS_Store
 *.log
 .env
 
-# Front end build output
-/web/dist/
 ios/project.local.yml
 ios/HomemeshCapture.xcodeproj/
 ios/build/

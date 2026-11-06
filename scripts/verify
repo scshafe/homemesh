@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The repository's one verify command (dev.toml [verify]): install the pinned
-# dependencies into .venv, then run every Python test with unittest. CI runs the
-# same command.
+# dependencies into .venv, then run every Python test (the engine that is the oracle
+# for core/) with unittest. CI runs the same command; the Swift core and the iOS app
+# have their own jobs in .github/workflows/ci.yml.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,13 +17,3 @@ if [ ! -f "$stamp" ] || ! cmp -s requirements.lock "$stamp"; then
 fi
 
 .venv/bin/python -B -m unittest discover -s tests -t . -v
-
-# Front end: type-check and build (node if present, else a node container).
-if command -v node >/dev/null 2>&1; then
-  (cd web && { cmp -s package-lock.json node_modules/.lock-stamp 2>/dev/null || { npm ci --no-audit --no-fund --silent && cp package-lock.json node_modules/.lock-stamp; }; } && npm run build --silent)
-elif command -v docker >/dev/null 2>&1; then
-  docker run --rm -v "$PWD/web":/w -w /w node:22.23.4-slim sh -c 'cmp -s package-lock.json node_modules/.lock-stamp 2>/dev/null || { npm ci --no-audit --no-fund --silent && cp package-lock.json node_modules/.lock-stamp; }; npm run build --silent'
-else
-  echo "verify: need node or docker to build the front end" >&2
-  exit 1
-fi
