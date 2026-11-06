@@ -42,10 +42,6 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
     /// more means an old session is still held in memory, which is logged with every phase change.
     nonisolated static let alive = Locked(0)
 
-    deinit {
-        let n = Self.alive.withLock { $0 -= 1; return $0 }
-        Diagnostics.event("controller-released", ["alive": n])
-    }
 
     nonisolated static let log = Logger(subsystem: "homemesh.capture", category: "scan")
     nonisolated static let signposter = OSSignposter(subsystem: "homemesh.capture", category: "scan")
@@ -106,7 +102,11 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
         nc.addObserver(self, selector: #selector(appBack), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        let n = Self.alive.withLock { $0 -= 1; return $0 }
+        Diagnostics.event("controller-released", ["alive": n])
+    }
 
     /// The app is leaving the foreground (home, lock, call): the system takes over the timer, we stop holding it.
     @objc private func appLeft() { ScreenAwake.shared.release() }
