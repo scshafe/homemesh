@@ -1,61 +1,18 @@
 import HomemeshCore
 import Foundation
 
-/// JSON calls to the backend through the door, with the Pocket ID id token as the bearer token.
-/// (Uploads of scans stay in `Uploader`.)
+/// JSON calls to the on-device API (the paths and JSON the screens were written against; nothing leaves the phone).
+/// (Saving a scan stays in `Uploader`.)
 struct Client: Sendable {
-    /// Where the calls go: the homemesh server through the door, or the on-device API (same paths, same JSON, nothing leaves the phone).
-    enum Transport: Sendable {
-        case server(String, token: @Sendable () async throws -> String)
-        case local(LocalAPI)
-    }
-    let transport: Transport
+    let api: LocalAPI
 
-    init(server: String, token: @escaping @Sendable () async throws -> String) { transport = .server(server, token: token) }
-    init(local: LocalAPI) { transport = .local(local) }
-
-    var isLocal: Bool { if case .local = transport { true } else { false } }
-
-    private func url(_ path: String, server: String) throws -> URL {
-        var base = server.trimmed
-        while base.hasSuffix("/") { base.removeLast() }
-        guard let u = URL(string: base + path), u.scheme == "https" else {
-            throw Uploader.Failure(message: "The server address must start with https://")
-        }
-        return u
-    }
+    init(local: LocalAPI) { api = local }
 
     func call(_ method: String, _ path: String, body: Data? = nil, timeout: TimeInterval = 60) async throws -> Data {
-        let server: String, token: @Sendable () async throws -> String
-        switch transport {
-        case .local(let api):
-            do { return try api.handle(method, path, body: body ?? Data()) }
-            catch let e as APIError {
-                if e.status == 409 && (e.detail.hasPrefix("stale revision") || e.detail.contains("changed elsewhere")) { throw Uploader.Failure(message: "Changed elsewhere; reload and try again") }
-                throw Uploader.Failure(message: e.detail)
-            }
-        case .server(let s, let t): server = s; token = t
-        }
-        var r = URLRequest(url: try url(path, server: server))
-        r.httpMethod = method
-        if let body {
-            r.httpBody = body
-            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        }
-        r.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
-        r.timeoutInterval = timeout
-        let (data, resp) = try await URLSession.shared.data(for: r)
-        guard let http = resp as? HTTPURLResponse else { throw Uploader.Failure(message: "No response") }
-        switch http.statusCode {
-        case 200..<300: return data
-        case 401, 403:
-            Auth.signOut()
-            throw Uploader.Failure(message: "The door did not accept the sign-in; try again to sign in")
-        case 409:
-            throw Uploader.Failure(message: "Changed elsewhere; reload and try again")
-        default:
-            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String ?? ""
-            throw Uploader.Failure(message: "Server said \(http.statusCode) \(detail)")
+        do { return try api.handle(method, path, body: body ?? Data()) }
+        catch let e as APIError {
+            if e.status == 409 && (e.detail.hasPrefix("stale revision") || e.detail.contains("changed elsewhere")) { throw Uploader.Failure(message: "Changed elsewhere; reload and try again") }
+            throw Uploader.Failure(message: e.detail)
         }
     }
 
@@ -69,7 +26,7 @@ struct Client: Sendable {
 
     private func decode<T: Decodable>(_ data: Data) throws -> T {
         do { return try JSONDecoder().decode(T.self, from: data) } catch {
-            throw Uploader.Failure(message: "Unexpected answer from the server")
+            throw Uploader.Failure(message: "Unexpected answer")
         }
     }
 
@@ -107,7 +64,7 @@ struct Client: Sendable {
         let body = try JSONEncoder().encode(["transform": transform])
         let data = try await call("POST", "/api/houses/\(house)/captures/\(blob)/import?level=\(level)", body: body)
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any], let h = obj["house"],
-              JSONSerialization.isValidJSONObject(h) else { throw Uploader.Failure(message: "Unexpected answer from the server") }
+              JSONSerialization.isValidJSONObject(h) else { throw Uploader.Failure(message: "Unexpected answer") }
         var stairs: [StairSuggestion] = []
         if let rep = obj["report"] as? [String: Any], let raw = rep["stairs"], JSONSerialization.isValidJSONObject(raw) {
             stairs = (try? JSONDecoder().decode([StairSuggestion].self, from: JSONSerialization.data(withJSONObject: raw))) ?? []

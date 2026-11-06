@@ -1,18 +1,16 @@
-# homemesh capture (iOS)
+# homemesh (iOS)
 
-A small app that scans rooms with Apple RoomPlan and uploads the result to the
-homemesh backend. Scope (design section 10.2): scan, combine, upload. Nothing
-else: no editing, no house viewer, no accounts, no analytics, no App Store.
+The standalone iPhone app: scan rooms with Apple RoomPlan, fix the plan with the touch editor, plan a Wi-Fi mesh. Houses live
+on the phone and nothing is sent anywhere; there is no server, no account and no analytics (the server was retired on
+2026-11-05, see `docs/design-standalone-app.md`). The engine is `core/` (HomemeshCore, Swift); the screens talk to it through an
+in-process version of the old server's API (`LocalAPI`).
 
 ## Status
 
-CI (`.github/workflows/ci.yml`, job `ios`, macos-26 / Xcode 26) generates the
-project with XcodeGen, builds the app for an iPhone simulator against the
-current SDK and runs the unit tests in `HomemeshCaptureTests` (PKCE challenge
-against the RFC 7636 vector, token expiry). CI cannot scan: RoomPlan needs a
-LiDAR sensor, so the scan itself, the sign-in against the live Pocket ID and
-an upload are checked by hand on a phone. The backend half is tested with
-synthetic RoomPlan-shaped JSON (`tests/test_roomplan.py`, `tests/test_captures.py`).
+CI (`.github/workflows/ci.yml`, job `ios`, macos-26 / Xcode 26) generates the project with XcodeGen, builds the app with warnings as
+errors for an iPhone simulator and runs the unit tests in `HomemeshCaptureTests` and the core package's tests. CI cannot scan:
+RoomPlan needs a LiDAR sensor, so the scan, the touch editor, the Files app and everything else on the screen are checked by hand
+on a phone; each PR says what it could not check.
 
 ## Build and install on an iPhone (owner, on the MacBook Air)
 
@@ -37,24 +35,20 @@ works only from the Air's own GUI session, so you press Run in Xcode there.
    first run prepares the phone for development (a few minutes).
 5. If the first launch says "Untrusted Developer": Settings, General, VPN &
    Device Management, your team, Trust; then Run again.
-6. In the app enter the server (`https://homemesh.<tailnet>`), the house id,
-   Pocket ID's address and the client id (`homemesh-capture`). Upload signs you
-   in with your passkey.
+6. Open the app. There is nothing to set up: create a house, or look around the demo house (Settings).
 
 **Needs a LiDAR iPhone** (Pro models and some iPads). On a device without LiDAR
 the app installs and opens, but "Start scanning" is disabled and it says "This
-device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
+device has no LiDAR scanner."; nothing can be scanned from it.
 
 ## Use
 
-1. Settings (the gear): server (`https://homemesh.<tailnet>`), Pocket ID's address and the client id (`homemesh-capture`).
-   Sign-in happens on first use (passkey in a system browser sheet); Sign out clears it.
+1. Settings (the gear): the demo house, and the diagnostics file to share. The houses list's **+** creates a house or imports one from Files.
 2. Houses: pull to refresh; **+** creates a house. Opening a house shows its floors, each with its rooms
    (name, description, on the plan or not), and **Add room scan** at the top.
 3. Add room scan: pick the floor, scan a room, Done, and give the room its name in the field that appears
-   (one field per room, required before Upload; suggestions are in a room's details). Scan more rooms of the
-   same floor, then Upload. Rooms of one scan share a frame; a copy stays in Files (homemesh, Scans) until the
-   server has accepted it. Messages appear under the camera view if tracking is limited or no walls are
+   (one field per room, required before Save; suggestions are in a room's details). Scan more rooms of the
+   same floor, then Save. Rooms of one scan share a frame. Messages appear under the camera view if tracking is limited or no walls are
    detected after 15 seconds. Tap a room in the house to rename it, describe it, change its floor (this moves
    every room of that scan), see its 3D model (Quick Look) or place it on the plan.
 4. Walls: open a floor's "Plan of <floor>: walls and materials" in the house, tap a wall, and set its thickness and
@@ -80,18 +74,16 @@ device has no LiDAR scanner."; nothing can be scanned or uploaded from it.
    measurements" fits the model, shows the typical error on readings it has not seen, which wall materials the walks pinned
    down (and the values they moved to), readings that look wrong, good places to measure next, and the planning margin
    before and after; Apply saves it so later plans use it.
-   **Offline**: Upload first saves the scan on the phone (Files, homemesh, Uploads), then sends it. If there is no signal
-   or the server says no, it stays under "Waiting to upload" in the house, is retried whenever you open or refresh the
-   house, and is removed only after the server confirmed the scan and its 3D model.
+   **Saving**: Save puts the scan straight into the house on the phone. If that fails the rooms stay on the screen. Scans an earlier
+   build left in Files (homemesh, Uploads) are saved into their house the next time the app opens.
+   **Export and import**: a house's menu has "Export to Files…" (one `.homemesh` file, read back and checked), and the houses list can
+   import one; nothing is overwritten and the counts are compared.
    **Undo** (top right of a floor's plan) goes back to the plan as it was before the last change; press again to go further
    back. Nothing is lost: the earlier versions stay in the house's history.
    **3D view of the house** (SceneKit): walls at their floor's height, a slab per floor and the staircases; drag to turn,
    pinch to zoom, and hide floors with the buttons below. Each room's own scanned model is in the room details.
    **Accessibility**: the controls have VoiceOver labels; the plan drawing is described in words and a wall can be chosen
    from a list as well as by tapping; text follows the system text size.
-   Still later: placing scans is in the room details; planning and calibration follow in later milestones
-   (docs/design-ios-app.md); until then use the web app for them. Placing scans on the plan, walls and materials, planning and calibration follow in later milestones
-   (docs/design-ios-app.md); until then use the web app for them: Plan editor, Scans, Import to this level.
    A scan gives no wall thickness or material: set them in the editor.
 
 ## Look
@@ -112,7 +104,7 @@ in `ios/icon/` (`./icon/build` flattens them into the asset catalog; needs `rsvg
   main thread.
 - The screen stays awake while a room is being scanned (idle timer off from start to stop; released on stop, error, leaving the screen and when the app is backgrounded).
 - One RoomPlan session cannot grow forever ("Capture scene exceeded limit", then a hang). A session is renewed
-  after 4 rooms or 6 minutes of scanning (the app says so); on any session error, or a start/stop that does not
+  after 2 rooms or 4 minutes of scanning (the app says so); on RoomPlan's size limit the room scanned so far is kept, the screen says the session was full and offers "Start a new session"; on any other session error, or a start/stop that does not
   finish (8 s / 45 s), the session is shut down, the room scanned so far is kept when RoomPlan can still build it,
   and the next room gets a new camera view, session and frame. Each session uploads as its own scan, so the rooms of
   different sessions are placed one by one by the usual placement step.
@@ -133,36 +125,18 @@ in `ios/icon/` (`./icon/build` flattens them into the asset catalog; needs `rsvg
 - Doors: after a scan, "Doors: where do they lead?" (optional) shows a small picture of the scan with its doors numbered and a "leads to" choice for each (rooms of the house and of this session, or Outside); a room's screen has "Doors: where each leads" for scans already uploaded. A door that leads to a room already on the plan is what placement lines the scan up by (the proposal says *labelled*). In the placement view, "Pair doors": tap a door on the red scan, then the same door on the plan; the scan snaps to it (Flip turns it the other way), and accepting saves the pair as labels on both scans.
 - Placement is by labelled connections: a door of the scan labelled with the room it leads to, and a door of that room labelled back. With none, the placement view says what is missing, puts the scan in the middle of the floor and opens Pair doors (tap a door on the scan, then its door on the plan: the scan lands on the far side of the wall, a Flip button overrides); "Guess for me" runs the old search. Each floor has a "Doors on <floor>: label before placing" checklist of every scan's doors (○ not said, ✓ both sides agree, ✗ no partner yet, ↗ outside) with the problems in words.
 - Every `xcodegen generate` first runs `ios/stamp-build`, which bakes the git commit (`+dirty` when the tree has changes) and the build number (commits so far; it is the CFBundleVersion) into the app; the launch event in the diagnostics carries both, so builds can be told apart.
-- Diagnostics (Settings switch, on by default): the app keeps a rolling event log (JSON lines, about 2 MB, flushed per
-  event so it survives a crash: scan phases, session errors with domain and code, renewals, hang-guard trips, upload
-  results, launch with version/device/OS, thermal state, memory warnings; no names or scan content) and subscribes to
-  MetricKit. The log is uploaded on launch and after each scan upload, MetricKit crash and hang payloads when they
-  arrive (waiting on the phone until the server has them). On the server: `./scripts/diagnostics latest-crash`,
-  `events -n 100`, `list`.
+- Diagnostics: the app keeps a rolling event log (JSON lines, about 2 MB, flushed per event so it survives a crash: scan phases, session
+  errors with domain and code, renewals, hang-guard trips, saves, launch with version/device/OS, thermal state, memory warnings, how many
+  scan controllers are alive; no names or scan content) and keeps MetricKit crash and hang reports. They stay on the phone; Settings >
+  "Prepare a diagnostics file" puts them in one file for the share sheet.
 - Console.app (iPhone selected), filter `subsystem:homemesh.capture`: every phase change (idle, running,
   stopping), session start and end, processing results and errors are logged, and `run`, `stop and process` and
   `build payload` are signposts (Instruments, os_signpost) so a stall shows which step it was in.
 
-## Contract with the backend
+## The data
 
-- `POST /api/houses/<house>/captures?name=...` with the encoded `CapturedRoom`
-  (one room) or `CapturedStructure` (several) as the JSON body, then
-  `POST .../captures/<id>/usdz` with the exported USDZ. Both carry
-  `Authorization: Bearer <id token>`; the door verifies it and sets the identity header.
-- The backend reads `walls`, `doors`, `windows`, `openings` (or the same under
-  `rooms: [...]`), each surface's `dimensions`, `transform` (4x4, column-major,
-  ARKit world frame), `category`, `confidence`, `parentIdentifier`.
-- Fields: the app trims whitespace in every field (a trailing space in the house
-  id gave a 404 once), can list the server's houses (a picker instead of typing),
-  and names an unnamed scan "Scan <date time>". The house must already exist in
-  homemesh; a 404 says so.
-- Refresh tokens: Pocket ID issues them to this client, so the app asks for
-  `offline_access` and renews the id token silently; if a refresh fails it
-  signs in again (one tap through Pocket ID).
-- Client id `homemesh-capture` (the default in the app), callback
-  `homemesh-capture://oauth`. The door replaces `Authorization` with its own
-  value before the backend, so nothing downstream reads it.
-- A door that is not accepting the token answers 401, or redirects to its login
-  page (which the app sees as an unexpected answer). A 401 clears the stored token; sign
-  out and in again if an upload keeps failing that way.
-- Sign-in, token expiry and the door settings: `docs/deploy.md`, "The capture app's sign-in".
+- A scan is saved with the encoded `CapturedRoom` (one room) or `CapturedStructure` (several) as the JSON body of
+  `POST /api/houses/<house>/captures?name=...`, then `.../captures/<id>/usdz`, both to the in-process `LocalAPI`.
+- The engine reads `walls`, `doors`, `windows`, `openings` (or the same under `rooms: [...]`), each surface's `dimensions`,
+  `transform` (4x4, column-major, ARKit world frame), `category`, `confidence`, `parentIdentifier`.
+- The app trims whitespace in every field and names an unnamed scan "Scan <date time>".

@@ -3,8 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    @State private var diagnostics = Diagnostics.enabled
     @State private var demoNote: String?
+    @State private var report: URL?
+    @State private var reportNote: String?
 
     private func demo() {
         do {
@@ -18,29 +19,28 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("Keep the houses on this phone", isOn: $model.useLocal)
                     Button("Add the demo house") { demo() }
                     if let demoNote { SuiNote(.info, demoNote) }
-                } header: { Text("Where the houses live") } footer: {
-                    Text("On this phone, nothing is sent anywhere: no server and no sign-in. Copy a house over from the server with \"Copy to this phone\" on its screen, then switch this on.")
-                }
-                Section("Server") {
-                    TextField("https://homemesh.<tailnet>", text: $model.server).textInputAutocapitalization(.never).keyboardType(.URL)
-                }
-                Section("Sign-in (Pocket ID)") {
-                    TextField("Pocket ID address (https://…)", text: $model.issuer).textInputAutocapitalization(.never).keyboardType(.URL)
-                    TextField("Client id", text: $model.clientId).textInputAutocapitalization(.never)
-                    Button("Sign out") { Auth.signOut(); model.message = "Signed out." }
+                } header: { Text("Houses") } footer: {
+                    Text("Your houses are kept on this phone and nothing is sent anywhere. Export a house to Files from its screen for a second copy.")
                 }
                 Section {
-                    Toggle("Send crash and event logs to the server", isOn: $diagnostics)
-                        .onChange(of: diagnostics) { _, on in Diagnostics.enabled = on }
+                    if let report {
+                        ShareLink(item: report) { Label("Share the diagnostics file", systemImage: "square.and.arrow.up") }
+                    } else {
+                        Button("Prepare a diagnostics file") { prepare() }
+                    }
+                    if let reportNote { SuiNote(.danger, reportNote) }
                 } header: { Text("Diagnostics") } footer: {
-                    Text("Scan phases, errors and crash reports (no room names, no scans) go to your homemesh server, so you do not have to fetch logs from the phone.")
+                    Text("Scan phases, errors, memory warnings and crash reports (no room names, no scans). They stay on this phone; share the file when you want someone to look at them.")
                 }
             }
             .navigationTitle("Settings")
-            .toolbar { Button("Done") { model.saveSettings(); dismiss() } }
+            .toolbar { Button("Done") { dismiss() } }
         }
+    }
+
+    private func prepare() {
+        do { report = try DiagnosticsCollector.shared.report(); reportNote = nil } catch { reportNote = "Could not prepare the file: \(error.localizedDescription)" }
     }
 }

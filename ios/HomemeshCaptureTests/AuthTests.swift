@@ -3,33 +3,6 @@ import SwiftUI
 import XCTest
 @testable import HomemeshCapture
 
-final class AuthTests: XCTestCase {
-    func testPKCEChallengeMatchesRFC7636() {
-        // RFC 7636 appendix B
-        XCTAssertEqual(Auth.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
-                       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
-    }
-
-    func testRandomStringsAreUrlSafeAndDistinct() {
-        let a = Auth.randomString(), b = Auth.randomString()
-        XCTAssertNotEqual(a, b)
-        XCTAssertNil(a.rangeOfCharacter(from: CharacterSet(charactersIn: "+/=")))
-    }
-
-    private func jwt(exp: Double) -> String {
-        let payload = Auth.base64url(try! JSONSerialization.data(withJSONObject: ["exp": exp]))
-        return "e30.\(payload).sig"
-    }
-
-    func testExpiryAndFreshness() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        XCTAssertEqual(Auth.expiry(of: jwt(exp: 1_003_600)), Date(timeIntervalSince1970: 1_003_600))
-        XCTAssertTrue(Auth.isFresh(jwt(exp: 1_003_600), now: now))
-        XCTAssertFalse(Auth.isFresh(jwt(exp: 1_000_060), now: now))  // inside the two-minute margin
-        XCTAssertFalse(Auth.isFresh("not a jwt", now: now))
-    }
-}
-
 final class FieldTests: XCTestCase {
     func testTrimmedDropsTrailingSpaceAndNewlines() {
         XCTAssertEqual("espinazo ".trimmed, "espinazo")
@@ -293,27 +266,39 @@ final class CalibrateDecodeTests: XCTestCase {
     }
 }
 
-final class UploadQueueTests: XCTestCase {
+final class LeftoverScansTests: XCTestCase {
     override func setUp() {
-        UploadQueue.root = FileManager.default.temporaryDirectory.appendingPathComponent("queue-\(UUID().uuidString)", isDirectory: true)
+        LeftoverScans.root = FileManager.default.temporaryDirectory.appendingPathComponent("leftover-\(UUID().uuidString)", isDirectory: true)
     }
 
-    func testAQueuedScanSurvivesUntilRemoved() throws {
-        let usdz = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).usdz")
-        try Data("PK".utf8).write(to: usdz)
-        let p = try UploadQueue.enqueue(house: "h", name: "Kitchen", level: "L0", replaces: "", json: Data("{}".utf8), usdz: usdz)
-        _ = try UploadQueue.enqueue(house: "other", name: "x", level: "", replaces: "", json: Data("{}".utf8), usdz: nil)
-        XCTAssertEqual(UploadQueue.all(house: "h").map(\.name), ["Kitchen"])
-        XCTAssertEqual(UploadQueue.all().count, 2)
-        XCTAssertEqual(try UploadQueue.json(p), Data("{}".utf8))
-        XCTAssertNotNil(UploadQueue.usdz(p))
-        UploadQueue.remove(p)
-        XCTAssertTrue(UploadQueue.all(house: "h").isEmpty)
+    /// What an earlier build left: a folder with meta.json, scan.json and maybe scan.usdz.
+    @discardableResult
+    func leave(house: String, name: String, json: String = "{}", usdz: Bool = false) throws -> PendingUpload {
+        let p = PendingUpload(id: UUID().uuidString, house: house, name: name, level: "L0", replaces: "", created: Date())
+        let dir = LeftoverScans.root.appendingPathComponent(p.id, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: dir.appendingPathComponent("scan.json"))
+        if usdz { try Data("PK".utf8).write(to: dir.appendingPathComponent("scan.usdz")) }
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try enc.encode(p).write(to: dir.appendingPathComponent("meta.json"))
+        return p
     }
 
-    func testAFolderWithoutMetaIsNotAQueuedUpload() throws {
-        try FileManager.default.createDirectory(at: UploadQueue.root.appendingPathComponent("half"), withIntermediateDirectories: true)
-        XCTAssertTrue(UploadQueue.all().isEmpty)
+    func testALeftoverScanIsFoundByHouseAndRemoved() throws {
+        let p = try leave(house: "h", name: "Kitchen", usdz: true)
+        try leave(house: "other", name: "x")
+        XCTAssertEqual(LeftoverScans.all(house: "h").map(\.name), ["Kitchen"])
+        XCTAssertEqual(LeftoverScans.all().count, 2)
+        XCTAssertEqual(try LeftoverScans.json(p), Data("{}".utf8))
+        XCTAssertNotNil(LeftoverScans.usdz(p))
+        LeftoverScans.remove(p)
+        XCTAssertTrue(LeftoverScans.all(house: "h").isEmpty)
+    }
+
+    func testAFolderWithoutMetaIsNotAScan() throws {
+        try FileManager.default.createDirectory(at: LeftoverScans.root.appendingPathComponent("half"), withIntermediateDirectories: true)
+        XCTAssertTrue(LeftoverScans.all().isEmpty)
     }
 }
 
