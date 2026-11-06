@@ -18,8 +18,8 @@ final class ScreenAwake {
 
 /// When a RoomPlan session has had enough: the scene limit is not observable, so the signals are rooms and time.
 enum SessionBudget {
-    static let maxRooms = 4
-    static let maxSeconds: TimeInterval = 6 * 60
+    static let maxRooms = 2          // the owner's phone hit RoomPlan's scene size limit on the third room of a session
+    static let maxSeconds: TimeInterval = 4 * 60
     static func exhausted(rooms: Int, seconds: TimeInterval) -> Bool { rooms >= maxRooms || seconds >= maxSeconds }
 }
 
@@ -33,7 +33,15 @@ enum SessionBudget {
 final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
     // RoomCaptureViewDelegate refines NSCoding; UIViewController already encodes itself.
     required init?(coder: NSCoder) { fatalError("not used") }
-    init() { super.init(nibName: nil, bundle: nil) }
+    init() {
+        super.init(nibName: nil, bundle: nil)
+        Self.alive.withLock { $0 += 1 }
+    }
+
+    /// Controllers (each with its RoomCaptureView and AR session) that exist right now. It should be 1 on the scan screen and 0 off it;
+    /// more means an old session is still held in memory, which is logged with every phase change.
+    nonisolated static let alive = Locked(0)
+
 
     nonisolated static let log = Logger(subsystem: "homemesh.capture", category: "scan")
     nonisolated static let signposter = OSSignposter(subsystem: "homemesh.capture", category: "scan")
@@ -63,6 +71,8 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
     private(set) var scanSeconds: TimeInterval = 0
     var wantsFreshSession: Bool { SessionBudget.exhausted(rooms: roomsDone, seconds: scanSeconds) }
     private(set) var lost = false
+    /// The session was lost because RoomPlan's scene grew past its limit.
+    private(set) var lostForSize = false
     static let startTimeout: Duration = .seconds(8)
     static let stopTimeout: Duration = .seconds(45)
     private var watchdog: Task<Void, Never>?
@@ -92,7 +102,11 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
         nc.addObserver(self, selector: #selector(appBack), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        let n = Self.alive.withLock { $0 -= 1; return $0 }
+        Diagnostics.event("controller-released", ["alive": n])
+    }
 
     /// The app is leaving the foreground (home, lock, call): the system takes over the timer, we stop holding it.
     @objc private func appLeft() { ScreenAwake.shared.release() }
@@ -117,7 +131,8 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
         default: break
         }
         previewing = true
-        captureView.captureSession.arSession.run(ARWorldTrackingConfiguration())
+        // A new world every time: no tracking, anchors or reconstruction from an earlier session can carry over.
+        captureView.captureSession.arSession.run(ARWorldTrackingConfiguration(), options: [.resetTracking, .removeExistingAnchors, .resetSceneReconstruction])
         Self.log.notice("preview started")
         Diagnostics.event("preview-started")
         previewWatch?.cancel()
@@ -178,6 +193,15 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
         ScreenAwake.shared.release()
     }
 
+    /// Lets go of everything the controller holds so it can be freed: the handlers (which capture the screen, and so the screen's
+    /// reference to this controller), the delegates and the view. Called when the controller is replaced or the screen goes.
+    func detach() {
+        onProcessed = nil; onError = nil; onPhase = nil; onHint = nil; onStairsFound = nil; onSessionLost = nil; onCameraProblem = nil
+        captureView.captureSession.delegate = nil
+        captureView.delegate = nil
+        captureView.removeFromSuperview()
+    }
+
     private func startMonitor() {
         monitor?.cancel()
         monitor = Task { @MainActor [weak self] in
@@ -219,7 +243,7 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
     private func set(_ p: Phase) {
         MainActor.assertIsolated("scan state is changed on the main actor only")
         Self.log.notice("scan phase \(self.phase.rawValue, privacy: .public) -> \(p.rawValue, privacy: .public)")
-        Diagnostics.event("phase", ["from": phase.rawValue, "to": p.rawValue, "rooms": roomsDone, "seconds": Int(scanSeconds)])
+        Diagnostics.event("phase", ["from": phase.rawValue, "to": p.rawValue, "rooms": roomsDone, "seconds": Int(scanSeconds), "alive": Self.alive.withLock { $0 }])
         phase = p
         onPhase?(p)
     }
@@ -342,8 +366,9 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
             Self.log.error("session ended with error: \(error.localizedDescription, privacy: .public) (\(ns.domain, privacy: .public) \(ns.code), size limit: \(exceeded))")
             Diagnostics.event("session-error", ["domain": ns.domain, "code": ns.code, "size_limit": exceeded, "phase": phase.rawValue,
                                                 "rooms": roomsDone, "seconds": Int(scanSeconds), "walls": wallsSeen])
+            lostForSize = exceeded
             lose(exceeded
-                 ? "RoomPlan's scene size limit was reached. The next room starts a new session (a new frame) and is placed by the usual placement step."
+                 ? "The scan session was full (RoomPlan's size limit)."
                  : "The scan stopped: \(error.localizedDescription). The next room starts a new session.", data: data)
             return
         }
@@ -367,6 +392,14 @@ final class ScanController: UIViewController, RoomCaptureViewDelegate, RoomCaptu
         Self.log.notice("room processed: \(processedResult.walls.count) wall(s); \(self.roomsDone) in this session, \(Int(self.scanSeconds)) s scanned")
         onProcessed?(processedResult)
     }
+}
+
+/// A value guarded by a lock, readable from any thread.
+final class Locked<T>: @unchecked Sendable {
+    private var value: T
+    private let lock = NSLock()
+    init(_ v: T) { value = v }
+    func withLock<R>(_ body: (inout T) -> R) -> R { lock.lock(); defer { lock.unlock() }; return body(&value) }
 }
 
 /// A value handed from RoomPlan's queue to the main actor. RoomPlan's result types are not declared Sendable; each

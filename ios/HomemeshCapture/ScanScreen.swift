@@ -13,6 +13,7 @@ struct ScanScreen: View {
     @EnvironmentObject var model: AppModel
     @State private var controller = ScanController()
     @State private var generation = 0
+    @State private var sessionFull = false           // RoomPlan said the scan session is full: a new one is offered, not started on its own
     @State private var level = ""
     @State private var levelReason = ""
     @State private var levelTouched = false          // the owner chose a floor: suggestions stop changing it
@@ -83,7 +84,7 @@ struct ScanScreen: View {
             earlierRooms = (try? await model.client().rooms(house: houseId)) ?? []
             suggestFloor()
         }
-        .onDisappear { controller.shutdown() }
+        .onDisappear { controller.shutdown(); controller.detach() }
         .suiHaptics(status)
     }
 
@@ -142,13 +143,23 @@ struct ScanScreen: View {
                     .font(.footnote).multilineTextAlignment(.center).padding(10).glass()
             }
             if !RoomCaptureSession.isSupported { SuiNote(.danger, "This device has no LiDAR scanner.").padding(10).glass() }
+            if sessionFull {
+                VStack(spacing: 8) {
+                    Text("The scan session was full. What you scanned is kept. A new session starts from nothing; its rooms join the others by the doors you label.")
+                        .font(.footnote).multilineTextAlignment(.center)
+                    Text("If scanning fails again at once, close homemesh completely (swipe it away in the app switcher) and open it again.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Button("Start a new session") { sessionFull = false; status = nil; newSession() }.buttonStyle(.borderedProminent)
+                }
+                .padding(12).glass()
+            }
             Button { toggle() } label: {
                 Text(phase == .running ? (staircase == nil ? "Done with this room" : "Done with the staircase") : phase == .stopping ? "Processing…" : (staircase == nil ? "Start scanning a room" : "Start scanning the staircase"))
                     .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
-            .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy)
+            .disabled(!RoomCaptureSession.isSupported || phase == .stopping || busy || sessionFull)
         }
         .padding(.bottom, 6)
     }
@@ -235,7 +246,13 @@ struct ScanScreen: View {
             } else {
                 status = .warning(message)
             }
-            newSession()
+            if controller.lostForSize {   // say so and wait: starting again on its own would hit the same wall if the phone is still holding the old scene
+                Diagnostics.event("session-full", ["rooms_kept": rooms.count, "sessions_before": earlier.count, "alive": ScanController.alive.withLock { $0 }])
+                if !rooms.isEmpty { earlier.append(rooms); earlierBaro.append(baro); rooms = []; baro = nil }
+                sessionFull = true
+            } else {
+                newSession()
+            }
         }
         controller.onPhase = { phase = $0 }
         controller.onHint = { hint = $0 }
@@ -246,6 +263,7 @@ struct ScanScreen: View {
 
     /// A fresh scan view and session for the next scan.
     private func resetScan() {
+        sessionFull = false
         rooms = []
         earlier = []
         earlierBaro = []
@@ -261,7 +279,9 @@ struct ScanScreen: View {
 
     private func replaceController() {
         controller.shutdown()
+        controller.detach()
         controller = ScanController()
+        Diagnostics.event("new-session", ["generation": generation + 1, "alive": ScanController.alive.withLock { $0 }])
         generation += 1
         hint = ""
         cameraProblem = ""
