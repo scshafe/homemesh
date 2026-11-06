@@ -68,7 +68,7 @@ final class LeftoverAdoptionTests: XCTestCase {
         try Data("{}".utf8).write(to: dir2.appendingPathComponent("scan.json"))
         try enc.encode(other).write(to: dir2.appendingPathComponent("meta.json"))
 
-        let n = await LeftoverScans.adopt(into: { Uploader(house: $0, local: api) }, houses: api.houseIds())
+        let n = await LeftoverScans.adopt(into: api)
         XCTAssertEqual(n, 1)
         XCTAssertEqual(try await client.captures(house: "home").count, 1)
         XCTAssertEqual(LeftoverScans.all().map(\.id), ["2"])   // the one for a house that is not here stays

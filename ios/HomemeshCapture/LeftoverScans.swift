@@ -1,3 +1,4 @@
+import HomemeshCore
 import Foundation
 
 /// Scans an earlier build saved on the phone while they waited for the server: everything a save needs, on disk. Nothing writes here
@@ -40,11 +41,12 @@ enum LeftoverScans {
 
     /// Saves every leftover scan whose house is in the library; a scan leaves the folder only once it is saved. Returns how many were saved.
     @discardableResult
-    static func adopt(into uploader: (String) -> Uploader, houses: [String]) async -> Int {
+    static func adopt(into api: LocalAPI) async -> Int {
         var n = 0
+        let houses = api.houseIds()
         for p in all() where houses.contains(p.house) {
             do {
-                _ = try await uploader(p.house).upload(json: try json(p), usdz: usdz(p), name: p.name, level: p.level, replaces: p.replaces, purpose: p.purpose ?? "", stairFrom: p.stairFrom ?? "", stairTo: p.stairTo ?? "")
+                _ = try await Uploader(house: p.house, local: api).upload(json: try json(p), usdz: usdz(p), name: p.name, level: p.level, replaces: p.replaces, purpose: p.purpose ?? "", stairFrom: p.stairFrom ?? "", stairTo: p.stairTo ?? "")
                 remove(p)
                 n += 1
             } catch { Diagnostics.event("leftover-scan", ["ok": false]) }

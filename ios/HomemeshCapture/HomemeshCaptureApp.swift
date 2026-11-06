@@ -14,7 +14,7 @@ struct HomemeshCaptureApp: App {
             .task {
                 Diagnostics.launched()
                 DiagnosticsCollector.shared.start()   // the logs stay on this phone until the owner shares them
-                let saved = await LeftoverScans.adopt(into: { model.uploader(house: $0) }, houses: model.library.houseIds())
+                let saved = await LeftoverScans.adopt(into: model.library)
                 if saved > 0 { await model.refresh() }
             }
         }
