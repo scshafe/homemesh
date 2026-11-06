@@ -70,7 +70,8 @@ final class LeftoverAdoptionTests: XCTestCase {
 
         let n = await LeftoverScans.adopt(into: api)
         XCTAssertEqual(n, 1)
-        XCTAssertEqual(try await client.captures(house: "home").count, 1)
+        let saved = try await client.captures(house: "home")
+        XCTAssertEqual(saved.count, 1)
         XCTAssertEqual(LeftoverScans.all().map(\.id), ["2"])   // the one for a house that is not here stays
     }
 }
