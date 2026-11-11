@@ -4,7 +4,7 @@ import Testing
 
 @Test func plannerMatchesThePythonOracle() throws {
     let scenarios = try JSONSerialization.jsonObject(with: golden("plans")) as! [JObject]
-    #expect(scenarios.count == 3)
+    #expect(scenarios.count == 4)
     for sc in scenarios {
         let name = sc["name"] as! String
         let house = try House.load(JSONSerialization.data(withJSONObject: sc["house"]!))
@@ -93,4 +93,49 @@ import Testing
     // Say "stop" from the fifth question on: it must be asked inside the search, not only between node counts.
     #expect(throws: PlanCancelled.self) { try Planner.search(ctx, cfg, cancelled: { calls += 1; return calls > 4 }) }
     #expect(calls > 4)
+}
+
+private func boxContext(zones: [Zone]) throws -> PlanContext {
+    let scenarios = try JSONSerialization.jsonObject(with: golden("plans")) as! [JObject]
+    var obj = scenarios.last!["house"] as! JObject
+    obj["zones"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(zones))
+    let house = try House.load(JSONSerialization.data(withJSONObject: obj))
+    return try PlanContext(house: house, catalogue: Catalogue.generic(), client: Catalogue.genericClients()["phone-2x2-ax"]!, params: PropParams(), step: 1.0)
+}
+
+@Test func moreNodesThanSpotsSkipsThoseCounts() throws {
+    let ctx = try boxContext(zones: ctxZones())
+    var cfg = PlanConfig()
+    cfg.k_max = 4
+    cfg.candidate_step = 3.0
+    let results = try Planner.search(ctx, cfg)
+    #expect(!results.isEmpty)
+    #expect(results.allSatisfy { $0.extras.count <= Planner.candidates(ctx.house, step: 3.0).count })
+}
+
+@Test func anUnknownGatewayIsRefusedNotTrapped() throws {
+    let ctx = try boxContext(zones: ctxZones())
+    var cfg = PlanConfig()
+    cfg.gateway_equipment = "no-such-router"
+    #expect(throws: ImportError.self) { try Planner.search(ctx, cfg) }
+}
+
+@Test func aZeroThroughputTargetMeansUnset() throws {
+    var zones = ctxZones()
+    var want = zones
+    for i in zones.indices where zones[i].kind == "demand" { zones[i].need = Need(min_throughput: 0, must: true); want[i].need = Need(min_throughput: nil, must: true) }
+    var cfg = PlanConfig()
+    cfg.k_max = 1
+    cfg.candidate_step = 3.0
+    let a = try Planner.search(boxContext(zones: zones), cfg), b = try Planner.search(boxContext(zones: want), cfg)
+    #expect(a.count == b.count && a.allSatisfy { $0.score.isFinite })
+    #expect(zip(a, b).allSatisfy { abs($0.score - $1.score) < 1e-12 })
+}
+
+private func ctxZones() -> [Zone] {
+    var allow = Zone(id: "z-allow", level: "L0", polygon: [Vec2(8, 6)], kind: "allow")
+    allow.requires = "none"
+    var demand = Zone(id: "z-office", level: "L0", polygon: [Vec2(6, 4), Vec2(9.5, 4), Vec2(9.5, 7.5), Vec2(6, 7.5)], kind: "demand")
+    demand.need = Need(min_throughput: 900, must: true)
+    return [allow, demand]
 }

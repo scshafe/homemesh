@@ -10,20 +10,34 @@ struct HousesView: View {
     @State private var path: String?
     @State private var importing = false
     @State private var note: SuiMessage?
+    @State private var exported: URL?
+    @State private var exportReport: HousePackage.Report?
 
     var body: some View {
         List {
             if !model.message.isEmpty { Section { SuiNote(.warning, model.message) } }
             Section("Houses") {
                 ForEach(model.houses) { h in
+                    if let why = h.unreadable {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(h.name)
+                            Text("This house is stored on the phone but cannot be read: \(why)").font(.footnote).foregroundStyle(.secondary)
+                            Button("Export it to Files…", systemImage: "square.and.arrow.up") { Task { await export(h.id) } }.buttonStyle(.bordered)
+                        }
+                    } else {
                     NavigationLink(value: h) {
                         VStack(alignment: .leading) {
                             Text(h.name)
                             Text("\(h.levels.count) level(s), \(h.rooms) room(s), \(h.captures) scan(s)").font(.footnote).foregroundStyle(.secondary)
                         }
                     }
+                    }
                 }
             }
+        }
+        .fileMover(isPresented: Binding(get: { exported != nil }, set: { if !$0 { exported = nil } }), file: exported) { result in
+            if case .failure(let e) = result, (e as? CocoaError)?.code != .userCancelled { note = .danger("Could not save the file: \(e.localizedDescription)") }
+            else if case .success = result, let r = exportReport { note = .success("Saved to Files: \(LocalLibrary.describe(r)). Keep it; a newer version of homemesh may open it.") }
         }
         .overlay {
             if model.houses.isEmpty && model.message.isEmpty {
@@ -55,6 +69,18 @@ struct HousesView: View {
         }
         .task { await model.refresh() }
         .refreshable { await model.refresh() }
+    }
+
+    private func export(_ id: String) async {
+        note = .busy("Writing the house to a file…")
+        do {
+            let out = try await LocalLibrary.export(house: id)
+            exportReport = out.report
+            note = nil
+            exported = out.url
+        } catch {
+            note = .danger("Could not export the house: \(error.localizedDescription)")
+        }
     }
 
     private func importHouse(_ url: URL) async {

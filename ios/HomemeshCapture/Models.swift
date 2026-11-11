@@ -19,6 +19,8 @@ struct HouseSummary: Codable, Hashable, Identifiable, Sendable {
     let rooms: Int
     let access_points: Int
     let captures: Int
+    /// Set when the house is stored but this version cannot read it; the text says why. Such a house is still listed and can be exported.
+    var unreadable: String? = nil
 }
 
 /// The few fields of a full house the app needs so far (`GET /api/houses/<id>`); the rest stays on the server.

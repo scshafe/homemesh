@@ -180,7 +180,7 @@ def search(ctx: Context, cfg: PlanConfig, catalogue: dict[str, Equipment],
         raise ValueError("no candidate spots: mark at least one allow zone")
     gateway = Placement(cfg.gateway_equipment, house.entry.position, house.entry.level, cfg.gateway_height)
     names = list(cfg.equipment) or sorted(i for i, e in catalogue.items() if e.kind in ("mesh_node", "extender"))
-    for n in names:
+    for n in [cfg.gateway_equipment, *names]:
         if n not in catalogue:
             raise ValueError(f"unknown equipment {n}")
 
@@ -191,7 +191,9 @@ def search(ctx: Context, cfg: PlanConfig, catalogue: dict[str, Equipment],
 
     for name in names:
         for k in range(1, cfg.k_max + 1):
-            if math.comb(len(reps), k) <= cfg.exhaustive_limit:
+            if k > len(cands):
+                break  # more nodes than spots to put them on
+            if 0 < math.comb(len(reps), k) <= cfg.exhaustive_limit:
                 kept = _exhaustive(ctx, gateway, cands, reps, k, name, cfg)
                 how = "exhaustive"
             else:
@@ -201,6 +203,8 @@ def search(ctx: Context, cfg: PlanConfig, catalogue: dict[str, Equipment],
             kept.sort(key=_key)
             final = [score(ctx, gateway, sc.extras, sc.equipment, cfg) for sc in _dedupe(kept)[: cfg.top_n]]
             final.sort(key=_key)
+            if not final:
+                continue
             results.extend(final)
             progress(f"{name} k={k}: {how}, best score {final[0].score:.3f}")
     results.sort(key=_key)

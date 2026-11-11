@@ -255,6 +255,9 @@ def plan_scenarios() -> list[dict]:
           Zone(id="z-office", level="L0", kind="demand", name="Office", polygon=[(6, 4), (9.5, 4), (9.5, 7.5), (6, 7.5)], weight=3.0, need=Need(min_throughput=900, must=True)),
           Zone(id="z-bed", level="L0", kind="demand", name="Bed", polygon=[(0.5, 5), (4.5, 5), (4.5, 7.5), (0.5, 7.5)], weight=1.0, need=Need(min_throughput=700))]
     run("box, demanding zones", box.model_copy(update={"zones": zs}), False, 2.0, 2)
+    # Guard case: fewer spots than nodes asked for (the Python model already refuses a throughput target of 0).
+    tiny = [Zone(id="z-allow", level="L0", kind="allow", polygon=[(8, 6)], requires="none"), zs[1]]
+    run("box, one allowed spot, more nodes than spots", box.model_copy(update={"zones": tiny}), False, 3.0, 3)
     return json.loads(json.dumps(out))
 
 
