@@ -12,6 +12,7 @@ public enum StoreError: Error, Equatable, CustomStringConvertible {
     case invalid([String])
     case missing(String)
     case badId(String)
+    case unreadable(String)
 
     public var description: String {
         switch self {
@@ -19,6 +20,7 @@ public enum StoreError: Error, Equatable, CustomStringConvertible {
         case .invalid(let p): "invalid house: " + p.joined(separator: "; ")
         case .missing(let w): "no such \(w)"
         case .badId(let w): "invalid \(w)"
+        case .unreadable(let why): "the house cannot be read: \(why)"
         }
     }
 }
@@ -43,7 +45,14 @@ public struct HouseStore: Sendable {
     public func load(revision: Int? = nil) throws -> House {
         let url = revision.map(revisionFile) ?? houseFile
         guard let data = try? Data(contentsOf: url) else { throw StoreError.missing(revision == nil ? "house" : "revision") }
-        return try House.load(data)
+        do { return try House.load(lenient: data) }
+        catch { throw StoreError.unreadable("\(error)") }
+    }
+
+    /// The bytes of house.json as stored, for exporting a house that cannot be read.
+    public func rawDocument() throws -> Data {
+        guard let d = try? Data(contentsOf: houseFile) else { throw StoreError.missing("house") }
+        return d
     }
 
     /// Writes `house` as the next revision and returns it with `revision` set. `expect` is the revision the caller edited from

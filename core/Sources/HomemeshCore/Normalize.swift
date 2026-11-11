@@ -49,10 +49,32 @@ public enum Normalize {
     }
 }
 
+/// Brings an older document up to `House.schemaVersion`, one version at a time. `steps[n]` turns a version n document into version n+1.
+/// There is none yet (the model is at version 1): add the step in the same change that adds or renames a field, with a fixture of the old shape.
+public enum Migrations {
+    public static let steps: [Int: @Sendable (JObject) -> JObject] = [:]
+
+    /// The document at `current`. A document from a newer app, or one with no step to bring it forward, is refused (never guessed at).
+    public static func upgrade(_ input: JObject, to current: Int = House.schemaVersion, steps: [Int: @Sendable (JObject) -> JObject] = Migrations.steps) throws -> JObject {
+        var o = input
+        let found = o["schema_version"]
+        var v = 1
+        if let f = found { guard let n = (f as? NSNumber)?.intValue, n >= 1 else { throw ImportError("the house has no readable schema version") }; v = n }
+        if v > current { throw ImportError("this house was saved by a newer version of homemesh (format \(v), this one reads up to \(current)); update the app to open it") }
+        while v < current {
+            guard let step = steps[v] else { throw ImportError("no way to bring a format \(v) house up to format \(current)") }
+            o = step(o)
+            v += 1
+            o["schema_version"] = v
+        }
+        return o
+    }
+}
+
 extension House {
-    /// Decodes a document with missing defaulted fields filled in (and blueprints dropped).
+    /// Decodes a document with its format brought up to date, missing defaulted fields filled in (and blueprints dropped).
     public static func load(lenient data: Data) throws -> House {
         guard let o = try JSONSerialization.jsonObject(with: data) as? JObject else { throw ImportError("the house is not a JSON object") }
-        return try load(try JSONSerialization.data(withJSONObject: Normalize.house(o)))
+        return try load(try JSONSerialization.data(withJSONObject: Normalize.house(try Migrations.upgrade(o))))
     }
 }

@@ -52,3 +52,45 @@ func tempStore(keep: Int = 20) -> HouseStore {
     #expect(throws: StoreError.badId("blob id")) { try s.blob("../house.json") }
     #expect(throws: StoreError.missing("blob")) { try s.blob(String(repeating: "0", count: 64)) }
 }
+
+// Format version 1 as first shipped (a frozen copy: scripts/golden never rewrites it). It must keep opening as the model grows.
+@Test func aFormatOneHouseStillOpens() throws {
+    let data = try golden("frozen_v1.house")
+    let h = try House.load(lenient: data)
+    #expect(h.schema_version == 1 && !h.walls.isEmpty)
+    let s = tempStore()
+    try FileManager.default.createDirectory(at: s.root, withIntermediateDirectories: true)
+    try data.write(to: s.root.appendingPathComponent("house.json"))
+    #expect(try s.load().id == h.id)
+}
+
+@Test func aHouseFromANewerAppIsRefusedPlainly() throws {
+    var o = try JSONSerialization.jsonObject(with: golden("frozen_v1.house")) as! JObject
+    o["schema_version"] = House.schemaVersion + 1
+    #expect(throws: ImportError.self) { try House.load(lenient: JSONSerialization.data(withJSONObject: o)) }
+}
+
+@Test func migrationStepsRunInOrder() throws {
+    let steps: [Int: @Sendable (JObject) -> JObject] = [1: { var o = $0; o["name"] = ($0["name"] as! String) + "+1"; return o }, 2: { var o = $0; o["name"] = ($0["name"] as! String) + "+2"; return o }]
+    let o = try JSONSerialization.jsonObject(with: golden("frozen_v1.house")) as! JObject
+    let up = try Migrations.upgrade(o, to: 3, steps: steps)
+    #expect((up["name"] as! String).hasSuffix("+1+2") && up["schema_version"] as? Int == 3)
+    #expect(throws: ImportError.self) { try Migrations.upgrade(o, to: 3, steps: [:]) }
+    #expect(Migrations.steps.isEmpty && House.schemaVersion == 1)
+}
+
+@Test func aHouseThatCannotBeReadIsListedAndExportedNotHidden() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("homemesh-bad-\(UUID().uuidString)")
+    let a = LocalAPI(root: root)
+    _ = try a.handle("POST", "/api/houses", body: Data(#"{"id": "mine", "name": "Mine"}"#.utf8))
+    let file = root.appendingPathComponent("houses/mine/house.json")
+    let damaged = Data(#"{"id": "mine", "schema_version": 99}"#.utf8)
+    try damaged.write(to: file)
+    let rows = try JSONSerialization.jsonObject(with: a.handle("GET", "/api/houses/summary")) as! [JObject]
+    #expect(rows.count == 1 && rows[0]["id"] as? String == "mine" && (rows[0]["unreadable"] as? String)?.contains("newer") == true)
+    #expect(throws: APIError.self) { try a.handle("GET", "/api/houses/mine") }
+    let out = FileManager.default.temporaryDirectory.appendingPathComponent("bad-\(UUID().uuidString).homemesh")
+    let r = try HousePackage.export(house: "mine", from: a, to: out)
+    #expect(r.id == "mine" && r.differences.isEmpty)
+    #expect(try Data(contentsOf: file) == damaged)   // nothing was touched
+}
