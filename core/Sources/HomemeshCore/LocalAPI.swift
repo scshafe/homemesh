@@ -89,6 +89,8 @@ public final class LocalAPI: @unchecked Sendable {
         case ("POST", ["houses"]): return try Self.json(try createHouse(try body(raw)))
         case ("GET", ["catalogue"]): return try Self.json(try catalogue())
         case ("GET", let r) where r.count == 2 && r[0] == "jobs": return try Self.json(try jobStatus(r[1]))
+        case ("POST", let r) where r.count == 3 && r[0] == "jobs" && r[2] == "cancel": return try Self.json(try cancelRoute(r[1]))
+        case ("GET", let r) where r.count == 4 && r[0] == "houses" && r[2] == "plans" && r[3] == "latest": return try Self.json(try latestPlan(r[1]))
         case ("POST", let r) where r.count == 3 && r[0] == "houses" && r[2] == "plans": return try Self.json(try startPlan(r[1], try body(raw)))
         case ("POST", let r) where r.count == 3 && r[0] == "houses" && r[2] == "ratemap": return try Self.json(try rateMap(r[1], try body(raw)))
         case ("POST", let r) where r.count == 3 && r[0] == "houses" && r[2] == "calibrate": return try Self.json(try calibrate(r[1], raw))

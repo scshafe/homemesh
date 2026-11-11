@@ -91,6 +91,21 @@ extension Client {
     }
 
     func job(_ id: String) async throws -> JobState { try await get("/api/jobs/\(id)") }
+
+    func cancelJob(_ id: String) async throws { _ = try await call("POST", "/api/jobs/\(id)/cancel") }
+
+    func latestPlan(house: String) async throws -> LatestPlan { try await get("/api/houses/\(house)/plans/latest") }
+}
+
+/// `GET /api/houses/<id>/plans/latest`: the plan running now, and the last finished one (kept on the phone).
+struct LatestPlan: Decodable, Sendable {
+    struct Saved: Decodable, Sendable {
+        let finished: String
+        let revision: Int
+        let result: PlanResult
+    }
+    let running: String?
+    let saved: Saved?
 }
 
 /// Start a plan with the shortlist, watch it run, and read the ranked arrangements.
@@ -105,6 +120,8 @@ struct PlanRunView: View {
     @State private var result: PlanResult?
     @State private var status: SuiMessage?
     @State private var picks: [String] = []          // ids of the two arrangements chosen to compare
+    @State private var jobId: String?
+    @State private var keptNote: String?             // where the shown result comes from, when it was kept from an earlier run
 
     private var problems: [String] {
         guard let plan else { return ["Loading…"] }
@@ -122,6 +139,10 @@ struct PlanRunView: View {
                 Text(summary).font(.footnote).foregroundStyle(.secondary)
                 Button(running ? "Planning…" : "Find the best arrangements") { Task { await start() } }
                     .disabled(running || !problems.isEmpty || catalogue == nil)
+                if running, let jobId {
+                    Button("Cancel", role: .destructive) { Task { try? await model.client().cancelJob(jobId) } }
+                    Text("You can leave this screen: the plan keeps running and is kept when it finishes.").font(.footnote).foregroundStyle(.secondary)
+                }
                 NavigationLink("Change the equipment") { CatalogueView(houseId: houseId) }
             }
             if running || !progress.isEmpty {
@@ -129,6 +150,7 @@ struct PlanRunView: View {
             }
             if let result {
                 Section("Ranked: best first") {
+                    if let keptNote { Text(keptNote).font(.footnote).foregroundStyle(.secondary) }
                     Text("Tap the circle on two rows to compare them.").font(.footnote).foregroundStyle(.secondary)
                     if picks.count == 2, let ia = result.results.firstIndex(where: { $0.id == picks[0] }), let ib = result.results.firstIndex(where: { $0.id == picks[1] }) {
                         NavigationLink("Compare #\(ia + 1) and #\(ib + 1)") {
@@ -176,9 +198,24 @@ struct PlanRunView: View {
             let data = try await model.client().call("GET", "/api/houses/\(houseId)")
             plan = try JSONDecoder().decode(PlanHouse.self, from: data)
             catalogue = try await model.client().get("/api/catalogue")
+            let latest = try await model.client().latestPlan(house: houseId)
+            if let id = latest.running {
+                await watch(id)
+            } else if result == nil, let saved = latest.saved {
+                result = saved.result
+                keptNote = saved.revision == plan?.revision
+                    ? "Kept from the last plan (\(when(saved.finished))). The house has not changed since."
+                    : "Kept from the last plan (\(when(saved.finished))). The house has changed since, so run it again for a current answer."
+            }
+        } catch is CancellationError {
         } catch {
             status = .danger("Could not load: \(error.localizedDescription)")
         }
+    }
+
+    private func when(_ iso: String) -> String {
+        guard let d = ISO8601DateFormatter().date(from: iso) else { return iso }
+        return d.formatted(date: .abbreviated, time: .shortened)
     }
 
     private func start() async {
@@ -186,18 +223,37 @@ struct PlanRunView: View {
         progress = []
         result = nil
         status = nil
-        defer { running = false }
+        keptNote = nil
+        do {
+            let id = try await model.client().startPlan(house: houseId, request())
+            await watch(id)
+        } catch {
+            running = false
+            status = .danger("Could not plan: \(error.localizedDescription)")
+        }
+    }
+
+    /// Follows a job until it ends. Leaving the screen stops the watching, not the job: it is picked up again on return.
+    private func watch(_ id: String) async {
+        running = true
+        jobId = id
         do {
             let c = model.client()
-            let id = try await c.startPlan(house: houseId, request())
             while true {
-                try await Task.sleep(for: .seconds(1.5))
                 let s = try await c.job(id)
                 progress = s.progress
-                if s.state == "error" { status = .danger("The plan failed: \(s.error ?? "unknown error")"); return }
-                if s.state == "done" { result = s.result; return }
+                if s.state == "error" {
+                    running = false
+                    status = s.error == "cancelled" ? .warning("The plan was cancelled.") : .danger("The plan failed: \(s.error ?? "unknown error")")
+                    return
+                }
+                if s.state == "done" { result = s.result; keptNote = nil; running = false; return }
+                try await Task.sleep(for: .seconds(1.5))
             }
+        } catch is CancellationError {
+            // the screen went away; the job goes on
         } catch {
+            running = false
             status = .danger("Could not plan: \(error.localizedDescription)")
         }
     }

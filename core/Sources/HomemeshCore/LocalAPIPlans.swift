@@ -54,8 +54,14 @@ extension LocalAPI {
         let cat = Catalogue.generic()
         for name in [cfg.gateway_equipment] + cfg.equipment where cat[name] == nil { throw APIError(422, "unknown equipment \(name)") }
         let ctx = try makeContext(h, req)
+        let runs = try store(id).root.appendingPathComponent("runs")
         let job = PlanJob(id: String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)), house: id)
-        jobsLock.withLock { jobs[job.id] = job }
+        jobsLock.withLock {
+            if jobs.values.contains(where: { $0.house == id && $0.state == "running" }) { return }
+            jobs = jobs.filter { $0.value.state == "running" }   // finished jobs were read or saved to runs/: nothing keeps them in memory
+            jobs[job.id] = job
+        }
+        if jobsLock.withLock({ jobs[job.id] == nil }) { throw APIError(409, "a plan is already running for this house") }
         let client = req["client"] as? String ?? "phone-2x2-ax"
         job.task = Task.detached(priority: .userInitiated) { [self] in
             do {
@@ -68,6 +74,7 @@ extension LocalAPI {
                     var d = Self.serialise(sc)
                     d["pareto"] = front.contains { $0.equipment == sc.equipment && $0.extras == sc.extras }
                     if i < Self.explainTop && i + 1 < results.count {
+                        if Task.isCancelled { throw PlanCancelled() }
                         jobsLock.withLock { job.progress.append("explaining #\(i + 1)") }
                         let ex = try Explain.explain(ctx, gateway: gw, best: sc, runnerUp: results[i + 1], cfg: cfg, samples: 12)
                         d["explanation"] = ["lines": ex.lines, "stability": ex.stability as Any? ?? NSNull(), "node_contribution": ex.node_contribution.map { [$0.node, $0.drop] as [Any] },
@@ -77,6 +84,8 @@ extension LocalAPI {
                 }
                 let result: JObject = ["gateway": ["equipment": gw.equipment, "position": [gw.position.x, gw.position.y], "level": gw.level, "height": gw.height] as JObject,
                                        "config": ["k_max": cfg.k_max, "equipment": cfg.equipment, "client": client, "trust_unknown_jacks": cfg.policy.trust_unknown_jacks] as JObject, "results": out]
+                let saved: JObject = ["finished": ISO8601DateFormatter().string(from: Date()), "revision": h.revision, "result": result]
+                if let data = try? Self.json(saved) { try? HouseStore(root: runs.deletingLastPathComponent()).write(data, to: runs.appendingPathComponent("latest.json")) }
                 jobsLock.withLock { job.result = result; job.state = "done" }
             } catch is PlanCancelled {
                 jobsLock.withLock { job.error = "cancelled"; job.state = "error" }
@@ -94,6 +103,21 @@ extension LocalAPI {
     }
 
     public func cancelJob(_ jobId: String) { jobsLock.withLock { jobs[jobId]?.task?.cancel() } }
+
+    func cancelRoute(_ jobId: String) throws -> Any {
+        guard jobsLock.withLock({ jobs[jobId] }) != nil else { throw APIError(404, "no such job") }
+        cancelJob(jobId)
+        return ["ok": true] as JObject
+    }
+
+    /// The plan running for this house now (if any) and the last one that finished, kept on disk so it survives leaving the screen.
+    func latestPlan(_ id: String) throws -> Any {
+        let s = try get(id).0
+        let running = jobsLock.withLock { jobs.values.first { $0.house == id && $0.state == "running" }?.id }
+        var saved: Any = NSNull()
+        if let d = try? Data(contentsOf: s.root.appendingPathComponent("runs").appendingPathComponent("latest.json")), let o = try? JSONSerialization.jsonObject(with: d) { saved = o }
+        return ["running": running as Any? ?? NSNull(), "saved": saved] as JObject
+    }
 
     func rateMap(_ id: String, _ req: JObject) throws -> Any {
         let (_, h) = try get(id)
