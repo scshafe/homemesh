@@ -40,8 +40,10 @@ public final class LocalAPI: @unchecked Sendable {
 
     func get(_ id: String) throws -> (HouseStore, House) {
         let s = try store(id)
-        guard s.exists, let h = try? s.load() else { throw APIError(404, "no such house") }
-        return (s, h)
+        guard s.exists else { throw APIError(404, "no such house") }
+        do { return (s, try s.load()) }
+        catch let e as StoreError { throw APIError(422, e.description) }
+        catch { throw APIError(404, "no such house") }
     }
 
     static func obj<T: Encodable>(_ v: T) throws -> Any {
@@ -116,7 +118,14 @@ public final class LocalAPI: @unchecked Sendable {
     func summary() throws -> [Any] {
         var out: [Any] = []
         for id in houseIds() {
-            guard let (s, h) = try? get(id) else { continue }
+            let (s, h): (HouseStore, House)
+            do { (s, h) = try get(id) }
+            catch let e as APIError {
+                // Never hide a house: one that cannot be read is listed as such, so it can still be exported.
+                out.append(["id": id, "name": id, "revision": 0, "levels": [] as [Any], "walls": 0, "rooms": 0, "access_points": 0,
+                            "captures": Captures.list((try? store(id)) ?? HouseStore(root: root)).count, "unreadable": e.detail] as JObject)
+                continue
+            }
             out.append(["id": h.id, "name": h.name, "revision": h.revision,
                         "levels": h.levels.map { ["id": $0.id, "name": $0.name, "below_ground": $0.below_ground, "elevation": $0.elevation] as JObject },
                         "walls": h.walls.count, "rooms": h.rooms.count, "access_points": h.access_points.count, "captures": Captures.list(s).count] as JObject)

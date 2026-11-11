@@ -40,8 +40,12 @@ public enum HousePackage {
     /// Writes house `id` of the library to `url` (replacing a file there), then reads the file back and checks it. Returns what it holds.
     @discardableResult
     public static func export(house id: String, from api: LocalAPI, to url: URL) throws -> Report {
-        let (store, house) = try api.get(id)
-        let counts = try api.counts(of: id)
+        let store = try api.store(id)
+        guard store.exists else { throw APIError(404, "no such house") }
+        // A house this version cannot read is still exported, byte for byte, so that it is never lost; its counts are then unknown.
+        let house = try? store.load()
+        let document = try house?.encoded() ?? store.rawDocument()
+        let counts = house == nil ? [:] : try api.counts(of: id)
         let fm = FileManager.default
         let tmp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).partial")
         try? fm.removeItem(at: tmp)
@@ -55,7 +59,7 @@ public enum HousePackage {
                 try put(h, name, data)
                 files.append(.init(name: name, size: data.count, sha256: SHA256.hex(data)))
             }
-            try add("house.json", try house.encoded())
+            try add("house.json", document)
             var done = Set<String>()
             for meta in Captures.list(store) {
                 guard let digest = meta["blob"] as? String, Captures.validDigest(digest) else { throw APIError(422, "a scan has no stored file") }
