@@ -180,9 +180,9 @@ public enum Planner {
                 if cancelled() { throw PlanCancelled() }
                 var kept: [Scored]
                 let how: String
-                if comb(reps.count, k) <= cfg.exhaustive_limit { kept = exhaustive(ctx, gateway, cands, reps, k, name, cfg, cancelled); how = "exhaustive" }
-                else { kept = greedy(ctx, gateway, cands, k, name, cfg); how = "greedy" }
-                kept = kept.map { swap(ctx, gateway, cands, $0, cfg) }
+                if comb(reps.count, k) <= cfg.exhaustive_limit { kept = try exhaustive(ctx, gateway, cands, reps, k, name, cfg, cancelled); how = "exhaustive" }
+                else { kept = try greedy(ctx, gateway, cands, k, name, cfg, cancelled); how = "greedy" }
+                kept = try kept.map { try swap(ctx, gateway, cands, $0, cfg, cancelled) }
                 kept = sortedBest(kept)
                 var final = dedupe(kept).prefix(cfg.top_n).map { score(ctx, gateway: gateway, extras: $0.extras, equipment: $0.equipment, cfg: cfg) }
                 final = sortedBest(final)
@@ -193,9 +193,10 @@ public enum Planner {
         return sortedBest(results)
     }
 
-    static func exhaustive(_ ctx: PlanContext, _ gateway: NodePlacement, _ cands: [NodePlacement], _ reps: [Int], _ k: Int, _ name: String, _ cfg: PlanConfig, _ cancelled: () -> Bool) -> [Scored] {
+    static func exhaustive(_ ctx: PlanContext, _ gateway: NodePlacement, _ cands: [NodePlacement], _ reps: [Int], _ k: Int, _ name: String, _ cfg: PlanConfig, _ cancelled: () -> Bool) throws -> [Scored] {
         var best: [Scored] = []
-        combinations(reps.count, k) { combo in
+        try combinations(reps.count, k) { combo in
+            if cancelled() { throw PlanCancelled() }
             var sc = score(ctx, gateway: gateway, extras: combo.map { place(cands[reps[$0]], name) }, equipment: name, cfg: cfg, robust: false)
             sc.evaluation = nil
             best.append(sc)
@@ -204,9 +205,10 @@ public enum Planner {
         return Array(sortedBest(best).prefix(cfg.top_n * 2))
     }
 
-    static func greedy(_ ctx: PlanContext, _ gateway: NodePlacement, _ cands: [NodePlacement], _ k: Int, _ name: String, _ cfg: PlanConfig) -> [Scored] {
+    static func greedy(_ ctx: PlanContext, _ gateway: NodePlacement, _ cands: [NodePlacement], _ k: Int, _ name: String, _ cfg: PlanConfig, _ cancelled: () -> Bool) throws -> [Scored] {
         var chosen: [NodePlacement] = []
         for _ in 0..<k {
+            if cancelled() { throw PlanCancelled() }
             var bestSc: Scored?, bestP: NodePlacement?
             for c in cands {
                 let p = place(c, name)
@@ -219,11 +221,12 @@ public enum Planner {
         return [score(ctx, gateway: gateway, extras: chosen, equipment: name, cfg: cfg)]
     }
 
-    static func swap(_ ctx: PlanContext, _ gateway: NodePlacement, _ cands: [NodePlacement], _ sc: Scored, _ cfg: PlanConfig) -> Scored {
+    static func swap(_ ctx: PlanContext, _ gateway: NodePlacement, _ cands: [NodePlacement], _ sc: Scored, _ cfg: PlanConfig, _ cancelled: () -> Bool) throws -> Scored {
         var cur = score(ctx, gateway: gateway, extras: sc.extras, equipment: sc.equipment, cfg: cfg, robust: false)
         for _ in 0..<cfg.swap_rounds {
             var improved = false
             for i in 0..<cur.extras.count {
+                if cancelled() { throw PlanCancelled() }
                 for c in cands {
                     let p = place(c, cur.equipment)
                     if cur.extras.contains(p) { continue }

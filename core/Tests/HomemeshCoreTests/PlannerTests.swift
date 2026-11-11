@@ -80,3 +80,17 @@ import Testing
         }
     }
 }
+
+@Test func aCancelledSearchStopsInsideTheLoops() throws {
+    let scenarios = try JSONSerialization.jsonObject(with: golden("plans")) as! [JObject]
+    let sc = scenarios[2]
+    let house = try House.load(JSONSerialization.data(withJSONObject: sc["house"]!))
+    let ctx = try PlanContext(house: house, catalogue: Catalogue.generic(), client: Catalogue.genericClients()["phone-2x2-ax"]!, params: PropParams(), step: 1.0)
+    var cfg = PlanConfig()
+    cfg.k_max = 2
+    cfg.candidate_step = 2.0
+    var calls = 0
+    // Say "stop" from the fifth question on: it must be asked inside the search, not only between node counts.
+    #expect(throws: PlanCancelled.self) { try Planner.search(ctx, cfg, cancelled: { calls += 1; return calls > 4 }) }
+    #expect(calls > 4)
+}
