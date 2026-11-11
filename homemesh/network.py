@@ -373,7 +373,7 @@ def zone_scores(ctx: Context, ev: Evaluation, ev_margin: Evaluation, policy: Pol
         if not m.any():
             out.append(ZoneScore(z.id, 0.0, 0.0, 0.0, 0.0, False if z.need.must else None))
             continue
-        target = z.need.min_throughput or policy.floor_mbps
+        target = z.need.min_throughput if (z.need.min_throughput or 0) > 0 else policy.floor_mbps
         floor = min(policy.floor_mbps, target * 0.999)
 
         def util(r: np.ndarray) -> float:

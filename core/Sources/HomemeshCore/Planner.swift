@@ -168,7 +168,7 @@ public enum Planner {
         if cands.isEmpty { throw ImportError("no candidate spots: mark at least one allow zone") }
         let gateway = NodePlacement(equipment: cfg.gateway_equipment, position: entry.position, level: entry.level, height: cfg.gateway_height)
         let names = cfg.equipment.isEmpty ? catalogue.filter { $0.value.kind == "mesh_node" || $0.value.kind == "extender" }.map(\.key).sorted() : cfg.equipment
-        for n in names where catalogue[n] == nil { throw ImportError("unknown equipment \(n)") }
+        for n in [cfg.gateway_equipment] + names where catalogue[n] == nil { throw ImportError("unknown equipment \(n)") }
 
         var results = [score(ctx, gateway: gateway, extras: [], equipment: cfg.gateway_equipment, cfg: cfg)]
         let wired = Set(cands.indices.filter { nearLiveJack(house, cands[$0]) })
@@ -178,14 +178,17 @@ public enum Planner {
         for name in names {
             for k in stride(from: 1, through: cfg.k_max, by: 1) {
                 if cancelled() { throw PlanCancelled() }
+                if k > cands.count { break }  // more nodes than spots to put them on
                 var kept: [Scored]
                 let how: String
-                if comb(reps.count, k) <= cfg.exhaustive_limit { kept = exhaustive(ctx, gateway, cands, reps, k, name, cfg, cancelled); how = "exhaustive" }
+                let c = comb(reps.count, k)
+                if c > 0 && c <= cfg.exhaustive_limit { kept = exhaustive(ctx, gateway, cands, reps, k, name, cfg, cancelled); how = "exhaustive" }
                 else { kept = greedy(ctx, gateway, cands, k, name, cfg); how = "greedy" }
                 kept = kept.map { swap(ctx, gateway, cands, $0, cfg) }
                 kept = sortedBest(kept)
                 var final = dedupe(kept).prefix(cfg.top_n).map { score(ctx, gateway: gateway, extras: $0.extras, equipment: $0.equipment, cfg: cfg) }
                 final = sortedBest(final)
+                if final.isEmpty { continue }
                 results += final
                 progress("\(name) k=\(k): \(how), best score \(String(format: "%.3f", final[0].score))")
             }

@@ -322,7 +322,7 @@ public enum Backhaul {
             let mask = ctx.zoneMask(z)
             let idx = (0..<ctx.cells.count).filter { mask[$0] && ctx.cellOk[$0] }
             if idx.isEmpty { out.append(ZoneScore(zone: z.id, utility: 0, utility_margin: 0, mean_rate: 0, frac_target: 0, must_met: need.must ? false : nil)); continue }
-            let target = need.min_throughput ?? policy.floor_mbps
+            let target = (need.min_throughput ?? 0) > 0 ? need.min_throughput! : policy.floor_mbps
             let floor = min(policy.floor_mbps, target * 0.999)
             func util(_ r: [Double]) -> Double { idx.map { min(1, max(0, (r[$0] - floor) / (target - floor))) }.reduce(0, +) / Double(idx.count) }
             let frac = Double(idx.filter { evMargin.rate[$0] >= target }.count) / Double(idx.count)
