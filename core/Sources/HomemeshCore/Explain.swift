@@ -48,7 +48,7 @@ public enum Explain {
         let mask = ctx.zoneMask(zone)
         let idx = (0..<ctx.cells.count).filter { mask[$0] && ctx.cellOk[$0] }
         var target = zone.need?.min_throughput ?? 0
-        if target == 0 { target = cfg.policy.floor_mbps }
+        if target <= 0 { target = cfg.policy.floor_mbps }
         if idx.isEmpty { return ZoneNote(zone: zone.id, mean_rate: 0, frac_target: 0, utility: 0, limiter: "no signal", detail: "the zone covers no receiver cell") }
         let rate = idx.map { ev.rate[$0] }
         let mean = rate.reduce(0, +) / Double(rate.count)

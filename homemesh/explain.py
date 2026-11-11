@@ -40,7 +40,7 @@ class Explanation:
 
 def _zone_note(ctx: Context, ev: Evaluation, zone, nodes: list[Placement], target_default: float, cfg: PlanConfig) -> ZoneNote:
     m = ctx.zone_mask(zone) & ctx.cell_ok
-    target = (zone.need.min_throughput if zone.need else None) or target_default
+    target = zone.need.min_throughput if (zone.need and (zone.need.min_throughput or 0) > 0) else target_default
     if not m.any():
         return ZoneNote(zone.id, 0.0, 0.0, 0.0, "no signal", "the zone covers no receiver cell")
     rate = ev.rate[m]

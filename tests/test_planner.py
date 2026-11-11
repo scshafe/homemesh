@@ -146,5 +146,20 @@ class ExplainTest(unittest.TestCase):
         self.assertTrue(0.0 <= ex.stability <= 1.0)
 
 
+class GuardTest(unittest.TestCase):
+    def test_more_nodes_than_spots_is_skipped(self):
+        h = house(allow=[(5, 2)])
+        ctx = Context(h, CAT, CLIENT, params=N35, step=1.0)
+        cfg = PlanConfig(equipment=("generic-mesh-ax",), k_max=3, candidate_step=3.0)
+        res = search(ctx, cfg, CAT)
+        self.assertTrue(res)
+        self.assertTrue(all(len(r.extras) <= 1 for r in res))
+
+    def test_unknown_gateway_is_refused(self):
+        ctx = Context(house(), CAT, CLIENT, params=N35, step=1.0)
+        with self.assertRaises(ValueError):
+            search(ctx, PlanConfig(gateway_equipment="no-such-router"), CAT)
+
+
 if __name__ == "__main__":
     unittest.main()
