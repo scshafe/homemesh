@@ -11,8 +11,8 @@ Nothing here is a measurement.
 
 ## 1. The question the owner wants answered
 
-The owner has bought: an ASUS ROG Wi-Fi 7 router (exact model unknown to me) with an **Ethernet backbone to three ASUS ZenWiFi ET9
-nodes** (Wi-Fi 6E tri-band). They may buy more ET9s and want to see **what each extra one buys**, for the devices they actually use, in the
+The owner has bought: an ASUS **ROG Strix GS-BE18000** Wi-Fi 7 router (owner fact, 2026-11-13; firmware 3.0.0.6.102_39448) with an **Ethernet backbone to three ASUS ZenWiFi ET9
+nodes** (Wi-Fi 6E tri-band; they report themselves as "ZenWiFi AXE7800", firmware 3.0.0.4.388_25307, each on wired backhaul with a 2.5 G port). They may buy more ET9s and want to see **what each extra one buys**, for the devices they actually use, in the
 places those devices actually are, on the bands those devices actually need.
 
 That asks the engine for six things it does not do today:
@@ -273,11 +273,12 @@ assumed, because real gain depends on the client and the AP and few clients supp
 
 | Item | Known | Source | Unknown, to be confirmed by the owner |
 |---|---|---|---|
-| ASUS ROG Wi-Fi 7 router | the owner says it is Wi-Fi 7 | owner | **the exact model** (it sets bands, 6 GHz and 320 MHz support, chains, power, ports); until then the entry is `owner-rog-router`, every radio `assumed` |
-| ASUS ZenWiFi ET9 | tri-band Wi-Fi 6E; 160 MHz on 5 and 6 GHz; selectable wired or wireless backhaul; a 2.5 Gbit/s WAN port; the 3-pack lists three 1 Gbit/s LAN ports | ASUS product page: `https://www.asus.com/networking-iot-servers/whole-home-mesh-systems/asus-zenwifi/asus-zenwifi-et9/` and a retailer listing (Newegg 3-pack, `N82E16833320602`); the ASUS techspec page snippet was incomplete when I looked and must be read in full | chains per band, antenna gain, conducted power per band, whether 2.5 G is available on a LAN port for backhaul (retailer says 3 x 1 G LAN, which would cap the wired backhaul at 1 Gbit/s), which radio carries wireless backhaul |
+| ASUS ROG Strix GS-BE18000 (router, Wi-Fi 7) | model and firmware 3.0.0.6.102_39448: **owner fact**. Tri-band: 2.4 GHz 2x2 (20/40 MHz), 5 GHz 4x4 (up to 160 MHz), 6 GHz 4x4 (up to 320 MHz), all 4096-QAM; eight internal antennas; 1 x 2.5 Gbit/s WAN and 7 x 2.5 Gbit/s LAN | ASUS regional spec pages, e.g. `https://rog.asus.com/au/networking/rog-strix-gs-be18000/spec/` and `https://rog.asus.com/networking/rog-strix-gs-be18000/` (the pages agree; they are regional marketing sheets, so the US page should be checked for certified figures) | conducted power and antenna gain per band (not on the pages I read; stay `assumed`), the region's 6 GHz power (the page mentions AFC support for higher 6 GHz power: the owner's region and whether AFC applies are open, section 13) |
+| ASUS ZenWiFi ET9 (reports as "ZenWiFi AXE7800", firmware 3.0.0.4.388_25307) | tri-band Wi-Fi 6E; 160 MHz on 5 and 6 GHz; selectable wired or wireless backhaul; **a 2.5 G port, each node on wired backhaul** (owner fact, which settles the earlier question: a retailer listing showed only 1 Gbit/s LAN ports, and the owner's report wins, so the wired uplink is rated at 2.5 Gbit/s, still capped by the jack and the switch chain) | ASUS product page: `https://www.asus.com/networking-iot-servers/whole-home-mesh-systems/asus-zenwifi/asus-zenwifi-et9/`; retailer listing (Newegg 3-pack, `N82E16833320602`); the ASUS techspec page snippet was incomplete when I looked | chains per band, antenna gain, conducted power per band, which radio carries wireless backhaul (not needed while all three are wired) |
 
-I did not find antenna counts, per-band transmit power or antenna gain in the sources I could open. The first catalogue PR therefore
-marks every ET9 radio figure `assumed` and carries a visible table of the values it assumed (copied from the generic tri-band entry, not
+The router's radio counts and widths are now sourced; no source I could open gives per-band transmit power or antenna gain for either
+device, and none gives the ET9's chains. The first catalogue PR therefore marks every ET9 radio figure, and both devices' power and gain,
+`assumed` and carries a visible table of the values it assumed (copied from the generic tri-band entry, not
 from ASUS), each with the line to replace once the owner reads the spec sheet or measures. The entry says "assumed" loudly rather than
 carrying a quiet guess.
 
@@ -317,7 +318,7 @@ Swift, with golden vectors** (open question 13.9: whether Python stays the oracl
 | 3 | Client classes with `tx_dbm`; both directions; per-band results kept; the 6 GHz client cap; `be` rates | per-direction golden cases; sanity checks of section 10 |
 | 4 | Pins: pass / fail, band matrix, new ranking order, new limiter names | golden cases for each pass and fail reason |
 | 5 | Interference: channel plan, SINR, airtime | golden cases; "more nodes is not free" test |
-| 6 | Catalogue: Swift loader, owner's entries, seeded ROG and ET9 with sources and `assumed` | decode tests; the assumed-value list is shown |
+| 6 | Catalogue: Swift loader, owner's entries, seeded GS-BE18000 and ET9 with sources and `assumed` | decode tests; the assumed-value list is shown |
 | 7 | App: pins UI (per room), the per-node-count comparison view, the baseline row and the plan summary | **device and screenshot checks only the owner or CI can give** |
 | 8 | (Optional) calibration route (B2) to test the model against the owner's real readings | the baseline reproduces the readings |
 
@@ -327,8 +328,8 @@ Steps 1 to 5 are engine work I can verify on Linux; steps 6 and 7 need the macOS
 
 - **The model gets more parameters than anyone has measured** (client tx power, activity factor, noise figures). Mitigation: every one
   is a named, flagged parameter; calibration (B2) is the way to test them; results list the assumed values they depend on.
-- **A wrong spec misleads more than a generic one.** The ROG model is unknown and the ET9 chains and powers are not in the sources I
-  opened. The seeded entries say "assumed" until confirmed.
+- **A wrong spec misleads more than a generic one.** The router's model is known; the ET9 chains and both devices' powers and gains are not in the
+  sources I opened. The seeded entries say "assumed" for those until confirmed.
 - **Uplink is dominated by a number I do not have** (the client's transmit power). The class defaults are a starting point; the owner's
   own devices could be measured with a hand-held Wi-Fi tool, or left as stated.
 - **Band steering is not modelled** (section 4); a device might not join the band the model says works.
@@ -337,13 +338,13 @@ Steps 1 to 5 are engine work I can verify on Linux; steps 6 and 7 need the macOS
 
 ## 13. Decisions the owner must make
 
-1. **The exact ROG router model** (the name on the box or in the router's admin page). It decides the router's bands, 6 GHz and 320 MHz
-   support, chains, ports and power. Until then it is `assumed`.
+1. ~~The exact ROG router model~~ **Answered (2026-11-13): ROG Strix GS-BE18000**, firmware 3.0.0.6.102_39448; the ET9s report as "ZenWiFi
+   AXE7800", firmware 3.0.0.4.388_25307, wired backhaul, 2.5 G port. Still open: **the region's 6 GHz rules** (decision 4) and the power per band.
 2. **The list of fixed devices by room (D6 in the original design):** for each, a class (fixed 2x2, laptop, phone / tablet, IoT 1x1), the
    room and spot, and whether it must work (`must`).
 3. **Which bands each pin needs:** the allowed set per device (for example "5 or 6", "6 only", "2.4 only"), and the minimum down and up
    speeds (Mbit/s) the owner calls good enough. A starting suggestion from the owner's own rules beats my defaults.
-4. **Region (D13).** It sets the 6 GHz rules and the power caps. The engine's default is "US", which is a placeholder until the owner
+4. **Region (D13).** It sets the 6 GHz rules and the power caps (and whether the router's AFC support for higher 6 GHz power applies). The engine's default is "US", which is a placeholder until the owner
    confirms.
 5. **How many ET9s the owner would buy at most** (`a_max`), and **the price per ET9** (for the cost column and a budget ceiling).
 6. **Spot policy:** only the existing jacks, or also places the owner would run a new cable to ("both" in 5.1).
@@ -355,4 +356,4 @@ Steps 1 to 5 are engine work I can verify on Linux; steps 6 and 7 need the macOS
 10. **The ET9 channel assumption:** plan as if the nodes choose a good channel plan (my default), or show a worst case alongside.
 11. **Priority:** whether this comes before the LiDAR screen, the scan-safety work (Q4) and the catalogue in app form (B1) on its own.
 
-Nothing here is built. When the owner has answered 1 to 5 (the rest have defaults), I would start with step 1 of section 11.
+Nothing here is built. When the owner has answered 2 to 5 (the rest have defaults), I would start with step 1 of section 11.
